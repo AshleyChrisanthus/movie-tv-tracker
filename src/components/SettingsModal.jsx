@@ -1,25 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  X, Key, Download, Upload, Folder, CheckCircle, 
-  AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText
+  X, Key, Download, Upload, Folder, FolderCheck, CheckCircle, 
+  AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink
 } from 'lucide-react';
 import { getSetting, setSetting } from '../db';
 import { 
-  saveExportToProjectFolder, downloadExportToBrowser, 
-  getLocalExportsList, importBackupFile 
+  saveExportToLocal, downloadExportToBrowser, 
+  getLocalExportsList, importBackupFile,
+  isFileSystemAccessSupported, linkBackupDirectory, 
+  getLinkedDirectoryHandle, unlinkBackupDirectory 
 } from '../services/exportService';
 
 export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
   const [apiKey, setApiKey] = useState('');
   const [isTestingKey, setIsTestingKey] = useState(false);
-  const [keyStatus, setKeyStatus] = useState(null); // { success: boolean, message: string }
+  const [keyStatus, setKeyStatus] = useState(null);
   
-  // Export status
-  const [isExportingLocal, setIsExportingLocal] = useState(false);
+  // File System Access & Export State
+  const [fsSupported, setFsSupported] = useState(false);
+  const [linkedDirHandle, setLinkedDirHandle] = useState(null);
+  const [isLinking, setIsLinking] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [exportNotice, setExportNotice] = useState(null);
   
-  // Existing files in exports/
+  // Backups list
   const [localExports, setLocalExports] = useState([]);
   
   // Import state
@@ -28,10 +33,12 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
   const [isImporting, setIsImporting] = useState(false);
   const [importNotice, setImportNotice] = useState(null);
 
-  // Load API key and local exports on modal open
+  // Load state on modal open
   useEffect(() => {
     if (isOpen) {
+      setFsSupported(isFileSystemAccessSupported());
       getSetting('tmdb_api_key', '').then(k => setApiKey(k || ''));
+      checkLinkedDirectory();
       loadExportsList();
     } else {
       setKeyStatus(null);
@@ -40,6 +47,11 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
     }
   }, [isOpen]);
 
+  const checkLinkedDirectory = async () => {
+    const handle = await getLinkedDirectoryHandle();
+    setLinkedDirHandle(handle);
+  };
+
   const loadExportsList = async () => {
     const list = await getLocalExportsList();
     setLocalExports(list);
@@ -47,13 +59,12 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
 
   if (!isOpen) return null;
 
-  // Save API Key
+  // TMDB API Key Handlers
   const handleSaveApiKey = async () => {
     await setSetting('tmdb_api_key', apiKey.trim());
     setKeyStatus({ success: true, message: 'TMDB API key saved successfully!' });
   };
 
-  // Test TMDB API Key
   const handleTestApiKey = async () => {
     if (!apiKey.trim()) {
       setKeyStatus({ success: false, message: 'Please enter an API key first' });
@@ -78,24 +89,62 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
     }
   };
 
-  // Export to local exports/ folder
-  const handleSaveLocal = async () => {
-    setIsExportingLocal(true);
+  // Link Folder Handler (One-Time Setup)
+  const handleLinkDirectory = async () => {
+    setIsLinking(true);
     setExportNotice(null);
     try {
-      const res = await saveExportToProjectFolder();
+      const handle = await linkBackupDirectory();
+      setLinkedDirHandle(handle);
       setExportNotice({
         success: true,
-        message: `Successfully saved backup to ${res.filePath} (${(res.fileSize / 1024).toFixed(1)} KB)`
+        message: `Successfully linked folder "${handle.name}". Future backups will save straight into it!`
       });
       await loadExportsList();
     } catch (err) {
       setExportNotice({
         success: false,
-        message: `Failed to save to exports folder: ${err.message}`
+        message: err.message
       });
     } finally {
-      setIsExportingLocal(false);
+      setIsLinking(false);
+    }
+  };
+
+  // Unlink Folder Handler
+  const handleUnlinkDirectory = async () => {
+    await unlinkBackupDirectory();
+    setLinkedDirHandle(null);
+    setExportNotice({
+      success: true,
+      message: 'Folder unlinked. You can link a new folder anytime.'
+    });
+    await loadExportsList();
+  };
+
+  // Save Export Handler
+  const handleSaveExport = async () => {
+    setIsExporting(true);
+    setExportNotice(null);
+    try {
+      const res = await saveExportToLocal();
+      let msg = '';
+      if (res.method === 'linked_folder') {
+        msg = `Saved to "${res.folderName}/${res.filename}" directly on your hard drive!`;
+      } else if (res.method === 'local_server') {
+        msg = `Saved to ${res.filePath} via local server.`;
+      } else if (res.method === 'file_picker') {
+        msg = `Saved ${res.filename} to chosen location.`;
+      } else {
+        msg = `Downloaded ${res.filename} to your Downloads folder.`;
+      }
+
+      setExportNotice({ success: true, message: msg });
+      await loadExportsList();
+    } catch (err) {
+      setExportNotice({ success: false, message: err.message });
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -158,7 +207,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
             </div>
             <div>
               <h2 className="text-base font-bold text-white">Settings & Data Management</h2>
-              <p className="text-xs text-zinc-400">API configuration, IndexedDB storage, and backup exports</p>
+              <p className="text-xs text-zinc-400">API configuration, IndexedDB storage, and folder backups</p>
             </div>
           </div>
 
@@ -192,7 +241,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
             </div>
 
             <p className="text-xs text-zinc-400 leading-relaxed">
-              TMDB provides high-resolution posters, backdrops, and complete episode guides for both movies and series. 
+              TMDB provides high-resolution posters, backdrops, and complete episode guides. 
               If left blank, TVMaze will automatically handle TV shows without requiring any key.
             </p>
 
@@ -229,29 +278,84 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
             )}
           </div>
 
-          {/* BACKUP & EXPORT SECTION */}
+          {/* BACKUP & DIRECTORY LINKING SECTION */}
           <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-4">
-            <div className="flex items-center gap-2">
-              <Folder className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-sm font-bold text-white">Export & Backup Watch History</h3>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Folder className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">Direct Hard Drive Backup</h3>
+              </div>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-400 border border-indigo-800/50 font-medium">
+                Serverless & Offline
+              </span>
             </div>
 
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              All your records are stored safely in browser IndexedDB (avoiding local storage limits). You can save a backup snapshot directly to your project's <code className="text-indigo-300 bg-zinc-900 px-1 py-0.5 rounded">exports/</code> folder, or download it immediately to your Downloads folder.
-            </p>
+            {/* Folder Linking Card */}
+            {fsSupported && (
+              <div className="p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-xl ${linkedDirHandle ? 'bg-emerald-600/20 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}>
+                    {linkedDirHandle ? <FolderCheck className="w-5 h-5" /> : <Link2 className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">
+                        {linkedDirHandle ? `Linked: 📁 ${linkedDirHandle.name}` : 'No Folder Linked Yet'}
+                      </span>
+                      {linkedDirHandle && (
+                        <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-1.5 py-0.2 rounded font-semibold">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-zinc-400">
+                      {linkedDirHandle
+                        ? 'Backups will be written straight to this folder with one click.'
+                        : 'Link your project "exports/" folder once so backups write straight into it.'}
+                    </p>
+                  </div>
+                </div>
 
+                <div className="flex items-center gap-2 shrink-0">
+                  {linkedDirHandle ? (
+                    <button
+                      onClick={handleUnlinkDirectory}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-medium transition-all"
+                    >
+                      <Unlink className="w-3.5 h-3.5" />
+                      <span>Unlink</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleLinkDirectory}
+                      disabled={isLinking}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/30 active:scale-95 disabled:opacity-50"
+                    >
+                      <Link2 className="w-3.5 h-3.5" />
+                      <span>{isLinking ? 'Selecting...' : 'Link exports/ Folder'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Export Buttons */}
             <div className="flex flex-wrap items-center gap-3">
-              {/* Default Export to Project Folder */}
               <button
-                onClick={handleSaveLocal}
-                disabled={isExportingLocal}
+                onClick={handleSaveExport}
+                disabled={isExporting}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-lg shadow-emerald-900/30 active:scale-95 disabled:opacity-50"
               >
                 <Folder className="w-4 h-4" />
-                <span>{isExportingLocal ? 'Saving to exports/...' : 'Save to Project (exports/)'}</span>
+                <span>
+                  {isExporting
+                    ? 'Saving...'
+                    : linkedDirHandle
+                    ? `Save Backup to ${linkedDirHandle.name}/`
+                    : 'Save Backup (exports/)'}
+                </span>
               </button>
 
-              {/* Option to Download directly */}
               <button
                 onClick={handleDownload}
                 disabled={isDownloading}
@@ -271,12 +375,12 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
               </div>
             )}
 
-            {/* Existing local backups in exports/ folder */}
+            {/* Backups List */}
             {localExports.length > 0 && (
               <div className="pt-2 border-t border-zinc-800">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
-                    Backups in exports/ folder ({localExports.length})
+                    Found Backups ({localExports.length})
                   </span>
                   <button
                     onClick={loadExportsList}

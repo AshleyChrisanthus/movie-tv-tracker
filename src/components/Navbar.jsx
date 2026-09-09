@@ -1,7 +1,7 @@
 import React from 'react';
-import { Film, Tv, Plus, Settings, Search, CheckCircle2, PlayCircle } from 'lucide-react';
+import { Film, Tv, Plus, Settings, Search, CheckCircle2, PlayCircle, RefreshCw } from 'lucide-react';
 
-export default function Navbar({ onOpenSearch, onOpenManual, onOpenSettings, stats }) {
+export default function Navbar({ onOpenSearch, onOpenManual, onOpenSettings, onStartSyncAll, isSyncing, stats }) {
   return (
     <header className="sticky top-0 z-30 bg-zinc-950/85 backdrop-blur-md border-b border-zinc-800/80 px-4 lg:px-8 py-3.5 transition-all">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
@@ -66,6 +66,21 @@ export default function Navbar({ onOpenSearch, onOpenManual, onOpenSettings, sta
           >
             <Plus className="w-4 h-4 text-indigo-400" />
             <span className="hidden sm:inline">Add Custom</span>
+          </button>
+
+          {/* Sync All Library Button */}
+          <button
+            onClick={onStartSyncAll}
+            disabled={isSyncing}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-all shadow-sm ${
+              isSyncing
+                ? 'bg-zinc-800 text-indigo-300 border-indigo-500/40 cursor-wait'
+                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border-zinc-800 hover:border-zinc-700'
+            }`}
+            title="Sync all TV shows to check for new seasons and episode titles"
+          >
+            <RefreshCw className={`w-4 h-4 text-indigo-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync All'}</span>
           </button>
 
           {/* Settings & Export Button */}

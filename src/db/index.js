@@ -85,6 +85,14 @@ export async function saveMediaItem(mediaItem, episodes = []) {
 }
 
 /**
+ * Update the lastSyncedAt timestamp on a media item without changing other fields.
+ */
+export async function touchMediaSyncedAt(id) {
+  const now = new Date().toISOString();
+  await db.media.update(id, { lastSyncedAt: now });
+}
+
+/**
  * Fetch all media items with optional status/type filter.
  */
 export async function getAllMedia(filters = {}) {

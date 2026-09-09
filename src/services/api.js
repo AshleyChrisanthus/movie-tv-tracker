@@ -6,7 +6,7 @@
  * 3. iTunes Search API (Free fallback for movie search when no TMDB key is set)
  */
 
-import { getSetting, getEpisodesForMedia, saveMediaItem } from '../db';
+import { getSetting, getEpisodesForMedia, saveMediaItem, touchMediaSyncedAt } from '../db/index.js';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -401,6 +401,9 @@ export async function syncMediaEpisodes(mediaItem) {
         lastSyncedAt: new Date().toISOString()
       };
       await saveMediaItem(updatedMedia, mergedEpisodes);
+    } else {
+      // Touch lastSyncedAt so cooldown timer knows this show was recently verified
+      await touchMediaSyncedAt(mediaItem.id);
     }
 
     return {
@@ -408,10 +411,102 @@ export async function syncMediaEpisodes(mediaItem) {
       newEpisodesCount,
       updatedTitlesCount,
       totalEpisodes: mergedEpisodes.length,
-      mediaTitle: mediaItem.title
+      mediaTitle: mediaItem.title,
+      isCompletedWithNewEpisodes: (mediaItem.status === 'completed' && newEpisodesCount > 0),
+      previousStatus: mediaItem.status
     };
   } catch (err) {
     console.warn(`Failed to sync episodes for ${mediaItem.title}:`, err);
-    return { hasUpdates: false, error: err.message };
+    return { hasUpdates: false, error: err.message, mediaTitle: mediaItem.title };
   }
 }
+
+/**
+ * Filter library items to find TV shows eligible for background or manual sync.
+ * @param {Array} items - All media items in library.
+ * @param {Object} options
+ * @param {boolean} options.forceAll - If true, returns all TV shows regardless of cooldown.
+ * @param {number} options.cooldownDays - Cooldown period in days for completed/plan_to_watch/on_hold shows (default 5).
+ */
+export function getShowsEligibleForSync(items, { forceAll = false, cooldownDays = 5 } = {}) {
+  const tvShows = (items || []).filter(m => m.type === 'tv' && m.externalId);
+  if (forceAll) return tvShows;
+
+  const cooldownMs = cooldownDays * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  return tvShows.filter(show => {
+    // Active watching shows are always eligible
+    if (show.status === 'watching') return true;
+
+    // Dropped shows are skipped in automatic sync
+    if (show.status === 'dropped') return false;
+
+    // Completed, Plan to Watch, and On Hold shows: sync if never synced or past cooldown
+    if (!show.lastSyncedAt) return true;
+    const lastSyncTime = new Date(show.lastSyncedAt).getTime();
+    return (now - lastSyncTime) > cooldownMs;
+  });
+}
+
+/**
+ * Run a concurrent worker pool to sync multiple TV shows safely with rate limiting,
+ * live progress reporting, and cancellation support.
+ */
+export async function runSyncQueue(
+  shows,
+  {
+    concurrency = 2,
+    delayMs = 250,
+    onProgress, // (completed, total, currentShow, result, isCancelled) => void
+    abortSignal
+  } = {}
+) {
+  let index = 0;
+  let completed = 0;
+  const total = shows.length;
+  if (total === 0) {
+    return { total: 0, completed: 0, updatedShows: [], isCancelled: false };
+  }
+
+  const updatedShows = [];
+  const workerCount = Math.min(concurrency || 2, total);
+
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (index < total) {
+      if (abortSignal?.aborted) break;
+
+      const i = index++;
+      const show = shows[i];
+
+      let result = null;
+      try {
+        result = await syncMediaEpisodes(show);
+        if (result?.hasUpdates && (result.newEpisodesCount > 0 || result.updatedTitlesCount > 0)) {
+          updatedShows.push({ show, result });
+        }
+      } catch (err) {
+        console.warn(`Sync queue error on ${show.title}:`, err);
+      }
+
+      completed++;
+      if (onProgress) {
+        onProgress(completed, total, show, result, abortSignal?.aborted || false);
+      }
+
+      if (delayMs > 0 && !abortSignal?.aborted) {
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+  });
+
+  await Promise.all(workers);
+
+  return {
+    total,
+    completed,
+    updatedShows,
+    isCancelled: abortSignal?.aborted || false
+  };
+}
+

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Navbar from './components/Navbar';
 import FilterBar from './components/FilterBar';
 import MediaCard from './components/MediaCard';
@@ -6,9 +6,10 @@ import MediaDetailModal from './components/MediaDetailModal';
 import SearchModal from './components/SearchModal';
 import ManualMediaModal from './components/ManualMediaModal';
 import SettingsModal from './components/SettingsModal';
+import SyncProgressBar from './components/SyncProgressBar';
 import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus } from './db';
-import { syncMediaEpisodes } from './services/api';
-import { Film, Tv, Plus, Search, Sparkles, CheckCircle2, PlayCircle, Bell, X } from 'lucide-react';
+import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
+import { Film, Tv, Plus, Search, Sparkles, CheckCircle2, PlayCircle, Bell, X, RefreshCw } from 'lucide-react';
 
 export default function App() {
   const [mediaList, setMediaList] = useState([]);
@@ -25,6 +26,18 @@ export default function App() {
   const [selectedMedia, setSelectedMedia] = useState(null);
   const [syncAlerts, setSyncAlerts] = useState([]);
 
+  // Live Sync Progress State
+  const [syncState, setSyncState] = useState({
+    isActive: false,
+    isComplete: false,
+    isCancelled: false,
+    completed: 0,
+    total: 0,
+    currentTitle: '',
+    updatedCount: 0
+  });
+  const syncAbortRef = useRef(null);
+
   // Load library from IndexedDB
   const refreshLibrary = async () => {
     const items = await getAllMedia();
@@ -38,21 +51,25 @@ export default function App() {
   };
 
   useEffect(() => {
-    const checkWatchingShowsForUpdates = async () => {
+    const checkEligibleShowsForUpdates = async () => {
       const items = await getAllMedia();
-      const watchingShows = items.filter(m => m.type === 'tv' && m.status === 'watching' && m.externalId);
+      // Multi-status sync: checks 'watching' always, and 'completed'/'plan_to_watch'/'on_hold' if >5 days cooldown
+      const eligibleShows = getShowsEligibleForSync(items, { forceAll: false, cooldownDays: 5 });
 
-      for (const show of watchingShows) {
+      for (const show of eligibleShows) {
         try {
           const result = await syncMediaEpisodes(show);
           if (result.hasUpdates && result.newEpisodesCount > 0) {
             const alertId = `sync_${show.id}_${Date.now()}`;
+            const isCompleted = result.isCompletedWithNewEpisodes;
             setSyncAlerts(prev => [
               ...prev,
               {
                 id: alertId,
                 title: show.title,
-                message: `${result.newEpisodesCount} new episode(s) added to "${show.title}"!`
+                message: isCompleted
+                  ? `🎉 Brand new episodes/season available for "${show.title}"!`
+                  : `✨ ${result.newEpisodesCount} new episode(s) added to "${show.title}"!`
               }
             ]);
             await refreshLibrary();
@@ -65,7 +82,7 @@ export default function App() {
 
     refreshLibrary().then(() => {
       // Quiet background check after initial load
-      setTimeout(checkWatchingShowsForUpdates, 2500);
+      setTimeout(checkEligibleShowsForUpdates, 2500);
     });
   }, []);
 
@@ -161,6 +178,91 @@ export default function App() {
     setIsManualOpen(true);
   };
 
+  // Start Sync All Library
+  const handleStartSyncAll = async () => {
+    if (syncState.isActive) return;
+
+    const items = await getAllMedia();
+    const shows = getShowsEligibleForSync(items, { forceAll: true });
+
+    if (shows.length === 0) {
+      setSyncState({
+        isActive: false,
+        isComplete: true,
+        isCancelled: false,
+        completed: 0,
+        total: 0,
+        currentTitle: '',
+        updatedCount: 0
+      });
+      return;
+    }
+
+    const abortController = new AbortController();
+    syncAbortRef.current = abortController;
+
+    setSyncState({
+      isActive: true,
+      isComplete: false,
+      isCancelled: false,
+      completed: 0,
+      total: shows.length,
+      currentTitle: shows[0]?.title || '',
+      updatedCount: 0
+    });
+
+    let liveUpdatedCount = 0;
+
+    const queueResult = await runSyncQueue(shows, {
+      concurrency: 2,
+      delayMs: 250,
+      abortSignal: abortController.signal,
+      onProgress: (completed, total, currentShow, result, isCancelled) => {
+        if (result?.hasUpdates && (result.newEpisodesCount > 0 || result.updatedTitlesCount > 0)) {
+          liveUpdatedCount++;
+        }
+        setSyncState(prev => ({
+          ...prev,
+          completed,
+          total,
+          currentTitle: currentShow?.title || '',
+          updatedCount: liveUpdatedCount,
+          isCancelled
+        }));
+      }
+    });
+
+    setSyncState(prev => ({
+      ...prev,
+      isActive: false,
+      isComplete: !queueResult.isCancelled,
+      isCancelled: queueResult.isCancelled,
+      updatedCount: liveUpdatedCount
+    }));
+
+    await refreshLibrary();
+  };
+
+  const handleCancelSync = () => {
+    if (syncAbortRef.current) {
+      syncAbortRef.current.abort();
+    }
+    setSyncState(prev => ({
+      ...prev,
+      isActive: false,
+      isCancelled: true
+    }));
+  };
+
+  const handleDismissSync = () => {
+    setSyncState(prev => ({
+      ...prev,
+      isActive: false,
+      isComplete: false,
+      isCancelled: false
+    }));
+  };
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-indigo-600 selection:text-white">
       {/* Top Navbar */}
@@ -171,6 +273,8 @@ export default function App() {
           setIsManualOpen(true);
         }}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onStartSyncAll={handleStartSyncAll}
+        isSyncing={syncState.isActive}
         stats={stats}
       />
 
@@ -203,6 +307,13 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6">
         
+        {/* Live Progress Bar for Library Sync */}
+        <SyncProgressBar
+          syncState={syncState}
+          onCancel={handleCancelSync}
+          onDismiss={handleDismissSync}
+        />
+
         {/* Filter and Search Bar */}
         <FilterBar
           statusFilter={statusFilter}

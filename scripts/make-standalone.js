@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const distPath = path.resolve(process.cwd(), 'dist/index.html');
 const rootIndexHtml = path.resolve(process.cwd(), 'index.html');
 const devIndexHtml = path.resolve(process.cwd(), 'index.dev.html');
 
@@ -13,8 +12,13 @@ if (fs.existsSync(rootIndexHtml) && !fs.existsSync(devIndexHtml)) {
   }
 }
 
+let distPath = path.resolve(process.cwd(), 'dist/index.html');
+if (!fs.existsSync(distPath) && fs.existsSync(path.resolve(process.cwd(), 'dist/index.dev.html'))) {
+  distPath = path.resolve(process.cwd(), 'dist/index.dev.html');
+}
+
 if (!fs.existsSync(distPath)) {
-  console.error('dist/index.html does not exist. Run npm run build first.');
+  console.error('Neither dist/index.html nor dist/index.dev.html exists.');
   process.exit(1);
 }
 
@@ -23,29 +27,30 @@ let html = fs.readFileSync(distPath, 'utf8');
 // Clean up any modulepreload links
 html = html.replace(/<link\s+rel="modulepreload"[^>]*>/gi, '');
 
-// Extract the script tag and its content
-const scriptMatch = html.match(/<script[\s\S]*?<\/script>/i);
+// Find <script...> and </script> using index positions to avoid regex string-replace $ hazards
+const scriptStartIdx = html.indexOf('<script');
+const scriptEndIdx = html.indexOf('</script>');
 
-if (scriptMatch) {
-  const originalScript = scriptMatch[0];
-  // Remove type="module" and crossorigin so file:/// protocol doesn't trigger CORS error
-  let cleanScript = originalScript
-    .replace(/<script\s+type="module"\s+crossorigin>/i, '<script>')
-    .replace(/<script\s+defer>/i, '<script>');
+if (scriptStartIdx !== -1 && scriptEndIdx !== -1) {
+  const scriptTagEndIdx = html.indexOf('>', scriptStartIdx);
+  const scriptContent = html.slice(scriptTagEndIdx + 1, scriptEndIdx);
 
-  // Remove the script from <head>
-  html = html.replace(originalScript, '');
+  // Remove the script from its original location
+  html = html.slice(0, scriptStartIdx) + html.slice(scriptEndIdx + '</script>'.length);
 
-  // Place the script right before </body> so <div id="root"> exists when React mounts!
-  if (html.includes('</body>')) {
-    html = html.replace('</body>', `${cleanScript}\n</body>`);
+  // Find </body>
+  const bodyEndIdx = html.lastIndexOf('</body>');
+  const safeScriptTag = `\n<script>\n${scriptContent}\n</script>\n`;
+
+  if (bodyEndIdx !== -1) {
+    html = html.slice(0, bodyEndIdx) + safeScriptTag + html.slice(bodyEndIdx);
   } else {
-    html += `\n${cleanScript}`;
+    html += safeScriptTag;
   }
 }
 
-// Write to both dist/index.html and the root index.html!
+// Write to both dist/index.html and the root index.html
 fs.writeFileSync(distPath, html, 'utf8');
 fs.writeFileSync(rootIndexHtml, html, 'utf8');
 
-console.log('Successfully updated index.html with self-contained, offline-ready bundle!');
+console.log('Successfully updated index.html safely with string slicing!');

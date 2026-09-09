@@ -96,6 +96,11 @@ function localExportPlugin() {
 
 // https://vite.dev/config/
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      input: path.resolve(process.cwd(), 'index.dev.html')
+    }
+  },
   plugins: [
     react(),
     tailwindcss(),

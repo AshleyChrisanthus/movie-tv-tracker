@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Star, Film, Tv, CheckCircle2, Play, Calendar, Clock, 
-  Trash2, Edit3, ChevronDown, ChevronUp, Check, PlayCircle, Eye
+  Trash2, Edit3, ChevronDown, ChevronUp, Check, PlayCircle, Eye, RefreshCw
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes, 
   deleteMediaItem 
 } from '../db';
+import { syncMediaEpisodes } from '../services/api';
 
 export default function MediaDetailModal({ media, onClose, onUpdated, onEditCustom }) {
   const [episodes, setEpisodes] = useState([]);
@@ -17,6 +18,8 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
   const [notes, setNotes] = useState(media.notes || '');
   const [isSavingNotes, setIsSavingNotes] = useState(false);
   const [notesSavedNotice, setNotesSavedNotice] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState(null);
 
   // Precise Season/Episode input state
   const [inputSeason, setInputSeason] = useState(media.currentSeason || 1);
@@ -42,8 +45,44 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
     }
   };
 
+  // Sync latest episodes from TVMaze/TMDB
+  const handleSync = async (silent = false) => {
+    if (!isTv || !media.externalId || isSyncing) return;
+    if (!silent) setIsSyncing(true);
+    setSyncNotice(null);
+
+    try {
+      const result = await syncMediaEpisodes(media);
+      if (result.hasUpdates) {
+        let msg = '';
+        if (result.newEpisodesCount > 0 && result.updatedTitlesCount > 0) {
+          msg = `🎉 Added ${result.newEpisodesCount} new episode(s) and updated ${result.updatedTitlesCount} title(s)!`;
+        } else if (result.newEpisodesCount > 0) {
+          msg = `🎉 Added ${result.newEpisodesCount} newly dropped episode(s)!`;
+        } else if (result.updatedTitlesCount > 0) {
+          msg = `✨ Updated ${result.updatedTitlesCount} newly revealed episode title(s)!`;
+        }
+        setSyncNotice({ success: true, message: msg });
+        await loadEpisodes();
+        if (onUpdated) onUpdated();
+      } else if (!silent) {
+        setSyncNotice({ success: true, message: 'All episodes and seasons are already up to date!' });
+      }
+    } catch (err) {
+      if (!silent) {
+        setSyncNotice({ success: false, message: `Sync failed: ${err.message}` });
+      }
+    } finally {
+      if (!silent) setIsSyncing(false);
+    }
+  };
+
   useEffect(() => {
     loadEpisodes();
+    // Silently check for new episodes if watching a TV show with external ID
+    if (isTv && media.status === 'watching' && media.externalId) {
+      handleSync(true);
+    }
   }, [media.id]);
 
   // Handle status change
@@ -216,8 +255,20 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
               </select>
             </div>
 
-            {/* Action buttons (Edit Custom / Delete) */}
+            {/* Action buttons (Sync / Edit Custom / Delete) */}
             <div className="flex items-center gap-2 ml-auto">
+              {isTv && media.externalId && (
+                <button
+                  onClick={() => handleSync(false)}
+                  disabled={isSyncing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-medium transition-all disabled:opacity-50"
+                  title="Check TVMaze/TMDB for new seasons, episodes, and updated titles"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? 'Checking...' : 'Sync Episodes'}</span>
+                </button>
+              )}
+
               {onEditCustom && (
                 <button
                   onClick={() => onEditCustom(media)}
@@ -237,6 +288,16 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
               </button>
             </div>
           </div>
+
+          {/* Sync Notice Banner */}
+          {syncNotice && (
+            <div className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 border animate-fadeIn ${
+              syncNotice.success ? 'bg-emerald-950/50 text-emerald-300 border-emerald-800/60' : 'bg-red-950/50 text-red-300 border-red-800/60'
+            }`}>
+              <span>{syncNotice.message}</span>
+              <button onClick={() => setSyncNotice(null)} className="text-zinc-400 hover:text-white text-xs px-1">✕</button>
+            </div>
+          )}
 
           {/* Overview / Synopsis */}
           {media.overview && (

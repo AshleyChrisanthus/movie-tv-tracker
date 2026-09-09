@@ -6,7 +6,7 @@
  * 3. iTunes Search API (Free fallback for movie search when no TMDB key is set)
  */
 
-import { getSetting } from '../db';
+import { getSetting, getEpisodesForMedia, saveMediaItem } from '../db';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -336,4 +336,82 @@ async function fetchTMDBMovieDetails(movieId, apiKey, fallbackItem = {}) {
   };
 
   return { media, episodes: [] };
+}
+
+/**
+ * Smart Sync: Check TVMaze/TMDB for newly dropped seasons or updated episode titles,
+ * and merge them into IndexedDB while strictly preserving all existing watch progress and notes.
+ */
+export async function syncMediaEpisodes(mediaItem) {
+  if (!mediaItem || mediaItem.type !== 'tv' || !mediaItem.externalId) {
+    return { hasUpdates: false, newEpisodesCount: 0, updatedTitlesCount: 0 };
+  }
+
+  try {
+    const freshData = await fetchFullMediaDetails(mediaItem);
+    const existingEpisodes = await getEpisodesForMedia(mediaItem.id);
+
+    const existingMap = new Map();
+    for (const ep of existingEpisodes) {
+      existingMap.set(`${ep.seasonNumber}_${ep.episodeNumber}`, ep);
+    }
+
+    let newEpisodesCount = 0;
+    let updatedTitlesCount = 0;
+
+    const mergedEpisodes = (freshData.episodes || []).map(freshEp => {
+      const key = `${freshEp.seasonNumber}_${freshEp.episodeNumber}`;
+      const existing = existingMap.get(key);
+
+      if (existing) {
+        // Check if title was updated from a generic placeholder to an official title
+        if (existing.title !== freshEp.title && freshEp.title && !existing.title?.startsWith('Custom')) {
+          updatedTitlesCount++;
+        }
+        return {
+          ...freshEp,
+          id: existing.id,
+          mediaId: mediaItem.id,
+          // Strictly retain watched state and timestamp!
+          isWatched: existing.isWatched,
+          watchedAt: existing.watchedAt,
+          // Update title and synopsis if newly published
+          title: freshEp.title || existing.title,
+          overview: freshEp.overview || existing.overview
+        };
+      } else {
+        // Completely new episode or newly dropped season!
+        newEpisodesCount++;
+        return {
+          ...freshEp,
+          mediaId: mediaItem.id,
+          isWatched: 0,
+          watchedAt: null
+        };
+      }
+    });
+
+    const hasUpdates = newEpisodesCount > 0 || updatedTitlesCount > 0;
+
+    if (hasUpdates) {
+      const updatedMedia = {
+        ...mediaItem,
+        totalSeasons: freshData.media.totalSeasons || mediaItem.totalSeasons,
+        totalEpisodes: mergedEpisodes.length,
+        lastSyncedAt: new Date().toISOString()
+      };
+      await saveMediaItem(updatedMedia, mergedEpisodes);
+    }
+
+    return {
+      hasUpdates,
+      newEpisodesCount,
+      updatedTitlesCount,
+      totalEpisodes: mergedEpisodes.length,
+      mediaTitle: mediaItem.title
+    };
+  } catch (err) {
+    console.warn(`Failed to sync episodes for ${mediaItem.title}:`, err);
+    return { hasUpdates: false, error: err.message };
+  }
 }

@@ -7,7 +7,8 @@ import SearchModal from './components/SearchModal';
 import ManualMediaModal from './components/ManualMediaModal';
 import SettingsModal from './components/SettingsModal';
 import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus } from './db';
-import { Film, Tv, Plus, Search, Sparkles, CheckCircle2, PlayCircle } from 'lucide-react';
+import { syncMediaEpisodes } from './services/api';
+import { Film, Tv, Plus, Search, Sparkles, CheckCircle2, PlayCircle, Bell, X } from 'lucide-react';
 
 export default function App() {
   const [mediaList, setMediaList] = useState([]);
@@ -22,6 +23,7 @@ export default function App() {
   const [manualEditItem, setManualEditItem] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState(null);
+  const [syncAlerts, setSyncAlerts] = useState([]);
 
   // Load library from IndexedDB
   const refreshLibrary = async () => {
@@ -36,7 +38,35 @@ export default function App() {
   };
 
   useEffect(() => {
-    refreshLibrary();
+    const checkWatchingShowsForUpdates = async () => {
+      const items = await getAllMedia();
+      const watchingShows = items.filter(m => m.type === 'tv' && m.status === 'watching' && m.externalId);
+
+      for (const show of watchingShows) {
+        try {
+          const result = await syncMediaEpisodes(show);
+          if (result.hasUpdates && result.newEpisodesCount > 0) {
+            const alertId = `sync_${show.id}_${Date.now()}`;
+            setSyncAlerts(prev => [
+              ...prev,
+              {
+                id: alertId,
+                title: show.title,
+                message: `${result.newEpisodesCount} new episode(s) added to "${show.title}"!`
+              }
+            ]);
+            await refreshLibrary();
+          }
+        } catch (err) {
+          console.warn('Background sync check error:', err);
+        }
+      }
+    };
+
+    refreshLibrary().then(() => {
+      // Quiet background check after initial load
+      setTimeout(checkWatchingShowsForUpdates, 2500);
+    });
   }, []);
 
   // Global keyboard shortcuts (Ctrl+K or / to search)
@@ -143,6 +173,32 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         stats={stats}
       />
+
+      {/* Background Sync Toast Alerts */}
+      {syncAlerts.length > 0 && (
+        <div className="fixed top-16 right-4 z-50 flex flex-col gap-2 max-w-sm w-full animate-fadeIn pointer-events-auto">
+          {syncAlerts.map(alert => (
+            <div
+              key={alert.id}
+              className="p-3.5 rounded-2xl bg-zinc-900/95 border border-indigo-500/50 shadow-2xl backdrop-blur-md flex items-start gap-3 text-xs"
+            >
+              <div className="p-1.5 rounded-xl bg-indigo-600/20 text-indigo-400 shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="font-bold text-white block mb-0.5">New Episodes Dropped!</span>
+                <p className="text-zinc-300 leading-relaxed">{alert.message}</p>
+              </div>
+              <button
+                onClick={() => setSyncAlerts(prev => prev.filter(a => a.id !== alert.id))}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, SlidersHorizontal, Film, Tv, Play, CheckCircle, Clock, XCircle, PauseCircle } from 'lucide-react';
+import { Search, SlidersHorizontal, Film, Tv, Play, CheckCircle, Clock, XCircle, PauseCircle, X } from 'lucide-react';
 
 const STATUS_TABS = [
   { key: 'all', label: 'All Items', icon: null },
@@ -23,7 +23,7 @@ export default function FilterBar({
 }) {
   return (
     <div className="flex flex-col gap-3.5 mb-6">
-      {/* Status Filter Tabs */}
+      {/* Status Filter Tabs (Apple Segmented Pill Style) */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
         {STATUS_TABS.map(tab => {
           const count = itemCounts[tab.key] ?? 0;
@@ -36,15 +36,15 @@ export default function FilterBar({
               onClick={() => onStatusChange(tab.key)}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all select-none border ${
                 isActive
-                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/20'
-                  : 'bg-zinc-900/90 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/90 border-zinc-800/80'
+                  ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-md shadow-[var(--accent)]/20'
+                  : 'bg-[var(--card-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border-[var(--border-light)]'
               }`}
             >
               {Icon && <Icon className="w-3.5 h-3.5" />}
               <span>{tab.label}</span>
               <span
                 className={`text-[11px] px-1.5 py-0.2 rounded-full font-mono ${
-                  isActive ? 'bg-indigo-700/80 text-white' : 'bg-zinc-800 text-zinc-400'
+                  isActive ? 'bg-black/20 text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
                 }`}
               >
                 {count}
@@ -54,26 +54,26 @@ export default function FilterBar({
         })}
       </div>
 
-      {/* Sub-bar: Type selector, In-library search, and Sort */}
+      {/* Sub-bar: Type capsule selector, In-library search with clear button, and Sort */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-        {/* Type pills */}
-        <div className="flex items-center p-1 bg-zinc-900/90 border border-zinc-800/80 rounded-xl w-fit">
+        {/* Type Capsule Slider (App Directory Style) */}
+        <div className="flex items-center p-1 bg-[var(--bg-tertiary)] border border-[var(--border-light)] rounded-xl w-fit">
           <button
             onClick={() => onTypeChange('all')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
               typeFilter === 'all'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-[var(--card-bg)] text-[var(--text-primary)] shadow-xs'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             All Types
           </button>
           <button
             onClick={() => onTypeChange('tv')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
               typeFilter === 'tv'
-                ? 'bg-zinc-800 text-indigo-400 shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             <Tv className="w-3.5 h-3.5" />
@@ -81,10 +81,10 @@ export default function FilterBar({
           </button>
           <button
             onClick={() => onTypeChange('movie')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
               typeFilter === 'movie'
-                ? 'bg-zinc-800 text-violet-400 shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             <Film className="w-3.5 h-3.5" />
@@ -95,27 +95,37 @@ export default function FilterBar({
         {/* Right side: Search in library & Sort dropdown */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1 sm:w-56">
-            <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-[var(--text-secondary)] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={librarySearch}
               onChange={(e) => onLibrarySearchChange(e.target.value)}
               placeholder="Filter library..."
-              className="w-full pl-8 pr-3 py-1.5 bg-zinc-900/90 border border-zinc-800 rounded-xl text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              className="w-full pl-8 pr-7 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--input-focus)] transition-all"
             />
+            {librarySearch && (
+              <button
+                type="button"
+                onClick={() => onLibrarySearchChange('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs rounded-full"
+                title="Clear filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5 bg-zinc-900/90 border border-zinc-800 rounded-xl px-2.5 py-1 text-xs text-zinc-400">
-            <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-500" />
+          <div className="flex items-center gap-1.5 bg-[var(--card-bg)] border border-[var(--border-light)] rounded-xl px-2.5 py-1 text-xs text-[var(--text-secondary)]">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
             <select
               value={sortBy}
               onChange={(e) => onSortChange(e.target.value)}
-              className="bg-transparent text-zinc-300 text-xs focus:outline-none cursor-pointer"
+              className="bg-transparent text-[var(--text-primary)] text-xs focus:outline-none cursor-pointer"
             >
-              <option value="updated" className="bg-zinc-900">Recently Updated</option>
-              <option value="title" className="bg-zinc-900">Title (A-Z)</option>
-              <option value="rating" className="bg-zinc-900">Highest Rating</option>
-              <option value="progress" className="bg-zinc-900">Watch Progress</option>
+              <option value="updated" className="bg-[var(--card-bg)]">Recently Updated</option>
+              <option value="title" className="bg-[var(--card-bg)]">Title (A-Z)</option>
+              <option value="rating" className="bg-[var(--card-bg)]">Highest Rating</option>
+              <option value="progress" className="bg-[var(--card-bg)]">Watch Progress</option>
             </select>
           </div>
         </div>

@@ -196,24 +196,24 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm overflow-y-auto animate-fadeIn">
-      <div className="relative w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/65 backdrop-blur-md overflow-y-auto animate-fadeIn">
+      <div className="relative w-full max-w-2xl bg-[var(--card-bg)] border border-[var(--border-light)] rounded-2xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[90vh]">
         
         {/* Header */}
-        <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-indigo-600/20 text-indigo-400">
+        <div className="p-4 border-b border-[var(--border-light)] bg-[var(--bg-primary)] flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-[var(--accent-bg)] text-[var(--accent)]">
               <HardDrive className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Settings & Data Management</h2>
-              <p className="text-xs text-zinc-400">API configuration, IndexedDB storage, and folder backups</p>
+              <h2 className="text-base font-bold text-[var(--text-primary)]">Settings & Data Management</h2>
+              <p className="text-xs text-[var(--text-secondary)]">API configuration, IndexedDB storage, and folder backups</p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+            className="p-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -223,24 +223,24 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           
           {/* TMDB API KEY SECTION */}
-          <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-3">
+          <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-indigo-400" />
-                <h3 className="text-sm font-bold text-white">TMDB API Configuration</h3>
+                <Key className="w-4 h-4 text-[var(--accent)]" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">TMDB API Configuration</h3>
               </div>
               <a
                 href="https://www.themoviedb.org/settings/api"
                 target="_blank"
                 rel="noreferrer"
-                className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 hover:underline"
+                className="text-[11px] text-[var(--accent)] hover:brightness-110 flex items-center gap-1 hover:underline font-semibold"
               >
                 <span>Get a free key</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
 
-            <p className="text-xs text-zinc-400 leading-relaxed">
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
               TMDB provides high-resolution posters, backdrops, and complete episode guides. 
               If left blank, TVMaze will automatically handle TV shows without requiring any key.
             </p>
@@ -251,18 +251,18 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Enter TMDB API Key (v3 auth)"
-                className="flex-1 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 font-mono"
+                className="flex-1 px-3 py-2 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--input-focus)] font-mono"
               />
               <button
                 onClick={handleSaveApiKey}
-                className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold transition-all"
+                className="px-3.5 py-2 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)]"
               >
                 Save
               </button>
               <button
                 onClick={handleTestApiKey}
                 disabled={isTestingKey}
-                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/30 active:scale-95 disabled:opacity-50"
+                className="px-3.5 py-2 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95 disabled:opacity-50"
               >
                 {isTestingKey ? 'Testing...' : 'Test & Save'}
               </button>
@@ -279,27 +279,27 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
           </div>
 
           {/* BACKUP & DIRECTORY LINKING SECTION */}
-          <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-4">
+          <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Folder className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-sm font-bold text-white">Direct Hard Drive Backup</h3>
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Direct Hard Drive Backup</h3>
               </div>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-400 border border-indigo-800/50 font-medium">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)]/30 font-medium">
                 Serverless & Offline
               </span>
             </div>
 
             {/* Folder Linking Card */}
             {fsSupported && (
-              <div className="p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-[var(--card-bg)] border border-[var(--border-light)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-xl ${linkedDirHandle ? 'bg-emerald-600/20 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}>
+                  <div className={`p-2 rounded-xl ${linkedDirHandle ? 'bg-emerald-600/20 text-emerald-400' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'}`}>
                     {linkedDirHandle ? <FolderCheck className="w-5 h-5" /> : <Link2 className="w-5 h-5" />}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-white">
+                      <span className="text-xs font-bold text-[var(--text-primary)]">
                         {linkedDirHandle ? `Linked: 📁 ${linkedDirHandle.name}` : 'No Folder Linked Yet'}
                       </span>
                       {linkedDirHandle && (
@@ -308,7 +308,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-zinc-400">
+                    <p className="text-[11px] text-[var(--text-secondary)]">
                       {linkedDirHandle
                         ? 'Backups will be written straight to this folder with one click.'
                         : 'Link your project "exports/" folder once so backups write straight into it.'}
@@ -320,7 +320,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                   {linkedDirHandle ? (
                     <button
                       onClick={handleUnlinkDirectory}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-medium transition-all"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-medium transition-all"
                     >
                       <Unlink className="w-3.5 h-3.5" />
                       <span>Unlink</span>
@@ -329,7 +329,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                     <button
                       onClick={handleLinkDirectory}
                       disabled={isLinking}
-                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/30 active:scale-95 disabled:opacity-50"
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95 disabled:opacity-50"
                     >
                       <Link2 className="w-3.5 h-3.5" />
                       <span>{isLinking ? 'Selecting...' : 'Link exports/ Folder'}</span>

@@ -1,25 +1,240 @@
 @import "tailwindcss";
 
-@layer base {
-  body {
-    @apply bg-zinc-950 text-zinc-100 min-h-screen antialiased selection:bg-indigo-500 selection:text-white;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  }
+/* ========================================
+   App Directory Design Tokens & Themes
+   ======================================== */
+
+:root {
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --radius: 14px;
+  --radius-sm: 8px;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.18);
+  --transition: 0.2s ease;
+  --max-width: 1680px;
+
+  /* Default Dark Mode (Apple Modern) */
+  --bg-primary: #0d0d0f;
+  --bg-secondary: #1c1c1e;
+  --bg-tertiary: #2c2c2e;
+  --bg-hover: #3a3a3c;
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-tertiary: #636366;
+  --border: #38383a;
+  --border-light: #2c2c2e;
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
+  --accent-bg: rgba(10, 132, 255, 0.12);
+  --danger: #ff453a;
+  --danger-hover: #ff6961;
+  --success: #30d158;
+  --warning: #ffd60a;
+  --card-bg: #1c1c1e;
+  --card-border: #2c2c2e;
+  --modal-bg: #1c1c1e;
+  --modal-backdrop: rgba(0, 0, 0, 0.65);
+  --toast-bg: #f5f5f7;
+  --toast-text: #1d1d1f;
+  --input-bg: #0d0d0f;
+  --input-border: #2c2c2e;
+  --input-focus: #0a84ff;
+  --scrollbar-thumb: #48484a;
+  --tag-bg: rgba(10, 132, 255, 0.12);
+  --tag-text: #0a84ff;
+  --favorite-color: #ffd60a;
 }
 
-/* Custom sleek scrollbars */
+[data-theme="light"] {
+  --bg-primary: #f5f5f7;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f0f0f2;
+  --bg-hover: #e8e8ec;
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-tertiary: #aeaeb2;
+  --border: #d2d2d7;
+  --border-light: #e5e5ea;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --accent-bg: rgba(0, 113, 227, 0.08);
+  --danger: #ff3b30;
+  --danger-hover: #ff453a;
+  --success: #34c759;
+  --warning: #ff9f0a;
+  --card-bg: #ffffff;
+  --card-border: #e5e5ea;
+  --modal-bg: #ffffff;
+  --modal-backdrop: rgba(0, 0, 0, 0.4);
+  --toast-bg: #1d1d1f;
+  --toast-text: #ffffff;
+  --input-bg: #f5f5f7;
+  --input-border: #e5e5ea;
+  --input-focus: #0071e3;
+  --scrollbar-thumb: #c7c7cc;
+  --tag-bg: rgba(0, 113, 227, 0.1);
+  --tag-text: #0071e3;
+  --favorite-color: #ff9f0a;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #0d0d0f;
+  --bg-secondary: #1c1c1e;
+  --bg-tertiary: #2c2c2e;
+  --bg-hover: #3a3a3c;
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-tertiary: #636366;
+  --border: #38383a;
+  --border-light: #2c2c2e;
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
+  --accent-bg: rgba(10, 132, 255, 0.12);
+  --danger: #ff453a;
+  --danger-hover: #ff6961;
+  --success: #30d158;
+  --warning: #ffd60a;
+  --card-bg: #1c1c1e;
+  --card-border: #2c2c2e;
+  --modal-bg: #1c1c1e;
+  --modal-backdrop: rgba(0, 0, 0, 0.65);
+  --toast-bg: #f5f5f7;
+  --toast-text: #1d1d1f;
+  --input-bg: #0d0d0f;
+  --input-border: #2c2c2e;
+  --input-focus: #0a84ff;
+  --scrollbar-thumb: #48484a;
+  --tag-bg: rgba(10, 132, 255, 0.12);
+  --tag-text: #0a84ff;
+  --favorite-color: #ffd60a;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  transition: background-color var(--transition), color var(--transition);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+/* App Directory Sleek Scrollbars */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: var(--text-tertiary);
 }
 
+/* Apple-style UI elements */
+.apple-card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+}
+
+.apple-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent);
+}
+
+.apple-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.apple-btn-primary {
+  background-color: var(--accent);
+  color: #ffffff;
+}
+
+.apple-btn-primary:hover {
+  background-color: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.apple-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.apple-btn-ghost:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Theme Customizer Palette Grid & Modal Styling */
+.palette-card {
+  background: var(--card-bg);
+  border: 1.5px solid var(--border-light);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  text-align: left;
+}
+
+.palette-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.palette-card.active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.palette-preview-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.palette-swatch {
+  flex: 1;
+  height: 100%;
+}
+
+.palette-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.palette-desc {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}

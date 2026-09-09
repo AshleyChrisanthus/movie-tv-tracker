@@ -1,46 +1,56 @@
 import React from 'react';
-import { Film, Tv, Plus, Settings, Search, CheckCircle2, PlayCircle, RefreshCw } from 'lucide-react';
+import { Film, Plus, Settings, Search, CheckCircle2, PlayCircle, RefreshCw, Palette, Sun, Moon } from 'lucide-react';
 
-export default function Navbar({ onOpenSearch, onOpenManual, onOpenSettings, onStartSyncAll, isSyncing, stats }) {
+export default function Navbar({
+  onOpenSearch,
+  onOpenManual,
+  onOpenSettings,
+  onStartSyncAll,
+  isSyncing,
+  onOpenTheme,
+  onToggleTheme,
+  themeMode = 'dark',
+  stats
+}) {
   return (
-    <header className="sticky top-0 z-30 bg-zinc-950/85 backdrop-blur-md border-b border-zinc-800/80 px-4 lg:px-8 py-3.5 transition-all">
+    <header className="sticky top-0 z-30 bg-[var(--bg-secondary)]/85 backdrop-blur-xl border-b border-[var(--border-light)] px-4 lg:px-8 py-3 transition-all">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
         
         {/* Brand */}
-        <div className="flex items-center gap-3 cursor-pointer select-none">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+        <div className="flex items-center gap-3 cursor-pointer select-none group">
+          <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center shadow-lg shadow-[var(--accent)]/25 group-hover:scale-105 transition-all">
             <Film className="w-5 h-5 text-white" />
           </div>
           <div>
-            <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
+            <span className="text-xl font-bold tracking-tight text-[var(--text-primary)]">
               BingeLog
             </span>
-            <span className="hidden sm:inline-block ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-zinc-800/90 text-zinc-400 border border-zinc-700/50">
+            <span className="hidden sm:inline-block ml-2 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-light)]">
               Tracker
             </span>
           </div>
         </div>
 
-        {/* Global Search Bar trigger */}
+        {/* Global Search Bar trigger (App Directory Inset Style) */}
         <button
           onClick={onOpenSearch}
-          className="flex-1 max-w-md hidden sm:flex items-center justify-between px-3.5 py-2 rounded-xl bg-zinc-900/90 hover:bg-zinc-800/80 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200 transition-all text-sm group shadow-inner"
+          className="flex-1 max-w-md hidden sm:flex items-center justify-between px-3.5 py-2 rounded-xl bg-[var(--input-bg)] hover:bg-[var(--bg-hover)] border border-[var(--input-border)] hover:border-[var(--input-focus)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all text-xs group shadow-inner"
         >
           <div className="flex items-center gap-2.5">
-            <Search className="w-4 h-4 text-zinc-500 group-hover:text-indigo-400 transition-colors" />
+            <Search className="w-4 h-4 text-[var(--text-secondary)] group-hover:text-[var(--accent)] transition-colors" />
             <span>Search movies & TV shows to add...</span>
           </div>
-          <kbd className="text-[11px] font-mono uppercase bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-700/60">
+          <kbd className="text-[11px] font-mono uppercase bg-[var(--bg-secondary)] text-[var(--text-secondary)] px-1.5 py-0.5 rounded border border-[var(--border-light)] shadow-xs">
             Ctrl+K
           </kbd>
         </button>
 
         {/* Action Buttons & Quick Stats */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5">
           {/* Mobile search icon */}
           <button
             onClick={onOpenSearch}
-            className="sm:hidden p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all"
+            className="sm:hidden p-2 rounded-xl bg-[var(--card-bg)] border border-[var(--border-light)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all"
             title="Search to add"
           >
             <Search className="w-4 h-4" />
@@ -48,11 +58,11 @@ export default function Navbar({ onOpenSearch, onOpenManual, onOpenSettings, onS
 
           {/* Quick stats badges */}
           <div className="hidden md:flex items-center gap-2 text-xs font-medium mr-1">
-            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-amber-400">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--card-bg)] border border-[var(--border-light)] text-amber-400">
               <PlayCircle className="w-3.5 h-3.5" />
               <span>{stats?.watching || 0} Watching</span>
             </span>
-            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-emerald-400">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--card-bg)] border border-[var(--border-light)] text-emerald-400">
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>{stats?.completed || 0} Completed</span>
             </span>
@@ -61,10 +71,10 @@ export default function Navbar({ onOpenSearch, onOpenManual, onOpenSettings, onS
           {/* Add Custom / Manual Button */}
           <button
             onClick={onOpenManual}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-800 hover:border-zinc-700 text-sm font-medium transition-all shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-light)] text-xs font-semibold transition-all shadow-sm active:scale-95"
             title="Add Custom Movie or TV Show"
           >
-            <Plus className="w-4 h-4 text-indigo-400" />
+            <Plus className="w-4 h-4 text-[var(--accent)]" />
             <span className="hidden sm:inline">Add Custom</span>
           </button>
 
@@ -72,21 +82,43 @@ export default function Navbar({ onOpenSearch, onOpenManual, onOpenSettings, onS
           <button
             onClick={onStartSyncAll}
             disabled={isSyncing}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-all shadow-sm ${
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all shadow-sm active:scale-95 ${
               isSyncing
-                ? 'bg-zinc-800 text-indigo-300 border-indigo-500/40 cursor-wait'
-                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border-zinc-800 hover:border-zinc-700'
+                ? 'bg-[var(--bg-hover)] text-[var(--accent)] border-[var(--accent)] cursor-wait'
+                : 'bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border-[var(--border-light)]'
             }`}
             title="Sync all TV shows to check for new seasons and episode titles"
           >
-            <RefreshCw className={`w-4 h-4 text-indigo-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 text-[var(--accent)] ${isSyncing ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync All'}</span>
+          </button>
+
+          {/* Customize Theme & Colors Button (App Directory Palette Button) */}
+          <button
+            onClick={onOpenTheme}
+            className="p-2 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] transition-all shadow-sm active:scale-95"
+            title="Customize Theme & Colors"
+          >
+            <Palette className="w-4 h-4 text-[var(--accent)]" />
+          </button>
+
+          {/* Theme Light/Dark Mode Toggle Button */}
+          <button
+            onClick={onToggleTheme}
+            className="p-2 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] transition-all shadow-sm active:scale-95"
+            title={`Switch to ${themeMode === 'dark' ? 'Light' : 'Dark'} Mode`}
+          >
+            {themeMode === 'dark' ? (
+              <Sun className="w-4 h-4 text-amber-400" />
+            ) : (
+              <Moon className="w-4 h-4 text-[var(--accent)]" />
+            )}
           </button>
 
           {/* Settings & Export Button */}
           <button
             onClick={onOpenSettings}
-            className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 hover:border-zinc-700 transition-all shadow-sm"
+            className="p-2 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] transition-all shadow-sm active:scale-95"
             title="Settings, API Key & Data Backup"
           >
             <Settings className="w-4 h-4" />

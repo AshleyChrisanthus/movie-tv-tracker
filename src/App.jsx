@@ -7,8 +7,10 @@ import SearchModal from './components/SearchModal';
 import ManualMediaModal from './components/ManualMediaModal';
 import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
+import ThemeModal from './components/ThemeModal';
 import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
+import { initTheme, toggleThemeMode } from './styles/theme';
 import { Film, Tv, Plus, Search, Sparkles, CheckCircle2, PlayCircle, Bell, X, RefreshCw } from 'lucide-react';
 
 export default function App() {
@@ -23,6 +25,8 @@ export default function App() {
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [manualEditItem, setManualEditItem] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isThemeOpen, setIsThemeOpen] = useState(false);
+  const [themeMode, setThemeMode] = useState('dark');
   const [selectedMedia, setSelectedMedia] = useState(null);
   const [syncAlerts, setSyncAlerts] = useState([]);
 
@@ -48,6 +52,17 @@ export default function App() {
       const updated = items.find(m => m.id === selectedMedia.id);
       if (updated) setSelectedMedia(updated);
     }
+  };
+
+  // Initialize theme mode on mount
+  useEffect(() => {
+    const currentMode = initTheme();
+    setThemeMode(currentMode);
+  }, []);
+
+  const handleToggleTheme = () => {
+    const nextMode = toggleThemeMode();
+    setThemeMode(nextMode);
   };
 
   useEffect(() => {
@@ -264,7 +279,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-indigo-600 selection:text-white">
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex flex-col selection:bg-[var(--accent)] selection:text-white transition-colors duration-200">
       {/* Top Navbar */}
       <Navbar
         onOpenSearch={() => setIsSearchOpen(true)}
@@ -273,6 +288,9 @@ export default function App() {
           setIsManualOpen(true);
         }}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenTheme={() => setIsThemeOpen(true)}
+        onToggleTheme={handleToggleTheme}
+        themeMode={themeMode}
         onStartSyncAll={handleStartSyncAll}
         isSyncing={syncState.isActive}
         stats={stats}
@@ -284,18 +302,18 @@ export default function App() {
           {syncAlerts.map(alert => (
             <div
               key={alert.id}
-              className="p-3.5 rounded-2xl bg-zinc-900/95 border border-indigo-500/50 shadow-2xl backdrop-blur-md flex items-start gap-3 text-xs"
+              className="p-3.5 rounded-2xl bg-[var(--card-bg)]/95 border border-[var(--border-light)] shadow-2xl backdrop-blur-md flex items-start gap-3 text-xs"
             >
-              <div className="p-1.5 rounded-xl bg-indigo-600/20 text-indigo-400 shrink-0">
+              <div className="p-1.5 rounded-xl bg-[var(--accent)]/15 text-[var(--accent)] shrink-0">
                 <Sparkles className="w-4 h-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <span className="font-bold text-white block mb-0.5">New Episodes Dropped!</span>
-                <p className="text-zinc-300 leading-relaxed">{alert.message}</p>
+                <span className="font-bold text-[var(--text-primary)] block mb-0.5">New Episodes Dropped!</span>
+                <p className="text-[var(--text-secondary)] leading-relaxed">{alert.message}</p>
               </div>
               <button
                 onClick={() => setSyncAlerts(prev => prev.filter(a => a.id !== alert.id))}
-                className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800"
+                className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] p-1 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -342,24 +360,24 @@ export default function App() {
           </div>
         ) : (
           /* Empty State */
-          <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-dashed border-zinc-800 rounded-3xl bg-zinc-900/30 my-8">
-            <div className="w-14 h-14 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-4">
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-dashed border-[var(--border-light)] rounded-3xl bg-[var(--bg-secondary)]/40 my-8">
+            <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] mb-4">
               <Film className="w-7 h-7" />
             </div>
 
             {mediaList.length === 0 ? (
               <div className="max-w-md">
-                <h2 className="text-xl font-bold text-white mb-2">
+                <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">
                   Your Watch Library is Empty
                 </h2>
-                <p className="text-xs sm:text-sm text-zinc-400 mb-6 leading-relaxed">
+                <p className="text-xs sm:text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
                   Start tracking movies and TV shows! Type a name into the search bar to automatically fetch seasons, episode titles, and poster artwork.
                 </p>
 
                 <div className="flex flex-wrap items-center justify-center gap-3">
                   <button
                     onClick={() => setIsSearchOpen(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs sm:text-sm font-bold shadow-lg shadow-[var(--accent)]/30 transition-all active:scale-95"
                   >
                     <Search className="w-4 h-4" />
                     <span>Search Series & Movies</span>
@@ -370,7 +388,7 @@ export default function App() {
                       setManualEditItem(null);
                       setIsManualOpen(true);
                     }}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs sm:text-sm font-semibold transition-all border border-zinc-700"
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs sm:text-sm font-semibold transition-all border border-[var(--border-light)]"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Add Custom Entry</span>
@@ -379,10 +397,10 @@ export default function App() {
               </div>
             ) : (
               <div className="max-w-sm">
-                <h3 className="text-base font-semibold text-zinc-200 mb-1">
+                <h3 className="text-base font-semibold text-[var(--text-primary)] mb-1">
                   No matches found
                 </h3>
-                <p className="text-xs text-zinc-400 mb-4">
+                <p className="text-xs text-[var(--text-secondary)] mb-4">
                   No items in your library match the current filters or search query.
                 </p>
                 <button
@@ -391,7 +409,7 @@ export default function App() {
                     setTypeFilter('all');
                     setLibrarySearch('');
                   }}
-                  className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-all"
+                  className="px-3.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium transition-all border border-[var(--border-light)]"
                 >
                   Clear Filters
                 </button>
@@ -403,7 +421,7 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-900 py-6 text-center text-xs text-zinc-600">
+      <footer className="border-t border-[var(--border-light)] py-6 text-center text-xs text-[var(--text-tertiary)]">
         <p>BingeLog • Unlimited IndexedDB Storage • Metadata via TMDB & TVMaze</p>
       </footer>
 
@@ -441,6 +459,14 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onDataRestored={refreshLibrary}
+      />
+
+      {/* Theme Customizer & Presets Modal */}
+      <ThemeModal
+        isOpen={isThemeOpen}
+        onClose={() => setIsThemeOpen(false)}
+        mediaList={mediaList}
+        onThemeChanged={refreshLibrary}
       />
     </div>
   );

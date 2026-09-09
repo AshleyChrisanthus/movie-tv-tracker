@@ -190,7 +190,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <span className="px-2 py-0.5 rounded-md bg-indigo-600/80 text-white text-[11px] font-bold">
+                <span className="px-2 py-0.5 rounded-lg bg-[var(--accent)] text-white text-[11px] font-bold">
                   {isTv ? 'TV Series' : 'Movie'}
                 </span>
                 {media.year && (
@@ -219,11 +219,11 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
           <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
             {/* Status Selector */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-zinc-400 font-medium">Status:</span>
+              <span className="text-xs text-[var(--text-secondary)] font-medium">Status:</span>
               <select
                 value={status}
                 onChange={(e) => handleStatusChange(e.target.value)}
-                className="px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs font-semibold text-zinc-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                className="px-3 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-lg text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] cursor-pointer"
               >
                 <option value="watching">Watching</option>
                 <option value="plan_to_watch">Plan to Watch</option>
@@ -235,7 +235,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
 
             {/* Quick Rating (1 to 10) */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-zinc-400 font-medium flex items-center gap-1">
+              <span className="text-xs text-[var(--text-secondary)] font-medium flex items-center gap-1">
                 <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                 <span>My Rating:</span>
               </span>
@@ -246,7 +246,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                   updateMediaRatingAndNotes(media.id, Number(e.target.value), notes);
                   if (onUpdated) onUpdated();
                 }}
-                className="px-2 py-1.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs font-semibold text-amber-300 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                className="px-2 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-lg text-xs font-semibold text-amber-300 focus:outline-none focus:border-[var(--accent)] cursor-pointer"
               >
                 <option value="0">Unrated</option>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
@@ -261,7 +261,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                 <button
                   onClick={() => handleSync(false)}
                   disabled={isSyncing}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-medium transition-all disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] text-xs font-medium transition-all disabled:opacity-50"
                   title="Check TVMaze/TMDB for new seasons, episodes, and updated titles"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncing ? 'animate-spin' : ''}`} />
@@ -272,10 +272,10 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
               {onEditCustom && (
                 <button
                   onClick={() => onEditCustom(media)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-medium transition-all"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] text-xs font-medium transition-all"
                   title="Edit metadata or custom episodes"
                 >
-                  <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
+                  <Edit3 className="w-3.5 h-3.5 text-[var(--accent)]" />
                   <span>Edit</span>
                 </button>
               )}
@@ -312,56 +312,56 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
             <div className="space-y-6 pt-2 border-t border-zinc-800">
               
               {/* 1. PRECISE SEASON & EPISODE INSERTION TOOL */}
-              <div className="p-4 bg-gradient-to-r from-indigo-950/40 via-zinc-900 to-zinc-900 rounded-xl border border-indigo-900/40 space-y-3">
+              <div className="p-4 bg-[var(--accent-bg)] rounded-xl border border-[var(--accent)]/30 space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-indigo-400" />
-                    <h3 className="text-sm font-bold text-white">Precise Progress Setter</h3>
+                    <Eye className="w-4 h-4 text-[var(--accent)]" />
+                    <h3 className="text-sm font-bold text-[var(--text-primary)]">Precise Progress Setter</h3>
                   </div>
-                  <span className="text-xs text-zinc-400 font-mono">
+                  <span className="text-xs text-[var(--text-secondary)] font-mono">
                     Currently at: {media.currentSeason ? `S${media.currentSeason}` : 'S1'} {media.currentEpisode ? `E${media.currentEpisode}` : 'E0'}
                   </span>
                 </div>
 
-                <p className="text-xs text-zinc-400">
+                <p className="text-xs text-[var(--text-secondary)]">
                   Quickly set the exact season and episode you have reached:
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-lg border border-zinc-800">
-                    <span className="text-xs text-zinc-400 font-medium">Season:</span>
+                  <div className="flex items-center gap-2 bg-[var(--bg-primary)] px-3 py-1.5 rounded-lg border border-[var(--border-light)]">
+                    <span className="text-xs text-[var(--text-secondary)] font-medium">Season:</span>
                     <input
                       type="number"
                       min="1"
                       max={seasonNumbers[seasonNumbers.length - 1] || 50}
                       value={inputSeason}
                       onChange={(e) => setInputSeason(e.target.value)}
-                      className="w-14 bg-zinc-900 px-2 py-1 rounded text-xs text-center font-bold text-indigo-300 border border-zinc-700 focus:outline-none focus:border-indigo-500"
+                      className="w-14 bg-[var(--card-bg)] px-2 py-1 rounded text-xs text-center font-bold text-[var(--accent)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
                     />
                   </div>
 
-                  <div className="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-lg border border-zinc-800">
-                    <span className="text-xs text-zinc-400 font-medium">Episode:</span>
+                  <div className="flex items-center gap-2 bg-[var(--bg-primary)] px-3 py-1.5 rounded-lg border border-[var(--border-light)]">
+                    <span className="text-xs text-[var(--text-secondary)] font-medium">Episode:</span>
                     <input
                       type="number"
                       min="0"
                       max="200"
                       value={inputEpisode}
                       onChange={(e) => setInputEpisode(e.target.value)}
-                      className="w-14 bg-zinc-900 px-2 py-1 rounded text-xs text-center font-bold text-indigo-300 border border-zinc-700 focus:outline-none focus:border-indigo-500"
+                      className="w-14 bg-[var(--card-bg)] px-2 py-1 rounded text-xs text-center font-bold text-[var(--accent)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
                     />
                   </div>
 
                   <button
                     onClick={() => handleApplyExactProgress(true)}
-                    className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/30 active:scale-95"
+                    className="px-3.5 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95"
                   >
                     Set & Mark Watched
                   </button>
 
                   <button
                     onClick={() => handleApplyExactProgress(false)}
-                    className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-medium transition-all"
+                    className="px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-medium border border-[var(--border-light)] transition-all"
                     title="Update current pointer without altering episode checkboxes"
                   >
                     Set Pointer Only
@@ -371,15 +371,15 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
 
               {/* 2. NEXT UP TO WATCH HIGHLIGHT */}
               {nextUpEpisode && (
-                <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 text-xs">
+                <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-[var(--accent-bg)] border border-[var(--accent)]/30 text-xs">
                   <div className="flex items-center gap-2.5">
-                    <PlayCircle className="w-5 h-5 text-indigo-400 shrink-0" />
+                    <PlayCircle className="w-5 h-5 text-[var(--accent)] shrink-0" />
                     <div>
-                      <span className="font-semibold text-indigo-200">Up Next: </span>
-                      <span className="text-white font-bold">
+                      <span className="font-semibold text-[var(--accent)]">Up Next: </span>
+                      <span className="text-[var(--text-primary)] font-bold">
                         S{nextUpEpisode.seasonNumber}E{nextUpEpisode.episodeNumber}
                       </span>
-                      <span className="text-zinc-300 font-medium ml-1">
+                      <span className="text-[var(--text-secondary)] font-medium ml-1">
                         — "{nextUpEpisode.title}"
                       </span>
                     </div>
@@ -387,7 +387,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
 
                   <button
                     onClick={() => handleToggleEpisode(nextUpEpisode)}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shrink-0 transition-all shadow-sm"
+                    className="px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white font-bold text-xs shrink-0 transition-all shadow-sm"
                   >
                     Mark Watched
                   </button>
@@ -397,8 +397,8 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
               {/* 3. SEASON TABS & EPISODE CHECKLIST WITH TITLES */}
               <div>
                 <div className="flex items-center justify-between gap-2 mb-3">
-                  <h3 className="text-sm font-bold text-white">Episodes & Seasons</h3>
-                  <span className="text-xs text-zinc-400">
+                  <h3 className="text-sm font-bold text-[var(--text-primary)]">Episodes & Seasons</h3>
+                  <span className="text-xs text-[var(--text-secondary)]">
                     Total: {episodes.length} episodes
                   </span>
                 </div>
@@ -418,14 +418,14 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                           onClick={() => setSelectedSeason(sNum)}
                           className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ${
                             isSelected
-                              ? 'bg-zinc-800 text-white border-indigo-500'
-                              : 'bg-zinc-950 text-zinc-400 hover:text-zinc-200 border-zinc-800'
+                              ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-sm'
+                              : 'bg-[var(--card-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-light)]'
                           }`}
                         >
                           <span>Season {sNum}</span>
                           <span
                             className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                              isDone ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-zinc-400'
+                              isDone ? 'bg-emerald-950 text-emerald-400' : isSelected ? 'bg-black/20 text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
                             }`}
                           >
                             {watched}/{seasonEps.length}
@@ -481,19 +481,19 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                               type="checkbox"
                               checked={isWatched}
                               onChange={() => handleToggleEpisode(ep)}
-                              className="w-4 h-4 rounded text-indigo-600 bg-zinc-900 border-zinc-700 focus:ring-0 cursor-pointer"
+                              className="w-4 h-4 rounded bg-[var(--card-bg)] border-[var(--border-light)] accent-[var(--accent)] cursor-pointer"
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs font-bold font-mono text-zinc-400">
+                                <span className="text-xs font-bold font-mono text-[var(--text-secondary)]">
                                   E{String(ep.episodeNumber).padStart(2, '0')}
                                 </span>
-                                <span className={`text-xs font-semibold truncate ${isWatched ? 'line-through text-zinc-500' : 'text-zinc-200'}`}>
+                                <span className={`text-xs font-semibold truncate ${isWatched ? 'line-through text-[var(--text-secondary)] opacity-60' : 'text-[var(--text-primary)]'}`}>
                                   {ep.title}
                                 </span>
                               </div>
                               {ep.airDate && (
-                                <span className="text-[11px] text-zinc-500">
+                                <span className="text-[11px] text-[var(--text-secondary)]">
                                   Aired: {ep.airDate}
                                 </span>
                               )}
@@ -503,7 +503,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                           {ep.overview && (
                             <button
                               onClick={() => toggleExpand(ep.id)}
-                              className="p-1 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
+                              className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                               title="Toggle episode synopsis"
                             >
                               {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -513,7 +513,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
 
                         {/* Expandable episode summary */}
                         {isExpanded && ep.overview && (
-                          <div className="mt-2.5 pt-2 border-t border-zinc-800/60 text-xs text-zinc-400 leading-relaxed">
+                          <div className="mt-2.5 pt-2 border-t border-[var(--border-light)] text-xs text-[var(--text-secondary)] leading-relaxed">
                             {ep.overview}
                           </div>
                         )}
@@ -527,9 +527,9 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
           )}
 
           {/* User Notes Section */}
-          <div className="pt-4 border-t border-zinc-800">
+          <div className="pt-4 border-t border-[var(--border-light)]">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">My Notes & Thoughts</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">My Notes & Thoughts</h3>
               {notesSavedNotice && (
                 <span className="text-xs text-emerald-400 font-medium animate-fadeIn">
                   Saved!
@@ -541,13 +541,13 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Add your personal review, where you left off, favorite character, or comments..."
               rows={3}
-              className="w-full p-3 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-indigo-500 leading-relaxed"
+              className="w-full p-3 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--input-focus)] leading-relaxed"
             />
             <div className="flex justify-end mt-2">
               <button
                 onClick={handleSaveNotes}
                 disabled={isSavingNotes}
-                className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition-all"
+                className="px-3.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium border border-[var(--border-light)] transition-all"
               >
                 {isSavingNotes ? 'Saving...' : 'Save Notes'}
               </button>

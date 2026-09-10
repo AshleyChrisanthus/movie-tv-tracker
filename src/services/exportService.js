@@ -72,13 +72,14 @@ export async function unlinkBackupDirectory() {
 }
 
 /**
- * Generate timestamped filename.
+ * Generate timestamped filename reflecting backup mode.
  */
-export function generateBackupFilename() {
+export function generateBackupFilename(mode = 'compact') {
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
   const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-  return `watch-history-backup-${timestamp}.json`;
+  const prefix = mode === 'full' ? 'watch-history-full' : 'watch-history-compact';
+  return `${prefix}-${timestamp}.json`;
 }
 
 /**
@@ -87,10 +88,11 @@ export function generateBackupFilename() {
  * 2. If no directory linked, attempts local Vite server /api/export endpoint.
  * 3. Falls back to window.showSaveFilePicker or standard browser download.
  */
-export async function saveExportToLocal(customFilename = null) {
-  const data = await exportAllData();
-  const filename = customFilename || generateBackupFilename();
-  const content = JSON.stringify(data, null, 2);
+export async function saveExportToLocal(customFilename = null, options = {}) {
+  const mode = options?.mode || (await getSetting('backup_mode', 'compact'));
+  const data = await exportAllData({ mode });
+  const filename = customFilename || generateBackupFilename(mode);
+  const content = mode === 'compact' ? JSON.stringify(data) : JSON.stringify(data, null, 2);
 
   // 1. Try Linked Directory Handle (Serverless direct folder writing)
   try {
@@ -218,11 +220,13 @@ export async function getLocalExportsList() {
 /**
  * Direct browser download
  */
-export async function downloadExportToBrowser(customFilename = null) {
-  const data = await exportAllData();
-  const filename = customFilename || generateBackupFilename();
+export async function downloadExportToBrowser(customFilename = null, options = {}) {
+  const mode = options?.mode || (await getSetting('backup_mode', 'compact'));
+  const data = await exportAllData({ mode });
+  const filename = customFilename || generateBackupFilename(mode);
 
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const content = mode === 'compact' ? JSON.stringify(data) : JSON.stringify(data, null, 2);
+  const blob = new Blob([content], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement('a');

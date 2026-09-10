@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Key, Download, Upload, Folder, FolderCheck, CheckCircle, 
-  AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink
+  AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
+  Zap, Archive
 } from 'lucide-react';
 import { getSetting, setSetting } from '../db';
 import { 
@@ -19,6 +20,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
   // File System Access & Export State
   const [fsSupported, setFsSupported] = useState(false);
   const [linkedDirHandle, setLinkedDirHandle] = useState(null);
+  const [backupMode, setBackupMode] = useState('compact');
   const [isLinking, setIsLinking] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -38,6 +40,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
     if (isOpen) {
       setFsSupported(isFileSystemAccessSupported());
       getSetting('tmdb_api_key', '').then(k => setApiKey(k || ''));
+      getSetting('backup_mode', 'compact').then(m => setBackupMode(m || 'compact'));
       checkLinkedDirectory();
       loadExportsList();
     } else {
@@ -122,21 +125,28 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
     await loadExportsList();
   };
 
+  // Backup Mode Handler
+  const handleSetBackupMode = async (mode) => {
+    setBackupMode(mode);
+    await setSetting('backup_mode', mode);
+  };
+
   // Save Export Handler
   const handleSaveExport = async () => {
     setIsExporting(true);
     setExportNotice(null);
     try {
-      const res = await saveExportToLocal();
+      const res = await saveExportToLocal(null, { mode: backupMode });
       let msg = '';
+      const sizeStr = res.fileSize ? ` (${(res.fileSize / 1024).toFixed(1)} KB)` : '';
       if (res.method === 'linked_folder') {
-        msg = `Saved to "${res.folderName}/${res.filename}" directly on your hard drive!`;
+        msg = `Saved to "${res.folderName}/${res.filename}"${sizeStr} directly on your hard drive!`;
       } else if (res.method === 'local_server') {
-        msg = `Saved to ${res.filePath} via local server.`;
+        msg = `Saved to ${res.filePath}${sizeStr} via local server.`;
       } else if (res.method === 'file_picker') {
-        msg = `Saved ${res.filename} to chosen location.`;
+        msg = `Saved ${res.filename}${sizeStr} to chosen location.`;
       } else {
-        msg = `Downloaded ${res.filename} to your Downloads folder.`;
+        msg = `Downloaded ${res.filename}${sizeStr} to your Downloads folder.`;
       }
 
       setExportNotice({ success: true, message: msg });
@@ -152,7 +162,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      const res = await downloadExportToBrowser();
+      const res = await downloadExportToBrowser(null, { mode: backupMode });
       setExportNotice({
         success: true,
         message: `Downloaded ${res.filename} to your browser Downloads folder.`
@@ -339,6 +349,66 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
               </div>
             )}
 
+            {/* Backup Mode Selector (Compact vs Full) */}
+            <div className="p-3.5 rounded-xl bg-[var(--card-bg)] border border-[var(--border-light)] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[var(--text-primary)]">Backup Mode</span>
+                <span className="text-[11px] text-[var(--text-secondary)] font-mono">
+                  {backupMode === 'compact' ? 'Optimized (~20–120 KB)' : 'Full Archive (~500 KB+)'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* Compact Mode Card */}
+                <button
+                  type="button"
+                  onClick={() => handleSetBackupMode('compact')}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    backupMode === 'compact'
+                      ? 'bg-[var(--accent-bg)] border-[var(--accent)] text-[var(--text-primary)] shadow-sm'
+                      : 'bg-[var(--bg-secondary)] border-[var(--border-light)] text-[var(--text-secondary)] hover:border-[var(--accent)]/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-[var(--accent)]" />
+                      <span>Compact Progress</span>
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60">
+                      Recommended
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                    Lightweight. Stores all your watch history, status, ratings, custom notes, and episode titles without heavy plot synopses and image URLs.
+                  </p>
+                </button>
+
+                {/* Full Snapshot Card */}
+                <button
+                  type="button"
+                  onClick={() => handleSetBackupMode('full')}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    backupMode === 'full'
+                      ? 'bg-[var(--accent-bg)] border-[var(--accent)] text-[var(--text-primary)] shadow-sm'
+                      : 'bg-[var(--bg-secondary)] border-[var(--border-light)] text-[var(--text-secondary)] hover:border-[var(--accent)]/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+                      <Archive className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Full Offline Snapshot</span>
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+                      Complete
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                    Complete database archive. Includes all cached episode plot summaries and screenshot URLs for cold-start 100% offline restoration.
+                  </p>
+                </button>
+              </div>
+            </div>
+
             {/* Export Buttons */}
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -351,18 +421,18 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                   {isExporting
                     ? 'Saving...'
                     : linkedDirHandle
-                    ? `Save Backup to ${linkedDirHandle.name}/`
-                    : 'Save Backup (exports/)'}
+                    ? `Save ${backupMode === 'compact' ? 'Compact' : 'Full'} Backup to ${linkedDirHandle.name}/`
+                    : `Save ${backupMode === 'compact' ? 'Compact' : 'Full'} Backup (exports/)`}
                 </span>
               </button>
 
               <button
                 onClick={handleDownload}
                 disabled={isDownloading}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold transition-all border border-zinc-700 active:scale-95 disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)] active:scale-95 disabled:opacity-50"
               >
-                <Download className="w-4 h-4" />
-                <span>{isDownloading ? 'Preparing...' : 'Download to Downloads Folder'}</span>
+                <Download className="w-4 h-4 text-[var(--accent)]" />
+                <span>{isDownloading ? 'Preparing...' : `Download ${backupMode === 'compact' ? 'Compact' : 'Full'} Backup`}</span>
               </button>
             </div>
 
@@ -377,14 +447,14 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
 
             {/* Backups List */}
             {localExports.length > 0 && (
-              <div className="pt-2 border-t border-zinc-800">
+              <div className="pt-2 border-t border-[var(--border-light)]">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                  <span className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
                     Found Backups ({localExports.length})
                   </span>
                   <button
                     onClick={loadExportsList}
-                    className="text-[11px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1"
+                    className="text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1"
                   >
                     <RefreshCw className="w-3 h-3" />
                     <span>Refresh</span>
@@ -392,46 +462,65 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                 </div>
 
                 <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                  {localExports.map(file => (
-                    <div
-                      key={file.filename}
-                      className="flex items-center justify-between p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 text-xs"
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <FileText className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                        <span className="font-mono text-zinc-200 truncate">{file.filename}</span>
+                  {localExports.map(file => {
+                    const isCompact = file.filename.includes('compact');
+                    const isFull = file.filename.includes('full');
+
+                    return (
+                      <div
+                        key={file.filename}
+                        className="flex items-center justify-between p-2 rounded-lg bg-[var(--card-bg)] border border-[var(--border-light)] text-xs"
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <FileText className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
+                          <span className="font-mono text-[var(--text-primary)] truncate">{file.filename}</span>
+                          {isCompact && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/50 shrink-0">
+                              Compact
+                            </span>
+                          )}
+                          {isFull && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shrink-0">
+                              Full
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-[var(--text-secondary)] font-mono shrink-0 ml-2">
+                          {(file.size / 1024).toFixed(1)} KB
+                        </span>
                       </div>
-                      <span className="text-[11px] text-zinc-500 font-mono shrink-0 ml-2">
-                        {(file.size / 1024).toFixed(1)} KB
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
           </div>
 
           {/* RESTORE & IMPORT SECTION */}
-          <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-3">
+          <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
             <div className="flex items-center gap-2">
-              <Upload className="w-4 h-4 text-violet-400" />
-              <h3 className="text-sm font-bold text-white">Import Watch History Backup</h3>
+              <Upload className="w-4 h-4 text-[var(--accent)]" />
+              <h3 className="text-sm font-bold text-[var(--text-primary)]">Import Watch History Backup</h3>
             </div>
+
+            <p className="text-xs text-[var(--text-secondary)]">
+              Compatible with both <strong>Compact</strong> and <strong>Full</strong> backup files.
+            </p>
 
             <form onSubmit={handleImport} className="space-y-3">
               <input
                 type="file"
                 accept=".json"
                 onChange={(e) => setImportFile(e.target.files[0] || null)}
-                className="block w-full text-xs text-zinc-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-zinc-800 file:text-zinc-200 hover:file:bg-zinc-700 cursor-pointer"
+                className="block w-full text-xs text-[var(--text-secondary)] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[var(--bg-tertiary)] file:text-[var(--text-primary)] hover:file:bg-[var(--bg-hover)] cursor-pointer"
               />
 
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-300 select-none">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--text-secondary)] select-none">
                 <input
                   type="checkbox"
                   checked={overwriteMode}
                   onChange={(e) => setOverwriteMode(e.target.checked)}
-                  className="rounded text-violet-600 bg-zinc-900 border-zinc-700 focus:ring-0"
+                  className="rounded text-[var(--accent)] bg-[var(--input-bg)] border-[var(--input-border)] focus:ring-0 accent-[var(--accent)]"
                 />
                 <span>Overwrite existing library (unchecked merges with current list)</span>
               </label>
@@ -439,7 +528,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
               <button
                 type="submit"
                 disabled={!importFile || isImporting}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all shadow-md shadow-violet-600/30 active:scale-95 disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95 disabled:opacity-50"
               >
                 <Upload className="w-3.5 h-3.5" />
                 <span>{isImporting ? 'Importing...' : 'Restore Backup'}</span>

@@ -359,16 +359,36 @@ export async function updateMediaRatingAndNotes(id, rating, notes) {
 }
 
 /**
- * Export all data from IndexedDB as a complete JSON backup object.
+ * Export all data from IndexedDB as a JSON backup object.
+ * Supports:
+ * - 'compact' (default): Strips heavy plot synopses and screenshots from episodes. Keeps all media, user ratings, notes, episode titles, air dates, and watched statuses.
+ * - 'full': Complete offline snapshot including all synopses and image URLs.
  */
-export async function exportAllData() {
+export async function exportAllData(options = {}) {
+  const mode = options?.mode || 'compact';
   const media = await db.media.toArray();
-  const episodes = await db.episodes.toArray();
+  const rawEpisodes = await db.episodes.toArray();
   const settings = await db.settings.toArray();
+
+  let episodes = rawEpisodes;
+  if (mode === 'compact') {
+    episodes = rawEpisodes.map(ep => ({
+      id: ep.id,
+      mediaId: ep.mediaId,
+      seasonNumber: ep.seasonNumber,
+      episodeNumber: ep.episodeNumber,
+      title: ep.title,
+      airDate: ep.airDate,
+      runtime: ep.runtime,
+      isWatched: ep.isWatched,
+      watchedAt: ep.watchedAt
+    }));
+  }
 
   return {
     app: 'BingeLog',
     version: 1,
+    backupMode: mode,
     exportedAt: new Date().toISOString(),
     totalMedia: media.length,
     totalEpisodes: episodes.length,

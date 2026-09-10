@@ -6,13 +6,13 @@ import {
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes, 
-  deleteMediaItem 
+  deleteMediaItem, getMediaById
 } from '../db';
 import { syncMediaEpisodes } from '../services/api';
 
 export default function MediaDetailModal({ media, onClose, onUpdated, onEditCustom }) {
   const [episodes, setEpisodes] = useState([]);
-  const [selectedSeason, setSelectedSeason] = useState(1);
+  const [selectedSeason, setSelectedSeason] = useState(null);
   const [status, setStatus] = useState(media.status || 'plan_to_watch');
   const [rating, setRating] = useState(media.rating || 0);
   const [notes, setNotes] = useState(media.notes || '');
@@ -30,18 +30,38 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
 
   const isTv = media.type === 'tv';
 
-  // Load episodes from IndexedDB
-  const loadEpisodes = async () => {
+  // Load episodes from IndexedDB while preserving current active season
+  const loadEpisodes = async (targetSeason = null) => {
     if (!isTv) return;
-    const eps = await getEpisodesForMedia(media.id);
+    const [eps, latestMedia] = await Promise.all([
+      getEpisodesForMedia(media.id),
+      getMediaById(media.id)
+    ]);
     setEpisodes(eps);
 
     if (eps.length > 0) {
-      // Default to season containing next unwatched episode or currentSeason
-      const current = media.currentSeason || 1;
-      setSelectedSeason(current);
-      setInputSeason(current);
-      setInputEpisode(media.currentEpisode || 0);
+      setSelectedSeason(prev => {
+        // If explicitly requested to switch to targetSeason (and it exists)
+        if (targetSeason !== null && targetSeason !== undefined) {
+          const exists = eps.some(e => e.seasonNumber === targetSeason);
+          if (exists) return targetSeason;
+        }
+
+        // If user already has an active season selection that exists in this show, PRESERVE IT!
+        if (prev !== null && prev !== undefined && eps.some(e => e.seasonNumber === prev)) {
+          return prev;
+        }
+
+        // Default on initial load or fallback:
+        const current = latestMedia?.currentSeason || media.currentSeason || 1;
+        const currentExists = eps.some(e => e.seasonNumber === current);
+        return currentExists ? current : (eps[0]?.seasonNumber || 1);
+      });
+
+      if (latestMedia) {
+        setInputSeason(latestMedia.currentSeason || 1);
+        setInputEpisode(latestMedia.currentEpisode || 0);
+      }
     }
   };
 
@@ -78,6 +98,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
   };
 
   useEffect(() => {
+    setSelectedSeason(null);
     loadEpisodes();
     // Silently check for new episodes if watching a TV show with external ID
     if (isTv && media.status === 'watching' && media.externalId) {
@@ -106,7 +127,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
   // Toggle single episode
   const handleToggleEpisode = async (ep) => {
     await toggleEpisodeWatched(media.id, ep.seasonNumber, ep.episodeNumber);
-    await loadEpisodes();
+    await loadEpisodes(activeSeason);
     if (onUpdated) onUpdated();
   };
 
@@ -116,14 +137,14 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
     const e = Math.max(0, parseInt(inputEpisode, 10) || 0);
 
     await setExactProgress(media.id, s, e, markPrevious);
-    await loadEpisodes();
+    await loadEpisodes(s);
     if (onUpdated) onUpdated();
   };
 
   // Mark full season watched or unwatched
   const handleToggleSeason = async (seasonNum, markAsWatched) => {
     await setSeasonWatched(media.id, seasonNum, markAsWatched);
-    await loadEpisodes();
+    await loadEpisodes(seasonNum);
     if (onUpdated) onUpdated();
   };
 
@@ -141,7 +162,11 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
     new Set(episodes.map(ep => ep.seasonNumber))
   ).sort((a, b) => a - b);
 
-  const currentSeasonEpisodes = episodes.filter(ep => ep.seasonNumber === selectedSeason);
+  const activeSeason = (selectedSeason !== null && selectedSeason !== undefined)
+    ? selectedSeason
+    : (media.currentSeason || seasonNumbers[0] || 1);
+
+  const currentSeasonEpisodes = episodes.filter(ep => ep.seasonNumber === activeSeason);
   const currentSeasonWatchedCount = currentSeasonEpisodes.filter(ep => ep.isWatched === 1).length;
   const isSeasonFullyWatched = currentSeasonEpisodes.length > 0 && currentSeasonWatchedCount === currentSeasonEpisodes.length;
 
@@ -410,7 +435,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                       const seasonEps = episodes.filter(e => e.seasonNumber === sNum);
                       const watched = seasonEps.filter(e => e.isWatched === 1).length;
                       const isDone = seasonEps.length > 0 && watched === seasonEps.length;
-                      const isSelected = selectedSeason === sNum;
+                      const isSelected = activeSeason === sNum;
 
                       return (
                         <button
@@ -444,11 +469,11 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                 {currentSeasonEpisodes.length > 0 && (
                   <div className="flex items-center justify-between bg-zinc-950 px-3.5 py-2 rounded-xl border border-zinc-800/80 mb-3">
                     <span className="text-xs font-semibold text-zinc-300">
-                      Season {selectedSeason} ({currentSeasonWatchedCount}/{currentSeasonEpisodes.length} watched)
+                      Season {activeSeason} ({currentSeasonWatchedCount}/{currentSeasonEpisodes.length} watched)
                     </span>
 
                     <button
-                      onClick={() => handleToggleSeason(selectedSeason, !isSeasonFullyWatched)}
+                      onClick={() => handleToggleSeason(activeSeason, !isSeasonFullyWatched)}
                       className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${
                         isSeasonFullyWatched
                           ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'

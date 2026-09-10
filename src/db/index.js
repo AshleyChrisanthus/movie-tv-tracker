@@ -225,6 +225,52 @@ export async function setExactProgress(mediaId, targetSeason, targetEpisode, mar
 }
 
 /**
+ * Strike off / mark all episodes up to and including (targetSeason, targetEpisode) as watched.
+ * Does not unmark any already-watched episodes after it.
+ */
+export async function markEpisodesUpToWatched(mediaId, targetSeason, targetEpisode) {
+  return await db.transaction('rw', db.media, db.episodes, async () => {
+    const episodes = await db.episodes.where('mediaId').equals(mediaId).toArray();
+    const now = new Date().toISOString();
+
+    for (const ep of episodes) {
+      const isPastOrEqual = 
+        ep.seasonNumber < targetSeason || 
+        (ep.seasonNumber === targetSeason && ep.episodeNumber <= targetEpisode);
+      
+      if (isPastOrEqual && ep.isWatched !== 1) {
+        await db.episodes.update(ep.id, {
+          isWatched: 1,
+          watchedAt: now
+        });
+      }
+    }
+
+    const updatedEpisodes = await db.episodes.where('mediaId').equals(mediaId).toArray();
+    const watchedCount = updatedEpisodes.filter(e => e.isWatched === 1).length;
+    const totalCount = updatedEpisodes.length;
+
+    const media = await db.media.get(mediaId);
+    if (media) {
+      let status = media.status;
+      if (totalCount > 0 && watchedCount === totalCount) {
+        status = 'completed';
+      } else if (watchedCount > 0 && status === 'plan_to_watch') {
+        status = 'watching';
+      }
+
+      await db.media.update(mediaId, {
+        currentSeason: targetSeason,
+        currentEpisode: targetEpisode,
+        watchedEpisodesCount: watchedCount,
+        status,
+        updatedAt: now
+      });
+    }
+  });
+}
+
+/**
  * Mark an entire season as watched or unwatched.
  */
 export async function setSeasonWatched(mediaId, seasonNumber, isWatched) {

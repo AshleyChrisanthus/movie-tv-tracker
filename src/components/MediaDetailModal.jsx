@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Star, Film, Tv, CheckCircle2, Play, Calendar, Clock, 
-  Trash2, Edit3, ChevronDown, ChevronUp, Check, PlayCircle, Eye, RefreshCw
+  Trash2, Edit3, ChevronDown, ChevronUp, Check, PlayCircle, Eye, RefreshCw,
+  CheckCheck
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes, 
-  deleteMediaItem, getMediaById
+  deleteMediaItem, getMediaById, markEpisodesUpToWatched
 } from '../db';
 import { syncMediaEpisodes } from '../services/api';
 
@@ -127,6 +128,13 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
   // Toggle single episode
   const handleToggleEpisode = async (ep) => {
     await toggleEpisodeWatched(media.id, ep.seasonNumber, ep.episodeNumber);
+    await loadEpisodes(activeSeason);
+    if (onUpdated) onUpdated();
+  };
+
+  // Strike off / mark all episodes up to and including a specific episode
+  const handleMarkUpTo = async (ep) => {
+    await markEpisodesUpToWatched(media.id, ep.seasonNumber, ep.episodeNumber);
     await loadEpisodes(activeSeason);
     if (onUpdated) onUpdated();
   };
@@ -525,15 +533,26 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                             </div>
                           </label>
 
-                          {ep.overview && (
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <button
-                              onClick={() => toggleExpand(ep.id)}
-                              className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                              title="Toggle episode synopsis"
+                              onClick={() => handleMarkUpTo(ep)}
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-[var(--bg-tertiary)] hover:bg-[var(--accent)] text-[var(--text-secondary)] hover:text-white border border-[var(--border-light)] hover:border-[var(--accent)] transition-all active:scale-95 group/btn"
+                              title={`Strike off / mark all episodes up to S${ep.seasonNumber}E${ep.episodeNumber} as watched`}
                             >
-                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              <CheckCheck className="w-3.5 h-3.5 text-[var(--accent)] group-hover/btn:text-white transition-colors" />
+                              <span className="hidden sm:inline">Up to here</span>
                             </button>
-                          )}
+
+                            {ep.overview && (
+                              <button
+                                onClick={() => toggleExpand(ep.id)}
+                                className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                                title="Toggle episode synopsis"
+                              >
+                                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         {/* Expandable episode summary */}

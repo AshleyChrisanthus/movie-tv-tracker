@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Key, Download, Upload, Folder, FolderCheck, CheckCircle, 
   AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
-  Zap, Archive
+  Zap, Archive, Sparkles
 } from 'lucide-react';
 import { getSetting, setSetting } from '../db';
 import { 
@@ -349,21 +349,45 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
               </div>
             )}
 
-            {/* Backup Mode Selector (Compact vs Full) */}
+            {/* Backup Mode Selector (Minimal vs Compact vs Full) */}
             <div className="p-3.5 rounded-xl bg-[var(--card-bg)] border border-[var(--border-light)] space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-[var(--text-primary)]">Backup Mode</span>
                 <span className="text-[11px] text-[var(--text-secondary)] font-mono">
-                  {backupMode === 'compact' ? 'Optimized (~20–120 KB)' : 'Full Archive (~500 KB+)'}
+                  {backupMode === 'minimal' ? 'Ultra-Light (~15–80 KB)' : backupMode === 'compact' ? 'Checklist (~120–200 KB)' : 'Full Archive (~500 KB+)'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {/* Minimal Mode Card */}
+                <button
+                  type="button"
+                  onClick={() => handleSetBackupMode('minimal')}
+                  className={`p-2.5 rounded-xl border text-left transition-all ${
+                    backupMode === 'minimal'
+                      ? 'bg-[var(--accent-bg)] border-[var(--accent)] text-[var(--text-primary)] shadow-sm'
+                      : 'bg-[var(--bg-secondary)] border-[var(--border-light)] text-[var(--text-secondary)] hover:border-[var(--accent)]/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Ultra-Light</span>
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-amber-950 text-amber-400 border border-amber-800/60">
+                      Smallest
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">
+                    History only. Stores watched episodes, ratings, and notes. Excludes all unwatched episodes.
+                  </p>
+                </button>
+
                 {/* Compact Mode Card */}
                 <button
                   type="button"
                   onClick={() => handleSetBackupMode('compact')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-2.5 rounded-xl border text-left transition-all ${
                     backupMode === 'compact'
                       ? 'bg-[var(--accent-bg)] border-[var(--accent)] text-[var(--text-primary)] shadow-sm'
                       : 'bg-[var(--bg-secondary)] border-[var(--border-light)] text-[var(--text-secondary)] hover:border-[var(--accent)]/50'
@@ -371,15 +395,15 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
-                      <Zap className="w-3.5 h-3.5 text-[var(--accent)]" />
-                      <span>Compact Progress</span>
+                      <Sparkles className="w-3.5 h-3.5 text-[var(--accent)]" />
+                      <span>Compact</span>
                     </span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60">
+                    <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60">
                       Recommended
                     </span>
                   </div>
-                  <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                    Lightweight. Stores all your watch history, status, ratings, custom notes, and episode titles without heavy plot synopses and image URLs.
+                  <p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">
+                    Offline checklist. Stores all episode titles & numbers without heavy synopses or images.
                   </p>
                 </button>
 
@@ -387,7 +411,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                 <button
                   type="button"
                   onClick={() => handleSetBackupMode('full')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-2.5 rounded-xl border text-left transition-all ${
                     backupMode === 'full'
                       ? 'bg-[var(--accent-bg)] border-[var(--accent)] text-[var(--text-primary)] shadow-sm'
                       : 'bg-[var(--bg-secondary)] border-[var(--border-light)] text-[var(--text-secondary)] hover:border-[var(--accent)]/50'
@@ -395,15 +419,15 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
-                      <Archive className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Full Offline Snapshot</span>
+                      <Archive className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Full Archive</span>
                     </span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+                    <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
                       Complete
                     </span>
                   </div>
-                  <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                    Complete database archive. Includes all cached episode plot summaries and screenshot URLs for cold-start 100% offline restoration.
+                  <p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">
+                    Complete dump. Includes all episode plot summaries and image URLs for 100% cold restoration.
                   </p>
                 </button>
               </div>
@@ -421,8 +445,8 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                   {isExporting
                     ? 'Saving...'
                     : linkedDirHandle
-                    ? `Save ${backupMode === 'compact' ? 'Compact' : 'Full'} Backup to ${linkedDirHandle.name}/`
-                    : `Save ${backupMode === 'compact' ? 'Compact' : 'Full'} Backup (exports/)`}
+                    ? `Save ${backupMode === 'minimal' ? 'Ultra-Light' : backupMode === 'compact' ? 'Compact' : 'Full'} Backup to ${linkedDirHandle.name}/`
+                    : `Save ${backupMode === 'minimal' ? 'Ultra-Light' : backupMode === 'compact' ? 'Compact' : 'Full'} Backup (exports/)`}
                 </span>
               </button>
 
@@ -432,7 +456,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)] active:scale-95 disabled:opacity-50"
               >
                 <Download className="w-4 h-4 text-[var(--accent)]" />
-                <span>{isDownloading ? 'Preparing...' : `Download ${backupMode === 'compact' ? 'Compact' : 'Full'} Backup`}</span>
+                <span>{isDownloading ? 'Preparing...' : `Download ${backupMode === 'minimal' ? 'Ultra-Light' : backupMode === 'compact' ? 'Compact' : 'Full'} Backup`}</span>
               </button>
             </div>
 
@@ -463,6 +487,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
 
                 <div className="space-y-1.5 max-h-36 overflow-y-auto">
                   {localExports.map(file => {
+                    const isMinimal = file.filename.includes('minimal');
                     const isCompact = file.filename.includes('compact');
                     const isFull = file.filename.includes('full');
 
@@ -474,6 +499,11 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                         <div className="flex items-center gap-2 truncate">
                           <FileText className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
                           <span className="font-mono text-[var(--text-primary)] truncate">{file.filename}</span>
+                          {isMinimal && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-amber-950 text-amber-400 border border-amber-800/50 shrink-0">
+                              Ultra-Light
+                            </span>
+                          )}
                           {isCompact && (
                             <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/50 shrink-0">
                               Compact
@@ -504,7 +534,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
             </div>
 
             <p className="text-xs text-[var(--text-secondary)]">
-              Compatible with both <strong>Compact</strong> and <strong>Full</strong> backup files.
+              Compatible with <strong>Ultra-Light</strong>, <strong>Compact</strong>, and <strong>Full</strong> backup files.
             </p>
 
             <form onSubmit={handleImport} className="space-y-3">

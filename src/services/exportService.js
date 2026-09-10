@@ -78,7 +78,11 @@ export function generateBackupFilename(mode = 'compact') {
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
   const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-  const prefix = mode === 'full' ? 'watch-history-full' : 'watch-history-compact';
+  const prefix = mode === 'full' 
+    ? 'watch-history-full' 
+    : mode === 'minimal' 
+    ? 'watch-history-minimal' 
+    : 'watch-history-compact';
   return `${prefix}-${timestamp}.json`;
 }
 
@@ -92,7 +96,7 @@ export async function saveExportToLocal(customFilename = null, options = {}) {
   const mode = options?.mode || (await getSetting('backup_mode', 'compact'));
   const data = await exportAllData({ mode });
   const filename = customFilename || generateBackupFilename(mode);
-  const content = mode === 'compact' ? JSON.stringify(data) : JSON.stringify(data, null, 2);
+  const content = (mode === 'compact' || mode === 'minimal') ? JSON.stringify(data) : JSON.stringify(data, null, 2);
 
   // 1. Try Linked Directory Handle (Serverless direct folder writing)
   try {
@@ -225,7 +229,7 @@ export async function downloadExportToBrowser(customFilename = null, options = {
   const data = await exportAllData({ mode });
   const filename = customFilename || generateBackupFilename(mode);
 
-  const content = mode === 'compact' ? JSON.stringify(data) : JSON.stringify(data, null, 2);
+  const content = (mode === 'compact' || mode === 'minimal') ? JSON.stringify(data) : JSON.stringify(data, null, 2);
   const blob = new Blob([content], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
 

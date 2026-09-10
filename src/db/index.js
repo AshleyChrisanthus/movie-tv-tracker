@@ -361,8 +361,9 @@ export async function updateMediaRatingAndNotes(id, rating, notes) {
 /**
  * Export all data from IndexedDB as a JSON backup object.
  * Supports:
- * - 'compact' (default): Strips heavy plot synopses and screenshots from episodes. Keeps all media, user ratings, notes, episode titles, air dates, and watched statuses.
- * - 'full': Complete offline snapshot including all synopses and image URLs.
+ * - 'minimal': Ultra-light watch history (~15-25 KB). Only saves watched episodes (isWatched === 1) and custom entries. Strips heavy synopses and image URLs.
+ * - 'compact' (default): Compact checklist (~120-200 KB). Saves all episode titles and numbers for complete offline checklist access, without synopses and screenshots.
+ * - 'full': Complete offline snapshot (~500 KB+) with all cached synopses and screenshots.
  */
 export async function exportAllData(options = {}) {
   const mode = options?.mode || 'compact';
@@ -370,8 +371,25 @@ export async function exportAllData(options = {}) {
   const rawEpisodes = await db.episodes.toArray();
   const settings = await db.settings.toArray();
 
+  const customMediaIds = new Set(media.filter(m => m.source === 'custom').map(m => m.id));
+
   let episodes = rawEpisodes;
-  if (mode === 'compact') {
+  if (mode === 'minimal') {
+    // Only include watched episodes or custom episodes (so custom user items are never lost)
+    episodes = rawEpisodes
+      .filter(ep => ep.isWatched === 1 || customMediaIds.has(ep.mediaId))
+      .map(ep => ({
+        id: ep.id,
+        mediaId: ep.mediaId,
+        seasonNumber: ep.seasonNumber,
+        episodeNumber: ep.episodeNumber,
+        title: ep.title,
+        airDate: ep.airDate,
+        runtime: ep.runtime,
+        isWatched: ep.isWatched,
+        watchedAt: ep.watchedAt
+      }));
+  } else if (mode === 'compact') {
     episodes = rawEpisodes.map(ep => ({
       id: ep.id,
       mediaId: ep.mediaId,

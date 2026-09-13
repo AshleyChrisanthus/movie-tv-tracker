@@ -1,42 +1,80 @@
-import Dexie from 'dexie';
+import Dexie, { type Table } from 'dexie';
+import type {
+  MediaItem,
+  EpisodeItem,
+  SettingItem,
+  BackupFile,
+  BackupMode,
+  ImportResult,
+  MediaStatus,
+  WatchedStatus,
+  CompactEpisodeItem
+} from '../types';
 
-export const db = new Dexie('BingeLogDB');
+export class BingeLogDatabase extends Dexie {
+  media!: Table<MediaItem, string>;
+  episodes!: Table<EpisodeItem, string>;
+  settings!: Table<SettingItem, string>;
 
-// Database Schema
-db.version(1).stores({
-  media: 'id, type, status, title, updatedAt, createdAt',
-  episodes: 'id, mediaId, seasonNumber, episodeNumber, [mediaId+seasonNumber], isWatched',
-  settings: 'key'
-});
+  constructor() {
+    super('BingeLogDB');
+    this.version(1).stores({
+      media: 'id, type, status, title, updatedAt, createdAt',
+      episodes: 'id, mediaId, seasonNumber, episodeNumber, [mediaId+seasonNumber], isWatched',
+      settings: 'key'
+    });
+  }
+}
+
+export const db = new BingeLogDatabase();
+
+export interface EpisodeInput {
+  id?: string;
+  mediaId?: string;
+  seasonNumber: number | string;
+  episodeNumber: number | string;
+  title?: string;
+  overview?: string;
+  airDate?: string;
+  runtime?: number | null;
+  stillUrl?: string | null;
+  isWatched?: WatchedStatus | boolean;
+  watchedAt?: string | null;
+}
 
 /**
  * Save or update a media item (Movie or TV Show) along with its optional episodes.
  */
-export async function saveMediaItem(mediaItem, episodes = []) {
+export async function saveMediaItem(
+  mediaItem: Partial<MediaItem>,
+  episodes: EpisodeInput[] = []
+): Promise<MediaItem> {
   const now = new Date().toISOString();
   const id = mediaItem.id || `media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  
+
   return await db.transaction('rw', db.media, db.episodes, async () => {
     const existingMedia = await db.media.get(id);
-    
+
     // Calculate total episodes & watched count if TV show
     let totalEpisodes = mediaItem.totalEpisodes || 0;
     let watchedEpisodesCount = 0;
-    
+
     // If episodes are provided, save/merge them
     if (episodes && episodes.length > 0) {
       totalEpisodes = episodes.length;
-      
+
       const existingEpisodes = await db.episodes.where('mediaId').equals(id).toArray();
-      const existingWatchedMap = new Map(
+      const existingWatchedMap = new Map<string, WatchedStatus>(
         existingEpisodes.map(ep => [`${ep.seasonNumber}_${ep.episodeNumber}`, ep.isWatched])
       );
-      
-      const episodesToStore = episodes.map(ep => {
+
+      const episodesToStore: EpisodeItem[] = episodes.map(ep => {
         const key = `${ep.seasonNumber}_${ep.episodeNumber}`;
-        const isWatched = existingWatchedMap.has(key) ? existingWatchedMap.get(key) : !!ep.isWatched;
+        const isWatched = existingWatchedMap.has(key)
+          ? existingWatchedMap.get(key)!
+          : (ep.isWatched ? 1 : 0);
         if (isWatched) watchedEpisodesCount++;
-        
+
         return {
           id: ep.id || `${id}_S${ep.seasonNumber}E${ep.episodeNumber}`,
           mediaId: id,
@@ -45,13 +83,13 @@ export async function saveMediaItem(mediaItem, episodes = []) {
           title: ep.title || `Episode ${ep.episodeNumber}`,
           overview: ep.overview || '',
           airDate: ep.airDate || '',
-          runtime: ep.runtime || null,
+          runtime: ep.runtime ?? null,
           stillUrl: ep.stillUrl || '',
-          isWatched: isWatched ? 1 : 0,
+          isWatched: (isWatched ? 1 : 0) as WatchedStatus,
           watchedAt: ep.watchedAt || (isWatched ? now : null)
         };
       });
-      
+
       await db.episodes.where('mediaId').equals(id).delete();
       await db.episodes.bulkPut(episodesToStore);
     } else if (existingMedia) {
@@ -61,14 +99,17 @@ export async function saveMediaItem(mediaItem, episodes = []) {
     }
 
     // Determine default status if not set
-    let status = mediaItem.status || existingMedia?.status || 'plan_to_watch';
+    let status: MediaStatus = mediaItem.status || existingMedia?.status || 'plan_to_watch';
     if (mediaItem.type === 'tv' && totalEpisodes > 0 && watchedEpisodesCount === totalEpisodes) {
       status = 'completed';
     } else if (mediaItem.type === 'tv' && watchedEpisodesCount > 0 && status === 'plan_to_watch') {
       status = 'watching';
     }
 
-    const payload = {
+    const payload: MediaItem = {
+      title: 'Untitled',
+      type: 'movie',
+      source: 'custom',
       ...existingMedia,
       ...mediaItem,
       id,
@@ -76,7 +117,8 @@ export async function saveMediaItem(mediaItem, episodes = []) {
       totalEpisodes,
       watchedEpisodesCount,
       updatedAt: now,
-      createdAt: existingMedia?.createdAt || now
+      createdAt: existingMedia?.createdAt || now,
+      year: mediaItem.year ?? existingMedia?.year ?? 'N/A'
     };
 
     await db.media.put(payload);
@@ -87,7 +129,7 @@ export async function saveMediaItem(mediaItem, episodes = []) {
 /**
  * Update the lastSyncedAt timestamp on a media item without changing other fields.
  */
-export async function touchMediaSyncedAt(id) {
+export async function touchMediaSyncedAt(id: string): Promise<void> {
   const now = new Date().toISOString();
   await db.media.update(id, { lastSyncedAt: now });
 }
@@ -95,7 +137,11 @@ export async function touchMediaSyncedAt(id) {
 /**
  * Fetch all media items with optional status/type filter.
  */
-export async function getAllMedia(filters = {}) {
+export async function getAllMedia(filters: {
+  status?: string;
+  type?: string;
+  searchQuery?: string;
+} = {}): Promise<MediaItem[]> {
   let collection = db.media.orderBy('updatedAt').reverse();
 
   if (filters.status && filters.status !== 'all') {
@@ -117,14 +163,14 @@ export async function getAllMedia(filters = {}) {
 /**
  * Fetch single media item by ID.
  */
-export async function getMediaById(id) {
+export async function getMediaById(id: string): Promise<MediaItem | undefined> {
   return await db.media.get(id);
 }
 
 /**
  * Fetch all episodes for a media item.
  */
-export async function getEpisodesForMedia(mediaId) {
+export async function getEpisodesForMedia(mediaId: string): Promise<EpisodeItem[]> {
   return await db.episodes
     .where('mediaId')
     .equals(mediaId)
@@ -135,13 +181,17 @@ export async function getEpisodesForMedia(mediaId) {
 /**
  * Toggle single episode watched state.
  */
-export async function toggleEpisodeWatched(mediaId, seasonNumber, episodeNumber) {
+export async function toggleEpisodeWatched(
+  mediaId: string,
+  seasonNumber: number,
+  episodeNumber: number
+): Promise<{ episodeId: string; isWatched: WatchedStatus } | undefined> {
   return await db.transaction('rw', db.media, db.episodes, async () => {
     const episodeId = `${mediaId}_S${seasonNumber}E${episodeNumber}`;
     const ep = await db.episodes.get(episodeId);
-    if (!ep) return;
+    if (!ep) return undefined;
 
-    const newWatched = ep.isWatched ? 0 : 1;
+    const newWatched: WatchedStatus = ep.isWatched ? 0 : 1;
     const now = new Date().toISOString();
 
     await db.episodes.update(episodeId, {
@@ -155,9 +205,9 @@ export async function toggleEpisodeWatched(mediaId, seasonNumber, episodeNumber)
     const watchedCount = watchedEps.length;
     const totalCount = allEps.length;
 
-    let media = await db.media.get(mediaId);
+    const media = await db.media.get(mediaId);
     if (media) {
-      let status = media.status;
+      let status: MediaStatus = media.status;
       if (totalCount > 0 && watchedCount === totalCount) {
         status = 'completed';
       } else if (watchedCount > 0 && status === 'plan_to_watch') {
@@ -182,19 +232,24 @@ export async function toggleEpisodeWatched(mediaId, seasonNumber, episodeNumber)
  * Set exact progress (e.g., user watched up to Season S, Episode E).
  * Can optionally mark all episodes up to (S, E) as watched.
  */
-export async function setExactProgress(mediaId, targetSeason, targetEpisode, markPreviousAsWatched = true) {
+export async function setExactProgress(
+  mediaId: string,
+  targetSeason: number,
+  targetEpisode: number,
+  markPreviousAsWatched: boolean = true
+): Promise<void> {
   return await db.transaction('rw', db.media, db.episodes, async () => {
     const episodes = await db.episodes.where('mediaId').equals(mediaId).toArray();
     const now = new Date().toISOString();
 
     if (markPreviousAsWatched && episodes.length > 0) {
       for (const ep of episodes) {
-        const isPastOrEqual = 
-          ep.seasonNumber < targetSeason || 
+        const isPastOrEqual =
+          ep.seasonNumber < targetSeason ||
           (ep.seasonNumber === targetSeason && ep.episodeNumber <= targetEpisode);
-        
+
         await db.episodes.update(ep.id, {
-          isWatched: isPastOrEqual ? 1 : 0,
+          isWatched: (isPastOrEqual ? 1 : 0) as WatchedStatus,
           watchedAt: isPastOrEqual ? (ep.watchedAt || now) : null
         });
       }
@@ -206,7 +261,7 @@ export async function setExactProgress(mediaId, targetSeason, targetEpisode, mar
 
     const media = await db.media.get(mediaId);
     if (media) {
-      let status = media.status;
+      let status: MediaStatus = media.status;
       if (totalCount > 0 && watchedCount === totalCount) {
         status = 'completed';
       } else if (watchedCount > 0 && status === 'plan_to_watch') {
@@ -228,16 +283,20 @@ export async function setExactProgress(mediaId, targetSeason, targetEpisode, mar
  * Strike off / mark all episodes up to and including (targetSeason, targetEpisode) as watched.
  * Does not unmark any already-watched episodes after it.
  */
-export async function markEpisodesUpToWatched(mediaId, targetSeason, targetEpisode) {
+export async function markEpisodesUpToWatched(
+  mediaId: string,
+  targetSeason: number,
+  targetEpisode: number
+): Promise<void> {
   return await db.transaction('rw', db.media, db.episodes, async () => {
     const episodes = await db.episodes.where('mediaId').equals(mediaId).toArray();
     const now = new Date().toISOString();
 
     for (const ep of episodes) {
-      const isPastOrEqual = 
-        ep.seasonNumber < targetSeason || 
+      const isPastOrEqual =
+        ep.seasonNumber < targetSeason ||
         (ep.seasonNumber === targetSeason && ep.episodeNumber <= targetEpisode);
-      
+
       if (isPastOrEqual && ep.isWatched !== 1) {
         await db.episodes.update(ep.id, {
           isWatched: 1,
@@ -252,7 +311,7 @@ export async function markEpisodesUpToWatched(mediaId, targetSeason, targetEpiso
 
     const media = await db.media.get(mediaId);
     if (media) {
-      let status = media.status;
+      let status: MediaStatus = media.status;
       if (totalCount > 0 && watchedCount === totalCount) {
         status = 'completed';
       } else if (watchedCount > 0 && status === 'plan_to_watch') {
@@ -273,7 +332,11 @@ export async function markEpisodesUpToWatched(mediaId, targetSeason, targetEpiso
 /**
  * Mark an entire season as watched or unwatched.
  */
-export async function setSeasonWatched(mediaId, seasonNumber, isWatched) {
+export async function setSeasonWatched(
+  mediaId: string,
+  seasonNumber: number,
+  isWatched: boolean
+): Promise<void> {
   return await db.transaction('rw', db.media, db.episodes, async () => {
     const episodes = await db.episodes
       .where('mediaId')
@@ -284,7 +347,7 @@ export async function setSeasonWatched(mediaId, seasonNumber, isWatched) {
     const now = new Date().toISOString();
     for (const ep of episodes) {
       await db.episodes.update(ep.id, {
-        isWatched: isWatched ? 1 : 0,
+        isWatched: (isWatched ? 1 : 0) as WatchedStatus,
         watchedAt: isWatched ? (ep.watchedAt || now) : null
       });
     }
@@ -295,7 +358,7 @@ export async function setSeasonWatched(mediaId, seasonNumber, isWatched) {
 
     const media = await db.media.get(mediaId);
     if (media) {
-      let status = media.status;
+      let status: MediaStatus = media.status;
       if (totalCount > 0 && watchedCount === totalCount) {
         status = 'completed';
       } else if (watchedCount > 0 && status === 'plan_to_watch') {
@@ -314,7 +377,7 @@ export async function setSeasonWatched(mediaId, seasonNumber, isWatched) {
 /**
  * Delete a media item and all associated episodes.
  */
-export async function deleteMediaItem(id) {
+export async function deleteMediaItem(id: string): Promise<void> {
   return await db.transaction('rw', db.media, db.episodes, async () => {
     await db.episodes.where('mediaId').equals(id).delete();
     await db.media.delete(id);
@@ -324,7 +387,7 @@ export async function deleteMediaItem(id) {
 /**
  * Update media status (e.g. 'watching', 'completed', 'plan_to_watch', 'dropped', 'on_hold').
  */
-export async function updateMediaStatus(id, status) {
+export async function updateMediaStatus(id: string, status: MediaStatus): Promise<void> {
   return await db.transaction('rw', db.media, db.episodes, async () => {
     const now = new Date().toISOString();
     const media = await db.media.get(id);
@@ -350,7 +413,11 @@ export async function updateMediaStatus(id, status) {
 /**
  * Update user rating and notes.
  */
-export async function updateMediaRatingAndNotes(id, rating, notes) {
+export async function updateMediaRatingAndNotes(
+  id: string,
+  rating: number | string,
+  notes: string
+): Promise<number> {
   return await db.media.update(id, {
     rating: Number(rating),
     notes,
@@ -365,20 +432,20 @@ export async function updateMediaRatingAndNotes(id, rating, notes) {
  * - 'compact' (default): Compact checklist (~120-200 KB). Saves all episode titles and numbers for complete offline checklist access, without synopses and screenshots.
  * - 'full': Complete offline snapshot (~500 KB+) with all cached synopses and screenshots.
  */
-export async function exportAllData(options = {}) {
-  const mode = options?.mode || 'compact';
+export async function exportAllData(options: { mode?: BackupMode } = {}): Promise<BackupFile> {
+  const mode: BackupMode = options?.mode || 'compact';
   const media = await db.media.toArray();
   const rawEpisodes = await db.episodes.toArray();
   const settings = await db.settings.toArray();
 
   const customMediaIds = new Set(media.filter(m => m.source === 'custom').map(m => m.id));
 
-  let episodes = rawEpisodes;
+  let episodes: EpisodeItem[] | CompactEpisodeItem[] = rawEpisodes;
   if (mode === 'minimal') {
     // Only include watched episodes or custom episodes (so custom user items are never lost)
     episodes = rawEpisodes
       .filter(ep => ep.isWatched === 1 || customMediaIds.has(ep.mediaId))
-      .map(ep => ({
+      .map((ep): CompactEpisodeItem => ({
         id: ep.id,
         mediaId: ep.mediaId,
         seasonNumber: ep.seasonNumber,
@@ -389,8 +456,20 @@ export async function exportAllData(options = {}) {
         isWatched: ep.isWatched,
         watchedAt: ep.watchedAt
       }));
+
+    return {
+      app: 'BingeLog',
+      version: 1,
+      backupMode: 'minimal',
+      exportedAt: new Date().toISOString(),
+      totalMedia: media.length,
+      totalEpisodes: episodes.length,
+      media,
+      episodes,
+      settings
+    };
   } else if (mode === 'compact') {
-    episodes = rawEpisodes.map(ep => ({
+    episodes = rawEpisodes.map((ep): CompactEpisodeItem => ({
       id: ep.id,
       mediaId: ep.mediaId,
       seasonNumber: ep.seasonNumber,
@@ -401,17 +480,29 @@ export async function exportAllData(options = {}) {
       isWatched: ep.isWatched,
       watchedAt: ep.watchedAt
     }));
+
+    return {
+      app: 'BingeLog',
+      version: 1,
+      backupMode: 'compact',
+      exportedAt: new Date().toISOString(),
+      totalMedia: media.length,
+      totalEpisodes: episodes.length,
+      media,
+      episodes,
+      settings
+    };
   }
 
   return {
     app: 'BingeLog',
     version: 1,
-    backupMode: mode,
+    backupMode: 'full',
     exportedAt: new Date().toISOString(),
     totalMedia: media.length,
-    totalEpisodes: episodes.length,
+    totalEpisodes: rawEpisodes.length,
     media,
-    episodes,
+    episodes: rawEpisodes,
     settings
   };
 }
@@ -419,7 +510,7 @@ export async function exportAllData(options = {}) {
 /**
  * Import JSON backup into IndexedDB (overwrite or merge).
  */
-export async function importData(backupData, overwrite = false) {
+export async function importData(backupData: BackupFile, overwrite: boolean = false): Promise<ImportResult> {
   if (!backupData || !Array.isArray(backupData.media)) {
     throw new Error('Invalid backup file format: missing media list');
   }
@@ -435,7 +526,7 @@ export async function importData(backupData, overwrite = false) {
       await db.media.bulkPut(backupData.media);
     }
     if (Array.isArray(backupData.episodes) && backupData.episodes.length > 0) {
-      await db.episodes.bulkPut(backupData.episodes);
+      await db.episodes.bulkPut(backupData.episodes as EpisodeItem[]);
     }
     if (Array.isArray(backupData.settings) && backupData.settings.length > 0) {
       await db.settings.bulkPut(backupData.settings);
@@ -451,12 +542,12 @@ export async function importData(backupData, overwrite = false) {
 /**
  * Settings helpers (e.g. TMDB API Key).
  */
-export async function getSetting(key, defaultValue = null) {
+export async function getSetting<T = unknown>(key: string, defaultValue: T | null = null): Promise<T | null> {
   const record = await db.settings.get(key);
-  return record ? record.value : defaultValue;
+  return record ? (record.value as T) : defaultValue;
 }
 
-export async function setSetting(key, value) {
+export async function setSetting<T = unknown>(key: string, value: T): Promise<T> {
   await db.settings.put({ key, value });
   return value;
 }

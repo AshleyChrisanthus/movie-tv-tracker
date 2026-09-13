@@ -7,8 +7,6 @@ import {
   Sparkles,
   Copy,
   Upload,
-  Sliders,
-  Tag,
   Sun,
   Moon
 } from 'lucide-react';
@@ -26,19 +24,40 @@ import {
   setGenreColor,
   getGenreTagStyle,
   hslToHex,
-  rgbToHex,
-  hexToRgb
+  rgbToHex
 } from '../styles/theme';
+import type { MediaItem, ThemeMode, ThemePreset, GenreColors } from '../types';
 
-export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeChanged }) {
-  const [activeTab, setActiveTab] = useState('palettes');
-  const [activePresetId, setActivePresetId] = useState('default');
-  const [currentMode, setCurrentMode] = useState('dark');
-  const [toastMessage, setToastMessage] = useState('');
-  const [importJsonText, setImportJsonText] = useState('');
+export interface ThemeModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  mediaList?: MediaItem[];
+  onThemeChanged?: () => void;
+}
+
+interface ColorPickerItemProps {
+  label: string;
+  property: string;
+  value?: string;
+  onChange: (property: string, value: string) => void;
+}
+
+type ThemeTab = 'palettes' | 'granular' | 'tagColors' | 'export';
+
+export default function ThemeModal({
+  isOpen,
+  onClose,
+  mediaList = [],
+  onThemeChanged
+}: ThemeModalProps): React.JSX.Element | null {
+  const [activeTab, setActiveTab] = useState<ThemeTab>('palettes');
+  const [activePresetId, setActivePresetId] = useState<string>('default');
+  const [currentMode, setCurrentMode] = useState<ThemeMode>('dark');
+  const [toastMessage, setToastMessage] = useState<string>('');
+  const [importJsonText, setImportJsonText] = useState<string>('');
 
   // Granular color state
-  const [granularColors, setGranularColors] = useState({
+  const [granularColors, setGranularColors] = useState<Record<string, string>>({
     '--accent': '#0a84ff',
     '--accent-hover': '#409cff',
     '--bg-primary': '#0d0d0f',
@@ -53,9 +72,9 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
   });
 
   // Genre colors state
-  const [genreColors, setGenreColorsState] = useState({});
+  const [genreColors, setGenreColorsState] = useState<GenreColors>({});
 
-  const showToast = (msg) => {
+  const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(''), 2600);
   };
@@ -64,7 +83,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
   useEffect(() => {
     if (!isOpen) return;
 
-    const mode = document.documentElement.getAttribute('data-theme') || 'dark';
+    const mode = (document.documentElement.getAttribute('data-theme') || 'dark') as ThemeMode;
     setCurrentMode(mode);
 
     const active = getActivePreset();
@@ -72,7 +91,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
 
     // Read current computed CSS properties from documentElement
     const computed = getComputedStyle(document.documentElement);
-    const newColors = {};
+    const newColors: Record<string, string> = {};
     const props = [
       '--accent', '--accent-hover', '--bg-primary', '--card-bg',
       '--bg-secondary', '--bg-hover', '--text-primary', '--text-secondary',
@@ -100,21 +119,21 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
   if (!isOpen) return null;
 
   // Extract all unique genres from media library
-  const allGenres = Array.from(
+  const allGenres: string[] = Array.from(
     new Set(
       mediaList.flatMap(m => Array.isArray(m.genres) ? m.genres : [])
     )
   ).sort((a, b) => a.localeCompare(b));
 
   // Switch preset
-  const handleSelectPreset = (preset) => {
+  const handleSelectPreset = (preset: ThemePreset) => {
     localStorage.setItem(ACTIVE_PRESET_KEY, preset.id);
     setActivePresetId(preset.id);
     applyPresetPaletteForMode(currentMode);
 
     // Refresh granular pickers
     const computed = getComputedStyle(document.documentElement);
-    const updated = {};
+    const updated: Record<string, string> = {};
     Object.keys(granularColors).forEach(prop => {
       const val = computed.getPropertyValue(prop).trim();
       if (val) updated[prop] = val;
@@ -126,23 +145,25 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
   };
 
   // Update granular color in real-time
-  const handleGranularChange = (property, value) => {
+  const handleGranularChange = (property: string, value: string) => {
     setGranularColors(prev => ({ ...prev, [property]: value }));
     applyCustomThemeProperties({ [property]: value });
 
     // Persist to custom colors
     try {
       const raw = localStorage.getItem(CUSTOM_THEME_KEY);
-      const parsed = raw ? JSON.parse(raw) : {};
+      const parsed = raw ? JSON.parse(raw) as Record<string, Record<string, string>> : {};
       parsed[currentMode] = { ...(parsed[currentMode] || {}), [property]: value };
       localStorage.setItem(CUSTOM_THEME_KEY, JSON.stringify(parsed));
-    } catch (_) {}
+    } catch {
+      // Ignore JSON parse errors
+    }
 
     if (onThemeChanged) onThemeChanged();
   };
 
   // Genre color change
-  const handleGenreChange = (genre, color) => {
+  const handleGenreChange = (genre: string, color: string | null) => {
     const updated = setGenreColor(genre, color);
     setGenreColorsState({ ...updated });
     if (onThemeChanged) onThemeChanged();
@@ -159,7 +180,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
     const saturation = isDark ? 80 : 70;
     const step = 360 / allGenres.length;
 
-    const newColors = {};
+    const newColors: Record<string, string> = {};
     allGenres.forEach((g, idx) => {
       const hue = Math.round((idx * step + 200) % 360);
       newColors[g.toLowerCase()] = hslToHex(hue, saturation, lightness);
@@ -189,7 +210,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
     setGenreColorsState({});
 
     const computed = getComputedStyle(document.documentElement);
-    const resetCols = {};
+    const resetCols: Record<string, string> = {};
     Object.keys(granularColors).forEach(prop => {
       const val = computed.getPropertyValue(prop).trim();
       if (val) resetCols[prop] = val;
@@ -205,7 +226,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
     const config = {
       theme: currentMode,
       activePreset: activePresetId,
-      customColors: localStorage.getItem(CUSTOM_THEME_KEY) ? JSON.parse(localStorage.getItem(CUSTOM_THEME_KEY)) : {},
+      customColors: localStorage.getItem(CUSTOM_THEME_KEY) ? JSON.parse(localStorage.getItem(CUSTOM_THEME_KEY)!) : {},
       genreColors: getGenreColors()
     };
     navigator.clipboard.writeText(JSON.stringify(config, null, 2))
@@ -220,7 +241,12 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
       return;
     }
     try {
-      const config = JSON.parse(importJsonText.trim());
+      const config = JSON.parse(importJsonText.trim()) as {
+        theme?: ThemeMode;
+        activePreset?: string;
+        customColors?: Record<string, Record<string, string>>;
+        genreColors?: GenreColors;
+      };
       if (config.theme && (config.theme === 'dark' || config.theme === 'light')) {
         document.documentElement.setAttribute('data-theme', config.theme);
         localStorage.setItem(THEME_KEY, config.theme);
@@ -244,7 +270,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
       if (onThemeChanged) onThemeChanged();
       setImportJsonText('');
       showToast('Theme imported successfully!');
-    } catch (_) {
+    } catch {
       showToast('Invalid JSON format.');
     }
   };
@@ -272,6 +298,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all"
           >
@@ -282,6 +309,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
         {/* Tabs Navigation */}
         <div className="flex items-center gap-1.5 px-6 py-2.5 bg-[var(--bg-primary)] border-b border-[var(--border-light)] overflow-x-auto scrollbar-none text-xs font-medium">
           <button
+            type="button"
             onClick={() => setActiveTab('palettes')}
             className={`px-3 py-1.5 rounded-lg transition-all ${
               activeTab === 'palettes'
@@ -292,6 +320,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
             🎨 Presets
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('granular')}
             className={`px-3 py-1.5 rounded-lg transition-all ${
               activeTab === 'granular'
@@ -302,6 +331,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
             🎛️ UI Colors
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('tagColors')}
             className={`px-3 py-1.5 rounded-lg transition-all ${
               activeTab === 'tagColors'
@@ -312,6 +342,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
             🏷️ Genre Tags
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('export')}
             className={`px-3 py-1.5 rounded-lg transition-all ${
               activeTab === 'export'
@@ -340,7 +371,15 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
                   return (
                     <div
                       key={preset.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => handleSelectPreset(preset)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleSelectPreset(preset);
+                        }
+                      }}
                       className={`p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
                         isActive
                           ? 'border-[var(--accent)] bg-[var(--accent-bg)] shadow-md ring-1 ring-[var(--accent)]'
@@ -463,6 +502,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
                 </p>
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
                     onClick={handleAutoColorizeGenres}
                     className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-[var(--accent-bg)] text-[var(--accent)] hover:brightness-110 border border-[var(--accent)]/30 transition-all shadow-sm"
                     title="Auto-distribute harmonious colors"
@@ -471,6 +511,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
                     <span>Auto-Colorize</span>
                   </button>
                   <button
+                    type="button"
                     onClick={handleResetGenres}
                     className="px-2.5 py-1 text-xs font-medium rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border border-[var(--border-light)] transition-all"
                   >
@@ -515,6 +556,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
                           />
                           {hasCustom && (
                             <button
+                              type="button"
                               onClick={() => handleGenreChange(genre, null)}
                               className="text-[var(--text-secondary)] hover:text-[var(--danger)] p-1 rounded-md"
                               title="Reset this genre"
@@ -538,6 +580,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
                 <h4 className="font-bold text-[var(--text-primary)] mb-1">Export Current Theme</h4>
                 <p className="text-[var(--text-secondary)] mb-3">Copy your entire theme configuration JSON to clipboard.</p>
                 <button
+                  type="button"
                   onClick={handleExportTheme}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white font-semibold hover:brightness-110 shadow-sm"
                 >
@@ -557,6 +600,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
                   className="w-full p-2.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-light)] text-[var(--text-primary)] font-mono text-[11px] focus:outline-none focus:border-[var(--accent)] mb-3"
                 />
                 <button
+                  type="button"
                   onClick={handleImportTheme}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-hover)] text-[var(--text-primary)] font-semibold border border-[var(--border-light)] hover:bg-[var(--border-light)]"
                 >
@@ -572,6 +616,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-[var(--border-light)] bg-[var(--bg-primary)]">
           <button
+            type="button"
             onClick={handleResetAll}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-hover)] transition-all"
           >
@@ -579,6 +624,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
             <span>Reset All to Default</span>
           </button>
           <button
+            type="button"
             onClick={onClose}
             className="px-5 py-1.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/20 active:scale-95"
           >
@@ -591,7 +637,7 @@ export default function ThemeModal({ isOpen, onClose, mediaList = [], onThemeCha
   );
 }
 
-function ColorPickerItem({ label, property, value = '#0a84ff', onChange }) {
+function ColorPickerItem({ label, property, value = '#0a84ff', onChange }: ColorPickerItemProps): React.JSX.Element {
   const hexVal = value.startsWith('#') ? value : '#0a84ff';
 
   return (

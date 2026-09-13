@@ -11,36 +11,52 @@ import {
   isFileSystemAccessSupported, linkBackupDirectory, 
   getLinkedDirectoryHandle, unlinkBackupDirectory 
 } from '../services/exportService';
+import type { BackupMode, ExportFileInfo } from '../types';
 
-export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
-  const [apiKey, setApiKey] = useState('');
-  const [isTestingKey, setIsTestingKey] = useState(false);
-  const [keyStatus, setKeyStatus] = useState(null);
+export interface SettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onDataRestored?: () => void;
+}
+
+interface NoticeStatus {
+  success: boolean;
+  message: string;
+}
+
+export default function SettingsModal({
+  isOpen,
+  onClose,
+  onDataRestored
+}: SettingsModalProps): React.JSX.Element | null {
+  const [apiKey, setApiKey] = useState<string>('');
+  const [isTestingKey, setIsTestingKey] = useState<boolean>(false);
+  const [keyStatus, setKeyStatus] = useState<NoticeStatus | null>(null);
   
   // File System Access & Export State
-  const [fsSupported, setFsSupported] = useState(false);
-  const [linkedDirHandle, setLinkedDirHandle] = useState(null);
-  const [backupMode, setBackupMode] = useState('compact');
-  const [isLinking, setIsLinking] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [exportNotice, setExportNotice] = useState(null);
+  const [fsSupported, setFsSupported] = useState<boolean>(false);
+  const [linkedDirHandle, setLinkedDirHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [backupMode, setBackupMode] = useState<BackupMode>('compact');
+  const [isLinking, setIsLinking] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [exportNotice, setExportNotice] = useState<NoticeStatus | null>(null);
   
   // Backups list
-  const [localExports, setLocalExports] = useState([]);
+  const [localExports, setLocalExports] = useState<ExportFileInfo[]>([]);
   
   // Import state
-  const [importFile, setImportFile] = useState(null);
-  const [overwriteMode, setOverwriteMode] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const [importNotice, setImportNotice] = useState(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [overwriteMode, setOverwriteMode] = useState<boolean>(false);
+  const [isImporting, setIsImporting] = useState<boolean>(false);
+  const [importNotice, setImportNotice] = useState<NoticeStatus | null>(null);
 
   // Load state on modal open
   useEffect(() => {
     if (isOpen) {
       setFsSupported(isFileSystemAccessSupported());
-      getSetting('tmdb_api_key', '').then(k => setApiKey(k || ''));
-      getSetting('backup_mode', 'compact').then(m => setBackupMode(m || 'compact'));
+      getSetting<string>('tmdb_api_key', '').then(k => setApiKey(k || ''));
+      getSetting<BackupMode>('backup_mode', 'compact').then(m => setBackupMode(m || 'compact'));
       checkLinkedDirectory();
       loadExportsList();
     } else {
@@ -78,7 +94,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
     setKeyStatus(null);
     try {
       const res = await fetch(`https://api.themoviedb.org/3/authentication?api_key=${encodeURIComponent(apiKey.trim())}`);
-      const data = await res.json();
+      const data = await res.json() as { success?: boolean; status_message?: string };
       if (res.ok && data.success) {
         await setSetting('tmdb_api_key', apiKey.trim());
         setKeyStatus({ success: true, message: 'TMDB API connection verified & saved!' });
@@ -86,7 +102,8 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
         setKeyStatus({ success: false, message: `Verification failed: ${data.status_message || 'Invalid key'}` });
       }
     } catch (err) {
-      setKeyStatus({ success: false, message: `Connection error: ${err.message}` });
+      const message = err instanceof Error ? err.message : String(err);
+      setKeyStatus({ success: false, message: `Connection error: ${message}` });
     } finally {
       setIsTestingKey(false);
     }
@@ -105,9 +122,10 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
       });
       await loadExportsList();
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       setExportNotice({
         success: false,
-        message: err.message
+        message
       });
     } finally {
       setIsLinking(false);
@@ -126,7 +144,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
   };
 
   // Backup Mode Handler
-  const handleSetBackupMode = async (mode) => {
+  const handleSetBackupMode = async (mode: BackupMode) => {
     setBackupMode(mode);
     await setSetting('backup_mode', mode);
   };
@@ -136,7 +154,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
     setIsExporting(true);
     setExportNotice(null);
     try {
-      const res = await saveExportToLocal(null, { mode: backupMode });
+      const res = await saveExportToLocal(undefined, { mode: backupMode });
       let msg = '';
       const sizeStr = res.fileSize ? ` (${(res.fileSize / 1024).toFixed(1)} KB)` : '';
       if (res.method === 'linked_folder') {
@@ -152,7 +170,8 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
       setExportNotice({ success: true, message: msg });
       await loadExportsList();
     } catch (err) {
-      setExportNotice({ success: false, message: err.message });
+      const message = err instanceof Error ? err.message : String(err);
+      setExportNotice({ success: false, message });
     } finally {
       setIsExporting(false);
     }
@@ -162,15 +181,16 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      const res = await downloadExportToBrowser(null, { mode: backupMode });
+      const res = await downloadExportToBrowser(undefined, { mode: backupMode });
       setExportNotice({
         success: true,
         message: `Downloaded ${res.filename} to your browser Downloads folder.`
       });
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       setExportNotice({
         success: false,
-        message: `Download failed: ${err.message}`
+        message: `Download failed: ${message}`
       });
     } finally {
       setIsDownloading(false);
@@ -178,7 +198,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
   };
 
   // Import JSON backup
-  const handleImport = async (e) => {
+  const handleImport = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!importFile) return;
 
@@ -196,9 +216,10 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
       });
       if (onDataRestored) onDataRestored();
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       setImportNotice({
         success: false,
-        message: err.message
+        message
       });
     } finally {
       setIsImporting(false);
@@ -222,6 +243,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
@@ -264,12 +286,14 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                 className="flex-1 px-3 py-2 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--input-focus)] font-mono"
               />
               <button
+                type="button"
                 onClick={handleSaveApiKey}
                 className="px-3.5 py-2 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)]"
               >
                 Save
               </button>
               <button
+                type="button"
                 onClick={handleTestApiKey}
                 disabled={isTestingKey}
                 className="px-3.5 py-2 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95 disabled:opacity-50"
@@ -329,6 +353,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                 <div className="flex items-center gap-2 shrink-0">
                   {linkedDirHandle ? (
                     <button
+                      type="button"
                       onClick={handleUnlinkDirectory}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-medium transition-all"
                     >
@@ -337,6 +362,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                     </button>
                   ) : (
                     <button
+                      type="button"
                       onClick={handleLinkDirectory}
                       disabled={isLinking}
                       className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95 disabled:opacity-50"
@@ -436,6 +462,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
             {/* Export Buttons */}
             <div className="flex flex-wrap items-center gap-3">
               <button
+                type="button"
                 onClick={handleSaveExport}
                 disabled={isExporting}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-lg shadow-emerald-900/30 active:scale-95 disabled:opacity-50"
@@ -451,6 +478,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
               </button>
 
               <button
+                type="button"
                 onClick={handleDownload}
                 disabled={isDownloading}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)] active:scale-95 disabled:opacity-50"
@@ -477,6 +505,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
                     Found Backups ({localExports.length})
                   </span>
                   <button
+                    type="button"
                     onClick={loadExportsList}
                     className="text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1"
                   >
@@ -541,7 +570,7 @@ export default function SettingsModal({ isOpen, onClose, onDataRestored }) {
               <input
                 type="file"
                 accept=".json"
-                onChange={(e) => setImportFile(e.target.files[0] || null)}
+                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
                 className="block w-full text-xs text-[var(--text-secondary)] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[var(--bg-tertiary)] file:text-[var(--text-primary)] hover:file:bg-[var(--bg-hover)] cursor-pointer"
               />
 

@@ -7,14 +7,17 @@ const devIndexHtml = path.resolve(process.cwd(), 'index.dev.html');
 // 1. Keep a backup of dev index.html if not already backed up
 if (fs.existsSync(rootIndexHtml) && !fs.existsSync(devIndexHtml)) {
   const currentRoot = fs.readFileSync(rootIndexHtml, 'utf8');
-  if (currentRoot.includes('/src/main.jsx')) {
+  if (currentRoot.includes('/src/main.tsx') || currentRoot.includes('/src/main.jsx')) {
     fs.writeFileSync(devIndexHtml, currentRoot, 'utf8');
   }
 }
 
-let distPath = path.resolve(process.cwd(), 'dist/index.html');
-if (!fs.existsSync(distPath) && fs.existsSync(path.resolve(process.cwd(), 'dist/index.dev.html'))) {
-  distPath = path.resolve(process.cwd(), 'dist/index.dev.html');
+const distIndexHtml = path.resolve(process.cwd(), 'dist/index.html');
+const distDevIndexHtml = path.resolve(process.cwd(), 'dist/index.dev.html');
+
+let distPath = distIndexHtml;
+if (!fs.existsSync(distPath) && fs.existsSync(distDevIndexHtml)) {
+  distPath = distDevIndexHtml;
 }
 
 if (!fs.existsSync(distPath)) {
@@ -49,8 +52,16 @@ if (scriptStartIdx !== -1 && scriptEndIdx !== -1) {
   }
 }
 
-// Write to both dist/index.html and the root index.html
-fs.writeFileSync(distPath, html, 'utf8');
+// Ensure dist directory exists
+const distDir = path.resolve(process.cwd(), 'dist');
+if (!fs.existsSync(distDir)) {
+  fs.mkdirSync(distDir, { recursive: true });
+}
+
+// Write to dist/index.html, dist/index.dev.html, and the root index.html
+fs.writeFileSync(distIndexHtml, html, 'utf8');
+fs.writeFileSync(distDevIndexHtml, html, 'utf8');
 fs.writeFileSync(rootIndexHtml, html, 'utf8');
 
 console.log('Successfully updated index.html safely with string slicing!');
+

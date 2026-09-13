@@ -1,5 +1,23 @@
 import React from 'react';
 import { Film, Plus, Settings, Search, CheckCircle2, PlayCircle, RefreshCw, Palette, Sun, Moon } from 'lucide-react';
+import type { ThemeMode } from '../types';
+
+export interface NavbarProps {
+  onOpenSearch: () => void;
+  onOpenManual: () => void;
+  onOpenSettings: () => void;
+  onStartSyncAll: () => void;
+  isSyncing: boolean;
+  onOpenTheme: () => void;
+  onToggleTheme: () => void;
+  themeMode?: ThemeMode;
+  stats?: {
+    watching?: number;
+    completed?: number;
+    total?: number;
+    [key: string]: number | undefined;
+  };
+}
 
 export default function Navbar({
   onOpenSearch,
@@ -11,7 +29,7 @@ export default function Navbar({
   onToggleTheme,
   themeMode = 'dark',
   stats
-}) {
+}: NavbarProps): React.JSX.Element {
   return (
     <header className="sticky top-0 z-30 bg-[var(--bg-secondary)]/85 backdrop-blur-xl border-b border-[var(--border-light)] px-4 lg:px-8 py-3 transition-all">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
@@ -33,6 +51,7 @@ export default function Navbar({
 
         {/* Global Search Bar trigger (App Directory Inset Style) */}
         <button
+          type="button"
           onClick={onOpenSearch}
           className="flex-1 max-w-md hidden sm:flex items-center justify-between px-3.5 py-2 rounded-xl bg-[var(--input-bg)] hover:bg-[var(--bg-hover)] border border-[var(--input-border)] hover:border-[var(--input-focus)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all text-xs group shadow-inner"
         >
@@ -49,6 +68,7 @@ export default function Navbar({
         <div className="flex items-center gap-2 sm:gap-2.5">
           {/* Mobile search icon */}
           <button
+            type="button"
             onClick={onOpenSearch}
             className="sm:hidden p-2 rounded-xl bg-[var(--card-bg)] border border-[var(--border-light)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all"
             title="Search to add"
@@ -70,6 +90,7 @@ export default function Navbar({
 
           {/* Add Custom / Manual Button */}
           <button
+            type="button"
             onClick={onOpenManual}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-light)] text-xs font-semibold transition-all shadow-sm active:scale-95"
             title="Add Custom Movie or TV Show"
@@ -80,6 +101,7 @@ export default function Navbar({
 
           {/* Sync All Library Button */}
           <button
+            type="button"
             onClick={onStartSyncAll}
             disabled={isSyncing}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all shadow-sm active:scale-95 ${
@@ -95,6 +117,7 @@ export default function Navbar({
 
           {/* Customize Theme & Colors Button (App Directory Palette Button) */}
           <button
+            type="button"
             onClick={onOpenTheme}
             className="p-2 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] transition-all shadow-sm active:scale-95"
             title="Customize Theme & Colors"
@@ -104,6 +127,7 @@ export default function Navbar({
 
           {/* Theme Light/Dark Mode Toggle Button */}
           <button
+            type="button"
             onClick={onToggleTheme}
             className="p-2 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] transition-all shadow-sm active:scale-95"
             title={`Switch to ${themeMode === 'dark' ? 'Light' : 'Dark'} Mode`}
@@ -117,6 +141,7 @@ export default function Navbar({
 
           {/* Settings & Export Button */}
           <button
+            type="button"
             onClick={onOpenSettings}
             className="p-2 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] transition-all shadow-sm active:scale-95"
             title="Settings, API Key & Data Backup"

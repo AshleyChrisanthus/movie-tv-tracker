@@ -1,43 +1,59 @@
 import React, { useState } from 'react';
-import { X, Film, Tv, Save, Plus } from 'lucide-react';
-import { saveMediaItem } from '../db';
+import { X, Film, Tv, Save } from 'lucide-react';
+import { saveMediaItem, type EpisodeInput } from '../db';
+import type { MediaItem, MediaType, MediaStatus } from '../types';
 
-export default function ManualMediaModal({ isOpen, onClose, onSaved, initialItem = null }) {
-  const isEditing = !!initialItem;
+export interface ManualMediaModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSaved?: () => void;
+  initialItem?: MediaItem | null;
+  initialData?: MediaItem | null;
+}
 
-  const [type, setType] = useState(initialItem?.type || 'tv');
-  const [title, setTitle] = useState(initialItem?.title || '');
-  const [year, setYear] = useState(initialItem?.year || new Date().getFullYear());
-  const [status, setStatus] = useState(initialItem?.status || 'plan_to_watch');
-  const [rating, setRating] = useState(initialItem?.rating || 0);
-  const [overview, setOverview] = useState(initialItem?.overview || '');
-  const [posterUrl, setPosterUrl] = useState(initialItem?.posterUrl || '');
+export default function ManualMediaModal({
+  isOpen,
+  onClose,
+  onSaved,
+  initialItem = null,
+  initialData = null
+}: ManualMediaModalProps): React.JSX.Element | null {
+  const item = initialItem || initialData || null;
+  const isEditing = !!item;
+
+  const [type, setType] = useState<MediaType>(item?.type || 'tv');
+  const [title, setTitle] = useState<string>(item?.title || '');
+  const [year, setYear] = useState<string | number>(item?.year || new Date().getFullYear());
+  const [status, setStatus] = useState<MediaStatus>(item?.status || 'plan_to_watch');
+  const [rating, setRating] = useState<number>(item?.rating || 0);
+  const [overview, setOverview] = useState<string>(item?.overview || '');
+  const [posterUrl, setPosterUrl] = useState<string>(item?.posterUrl || '');
   
   // Custom episodes generator
-  const [seasonCount, setSeasonCount] = useState(initialItem?.totalSeasons || 1);
-  const [episodesPerSeason, setEpisodesPerSeason] = useState(
-    initialItem?.totalSeasons && initialItem?.totalEpisodes 
-      ? Math.round(initialItem.totalEpisodes / initialItem.totalSeasons) 
+  const [seasonCount, setSeasonCount] = useState<number | string>(item?.totalSeasons || 1);
+  const [episodesPerSeason, setEpisodesPerSeason] = useState<number | string>(
+    item?.totalSeasons && item?.totalEpisodes 
+      ? Math.round(item.totalEpisodes / item.totalSeasons) 
       : 10
   );
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!title.trim()) return;
 
     setIsSubmitting(true);
 
     try {
-      const sCount = parseInt(seasonCount, 10) || 1;
-      const epCount = parseInt(episodesPerSeason, 10) || 1;
+      const sCount = parseInt(String(seasonCount), 10) || 1;
+      const epCount = parseInt(String(episodesPerSeason), 10) || 1;
       const totalEpisodes = type === 'tv' ? sCount * epCount : 1;
 
       // Generate episodes array if adding new TV series or if none exist
-      let generatedEpisodes = [];
+      const generatedEpisodes: EpisodeInput[] = [];
       if (type === 'tv' && !isEditing) {
         for (let s = 1; s <= sCount; s++) {
           for (let ep = 1; ep <= epCount; ep++) {
@@ -53,21 +69,21 @@ export default function ManualMediaModal({ isOpen, onClose, onSaved, initialItem
         }
       }
 
-      const mediaPayload = {
-        ...(initialItem || {}),
+      const mediaPayload: Partial<MediaItem> = {
+        ...(item || {}),
         title: title.trim(),
-        year: parseInt(year, 10) || new Date().getFullYear(),
+        year: parseInt(String(year), 10) || new Date().getFullYear(),
         type,
         status,
         rating: Number(rating) || 0,
         overview: overview.trim(),
         posterUrl: posterUrl.trim() || null,
         backdropUrl: posterUrl.trim() || null,
-        source: initialItem?.source || 'custom',
-        externalId: initialItem?.externalId || `custom_${Date.now()}`,
+        source: item?.source || 'custom',
+        externalId: item?.externalId || `custom_${Date.now()}`,
         totalSeasons: type === 'tv' ? sCount : 0,
         totalEpisodes: type === 'tv' ? totalEpisodes : 1,
-        watchedEpisodesCount: initialItem?.watchedEpisodesCount || 0
+        watchedEpisodesCount: item?.watchedEpisodesCount || 0
       };
 
       await saveMediaItem(mediaPayload, generatedEpisodes);
@@ -102,6 +118,7 @@ export default function ManualMediaModal({ isOpen, onClose, onSaved, initialItem
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
@@ -172,7 +189,7 @@ export default function ManualMediaModal({ isOpen, onClose, onSaved, initialItem
               <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Status</label>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value)}
+                onChange={(e) => setStatus(e.target.value as MediaStatus)}
                 className="w-full px-3 py-2 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)] cursor-pointer"
               >
                 <option value="watching" className="bg-[var(--card-bg)]">Watching</option>
@@ -229,7 +246,7 @@ export default function ManualMediaModal({ isOpen, onClose, onSaved, initialItem
                 </div>
               </div>
               <p className="text-[11px] text-[var(--text-secondary)]">
-                Total episodes generated: {(parseInt(seasonCount, 10) || 1) * (parseInt(episodesPerSeason, 10) || 1)}
+                Total episodes generated: {(parseInt(String(seasonCount), 10) || 1) * (parseInt(String(episodesPerSeason), 10) || 1)}
               </p>
             </div>
           )}

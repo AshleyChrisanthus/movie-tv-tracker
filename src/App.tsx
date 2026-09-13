@@ -11,27 +11,28 @@ import ThemeModal from './components/ThemeModal';
 import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
-import { Film, Tv, Plus, Search, Sparkles, CheckCircle2, PlayCircle, Bell, X, RefreshCw } from 'lucide-react';
+import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
+import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus } from './types';
 
-export default function App() {
-  const [mediaList, setMediaList] = useState([]);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [librarySearch, setLibrarySearch] = useState('');
-  const [sortBy, setSortBy] = useState('updated');
+export default function App(): React.JSX.Element {
+  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [librarySearch, setLibrarySearch] = useState<string>('');
+  const [sortBy, setSortBy] = useState<string>('updated');
 
   // Modals
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isManualOpen, setIsManualOpen] = useState(false);
-  const [manualEditItem, setManualEditItem] = useState(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isThemeOpen, setIsThemeOpen] = useState(false);
-  const [themeMode, setThemeMode] = useState('dark');
-  const [selectedMedia, setSelectedMedia] = useState(null);
-  const [syncAlerts, setSyncAlerts] = useState([]);
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const [isManualOpen, setIsManualOpen] = useState<boolean>(false);
+  const [manualEditItem, setManualEditItem] = useState<MediaItem | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isThemeOpen, setIsThemeOpen] = useState<boolean>(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
+  const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
+  const [syncAlerts, setSyncAlerts] = useState<SyncAlert[]>([]);
 
   // Live Sync Progress State
-  const [syncState, setSyncState] = useState({
+  const [syncState, setSyncState] = useState<SyncState>({
     isActive: false,
     isComplete: false,
     isCancelled: false,
@@ -40,10 +41,10 @@ export default function App() {
     currentTitle: '',
     updatedCount: 0
   });
-  const syncAbortRef = useRef(null);
+  const syncAbortRef = useRef<AbortController | null>(null);
 
   // Load library from IndexedDB
-  const refreshLibrary = async () => {
+  const refreshLibrary = async (): Promise<void> => {
     const items = await getAllMedia();
     setMediaList(items);
 
@@ -56,17 +57,18 @@ export default function App() {
 
   // Initialize theme mode on mount
   useEffect(() => {
-    const currentMode = initTheme();
+    initTheme();
+    const currentMode = (document.documentElement.getAttribute('data-theme') || 'dark') as ThemeMode;
     setThemeMode(currentMode);
   }, []);
 
-  const handleToggleTheme = () => {
+  const handleToggleTheme = (): void => {
     const nextMode = toggleThemeMode();
     setThemeMode(nextMode);
   };
 
   useEffect(() => {
-    const checkEligibleShowsForUpdates = async () => {
+    const checkEligibleShowsForUpdates = async (): Promise<void> => {
       const items = await getAllMedia();
       // Multi-status sync: checks 'watching' always, and 'completed'/'plan_to_watch'/'on_hold' if >5 days cooldown
       const eligibleShows = getShowsEligibleForSync(items, { forceAll: false, cooldownDays: 5 });
@@ -74,7 +76,7 @@ export default function App() {
       for (const show of eligibleShows) {
         try {
           const result = await syncMediaEpisodes(show);
-          if (result.hasUpdates && result.newEpisodesCount > 0) {
+          if (result.hasUpdates && (result.newEpisodesCount || 0) > 0) {
             const alertId = `sync_${show.id}_${Date.now()}`;
             const isCompleted = result.isCompletedWithNewEpisodes;
             setSyncAlerts(prev => [
@@ -103,12 +105,12 @@ export default function App() {
 
   // Global keyboard shortcuts (Ctrl+K or / to search)
   useEffect(() => {
-    const handleKeyDown = (e) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsSearchOpen(true);
       }
-      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((document.activeElement as HTMLElement)?.tagName)) {
         e.preventDefault();
         setIsSearchOpen(true);
       }
@@ -119,8 +121,15 @@ export default function App() {
   }, []);
 
   // Compute status counts for filter tabs
-  const itemCounts = useMemo(() => {
-    const counts = { all: mediaList.length, watching: 0, plan_to_watch: 0, completed: 0, on_hold: 0, dropped: 0 };
+  const itemCounts = useMemo<Record<string, number>>(() => {
+    const counts: Record<string, number> = {
+      all: mediaList.length,
+      watching: 0,
+      plan_to_watch: 0,
+      completed: 0,
+      on_hold: 0,
+      dropped: 0
+    };
     for (const item of mediaList) {
       if (counts[item.status] !== undefined) {
         counts[item.status]++;
@@ -137,7 +146,7 @@ export default function App() {
   }), [itemCounts, mediaList.length]);
 
   // Filter and sort items
-  const filteredItems = useMemo(() => {
+  const filteredItems = useMemo<MediaItem[]>(() => {
     return mediaList
       .filter(item => {
         if (statusFilter !== 'all' && item.status !== statusFilter) return false;
@@ -165,12 +174,12 @@ export default function App() {
           return progB - progA;
         }
         // default 'updated'
-        return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
+        return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
       });
   }, [mediaList, statusFilter, typeFilter, librarySearch, sortBy]);
 
   // Quick Action: +1 episode directly from media card
-  const handleQuickIncrement = async (item) => {
+  const handleQuickIncrement = async (item: MediaItem): Promise<void> => {
     if (item.type !== 'tv') return;
     const episodes = await getEpisodesForMedia(item.id);
     const nextEp = episodes.find(e => e.isWatched === 0);
@@ -181,20 +190,20 @@ export default function App() {
   };
 
   // Quick Action: Toggle movie watched status directly from media card
-  const handleQuickToggleMovie = async (item) => {
-    const newStatus = item.status === 'completed' ? 'plan_to_watch' : 'completed';
+  const handleQuickToggleMovie = async (item: MediaItem): Promise<void> => {
+    const newStatus: MediaStatus = item.status === 'completed' ? 'plan_to_watch' : 'completed';
     await updateMediaStatus(item.id, newStatus);
     await refreshLibrary();
   };
 
   // Open Edit Modal for an item
-  const handleOpenEdit = (item) => {
+  const handleOpenEdit = (item: MediaItem): void => {
     setManualEditItem(item);
     setIsManualOpen(true);
   };
 
   // Start Sync All Library
-  const handleStartSyncAll = async () => {
+  const handleStartSyncAll = async (): Promise<void> => {
     if (syncState.isActive) return;
 
     const items = await getAllMedia();
@@ -233,7 +242,7 @@ export default function App() {
       delayMs: 250,
       abortSignal: abortController.signal,
       onProgress: (completed, total, currentShow, result, isCancelled) => {
-        if (result?.hasUpdates && (result.newEpisodesCount > 0 || result.updatedTitlesCount > 0)) {
+        if (result?.hasUpdates && ((result.newEpisodesCount || 0) > 0 || (result.updatedTitlesCount || 0) > 0)) {
           liveUpdatedCount++;
         }
         setSyncState(prev => ({
@@ -258,7 +267,7 @@ export default function App() {
     await refreshLibrary();
   };
 
-  const handleCancelSync = () => {
+  const handleCancelSync = (): void => {
     if (syncAbortRef.current) {
       syncAbortRef.current.abort();
     }
@@ -269,7 +278,7 @@ export default function App() {
     }));
   };
 
-  const handleDismissSync = () => {
+  const handleDismissSync = (): void => {
     setSyncState(prev => ({
       ...prev,
       isActive: false,
@@ -312,6 +321,7 @@ export default function App() {
                 <p className="text-[var(--text-secondary)] leading-relaxed">{alert.message}</p>
               </div>
               <button
+                type="button"
                 onClick={() => setSyncAlerts(prev => prev.filter(a => a.id !== alert.id))}
                 className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] p-1 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
               >
@@ -376,6 +386,7 @@ export default function App() {
 
                 <div className="flex flex-wrap items-center justify-center gap-3">
                   <button
+                    type="button"
                     onClick={() => setIsSearchOpen(true)}
                     className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs sm:text-sm font-bold shadow-lg shadow-[var(--accent)]/30 transition-all active:scale-95"
                   >
@@ -384,6 +395,7 @@ export default function App() {
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => {
                       setManualEditItem(null);
                       setIsManualOpen(true);
@@ -404,6 +416,7 @@ export default function App() {
                   No items in your library match the current filters or search query.
                 </p>
                 <button
+                  type="button"
                   onClick={() => {
                     setStatusFilter('all');
                     setTypeFilter('all');
@@ -446,6 +459,7 @@ export default function App() {
       {/* Manual Add / Edit Modal */}
       <ManualMediaModal
         isOpen={isManualOpen}
+        initialItem={manualEditItem}
         initialData={manualEditItem}
         onClose={() => {
           setIsManualOpen(false);

@@ -1,7 +1,25 @@
 import React from 'react';
-import { Search, SlidersHorizontal, Film, Tv, Play, CheckCircle, Clock, XCircle, PauseCircle, X } from 'lucide-react';
+import {
+  Search,
+  SlidersHorizontal,
+  Film,
+  Tv,
+  Play,
+  CheckCircle,
+  Clock,
+  XCircle,
+  PauseCircle,
+  X,
+  type LucideIcon
+} from 'lucide-react';
 
-const STATUS_TABS = [
+interface StatusTab {
+  key: string;
+  label: string;
+  icon: LucideIcon | null;
+}
+
+const STATUS_TABS: StatusTab[] = [
   { key: 'all', label: 'All Items', icon: null },
   { key: 'watching', label: 'Watching', icon: Play },
   { key: 'plan_to_watch', label: 'Plan to Watch', icon: Clock },
@@ -9,6 +27,18 @@ const STATUS_TABS = [
   { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
   { key: 'dropped', label: 'Dropped', icon: XCircle },
 ];
+
+export interface FilterBarProps {
+  statusFilter: string;
+  onStatusChange: (status: string) => void;
+  typeFilter: string;
+  onTypeChange: (type: string) => void;
+  librarySearch: string;
+  onLibrarySearchChange: (search: string) => void;
+  sortBy: string;
+  onSortChange: (sortBy: string) => void;
+  itemCounts?: Record<string, number>;
+}
 
 export default function FilterBar({
   statusFilter,
@@ -20,7 +50,7 @@ export default function FilterBar({
   sortBy,
   onSortChange,
   itemCounts = {}
-}) {
+}: FilterBarProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3.5 mb-6">
       {/* Status Filter Tabs (Apple Segmented Pill Style) */}
@@ -33,6 +63,7 @@ export default function FilterBar({
           return (
             <button
               key={tab.key}
+              type="button"
               onClick={() => onStatusChange(tab.key)}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all select-none border ${
                 isActive
@@ -59,6 +90,7 @@ export default function FilterBar({
         {/* Type Capsule Slider (App Directory Style) */}
         <div className="flex items-center p-1 bg-[var(--bg-tertiary)] border border-[var(--border-light)] rounded-xl w-fit">
           <button
+            type="button"
             onClick={() => onTypeChange('all')}
             className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
               typeFilter === 'all'
@@ -69,6 +101,7 @@ export default function FilterBar({
             All Types
           </button>
           <button
+            type="button"
             onClick={() => onTypeChange('tv')}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
               typeFilter === 'tv'
@@ -80,6 +113,7 @@ export default function FilterBar({
             <span>TV Shows</span>
           </button>
           <button
+            type="button"
             onClick={() => onTypeChange('movie')}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
               typeFilter === 'movie'

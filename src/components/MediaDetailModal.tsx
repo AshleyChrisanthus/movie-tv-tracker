@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  X, Star, Film, Tv, CheckCircle2, Play, Calendar, Clock, 
-  Trash2, Edit3, ChevronDown, ChevronUp, Check, PlayCircle, Eye, RefreshCw,
-  CheckCheck
+  X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
+  CheckCheck, Edit3, Trash2
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
@@ -10,29 +9,53 @@ import {
   deleteMediaItem, getMediaById, markEpisodesUpToWatched
 } from '../db';
 import { syncMediaEpisodes } from '../services/api';
+import type { MediaItem, EpisodeItem, MediaStatus } from '../types';
 
-export default function MediaDetailModal({ media, onClose, onUpdated, onEditCustom }) {
-  const [episodes, setEpisodes] = useState([]);
-  const [selectedSeason, setSelectedSeason] = useState(null);
-  const [status, setStatus] = useState(media.status || 'plan_to_watch');
-  const [rating, setRating] = useState(media.rating || 0);
-  const [notes, setNotes] = useState(media.notes || '');
-  const [isSavingNotes, setIsSavingNotes] = useState(false);
-  const [notesSavedNotice, setNotesSavedNotice] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncNotice, setSyncNotice] = useState(null);
+export interface MediaDetailModalProps {
+  media: MediaItem | null;
+  isOpen?: boolean;
+  onClose: () => void;
+  onUpdated?: () => void;
+  onUpdate?: (updated: MediaItem) => void;
+  onDelete?: (id: string) => void;
+  onEditCustom?: (media: MediaItem) => void;
+}
+
+interface NoticeStatus {
+  success: boolean;
+  message: string;
+}
+
+export default function MediaDetailModal({
+  media,
+  isOpen = true,
+  onClose,
+  onUpdated,
+  onUpdate,
+  onDelete,
+  onEditCustom
+}: MediaDetailModalProps): React.JSX.Element | null {
+  const [episodes, setEpisodes] = useState<EpisodeItem[]>([]);
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const [status, setStatus] = useState<MediaStatus>(media?.status || 'plan_to_watch');
+  const [rating, setRating] = useState<number>(media?.rating || 0);
+  const [notes, setNotes] = useState<string>(media?.notes || '');
+  const [isSavingNotes, setIsSavingNotes] = useState<boolean>(false);
+  const [notesSavedNotice, setNotesSavedNotice] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncNotice, setSyncNotice] = useState<NoticeStatus | null>(null);
 
   // Precise Season/Episode input state
-  const [inputSeason, setInputSeason] = useState(media.currentSeason || 1);
-  const [inputEpisode, setInputEpisode] = useState(media.currentEpisode || 0);
+  const [inputSeason, setInputSeason] = useState<number | string>(media?.currentSeason || 1);
+  const [inputEpisode, setInputEpisode] = useState<number | string>(media?.currentEpisode || 0);
 
   // Expanded episode synopses
-  const [expandedEpisodes, setExpandedEpisodes] = useState({});
+  const [expandedEpisodes, setExpandedEpisodes] = useState<Record<string, boolean>>({});
 
-  const isTv = media.type === 'tv';
+  const isTv = media?.type === 'tv';
 
-  // Load episodes from IndexedDB while preserving current active season
-  const loadEpisodes = async (targetSeason = null) => {
+  // Load episodes from IndexedDB while preserving current active season (Issue #13)
+  const loadEpisodes = async (targetSeason: number | null = null) => {
     if (!isTv) return;
     const [eps, latestMedia] = await Promise.all([
       getEpisodesForMedia(media.id),
@@ -76,22 +99,27 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
       const result = await syncMediaEpisodes(media);
       if (result.hasUpdates) {
         let msg = '';
-        if (result.newEpisodesCount > 0 && result.updatedTitlesCount > 0) {
+        if (result.newEpisodesCount && result.newEpisodesCount > 0 && result.updatedTitlesCount && result.updatedTitlesCount > 0) {
           msg = `🎉 Added ${result.newEpisodesCount} new episode(s) and updated ${result.updatedTitlesCount} title(s)!`;
-        } else if (result.newEpisodesCount > 0) {
+        } else if (result.newEpisodesCount && result.newEpisodesCount > 0) {
           msg = `🎉 Added ${result.newEpisodesCount} newly dropped episode(s)!`;
-        } else if (result.updatedTitlesCount > 0) {
+        } else if (result.updatedTitlesCount && result.updatedTitlesCount > 0) {
           msg = `✨ Updated ${result.updatedTitlesCount} newly revealed episode title(s)!`;
         }
         setSyncNotice({ success: true, message: msg });
         await loadEpisodes();
         if (onUpdated) onUpdated();
+        if (onUpdate) {
+          const updated = await getMediaById(media.id);
+          if (updated) onUpdate(updated);
+        }
       } else if (!silent) {
         setSyncNotice({ success: true, message: 'All episodes and seasons are already up to date!' });
       }
     } catch (err) {
       if (!silent) {
-        setSyncNotice({ success: false, message: `Sync failed: ${err.message}` });
+        const message = err instanceof Error ? err.message : String(err);
+        setSyncNotice({ success: false, message: `Sync failed: ${message}` });
       }
     } finally {
       if (!silent) setIsSyncing(false);
@@ -99,20 +127,27 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
   };
 
   useEffect(() => {
+    if (!isOpen || !media) return;
     setSelectedSeason(null);
     loadEpisodes();
     // Silently check for new episodes if watching a TV show with external ID
     if (isTv && media.status === 'watching' && media.externalId) {
       handleSync(true);
     }
-  }, [media.id]);
+  }, [media?.id, isOpen]);
+
+  if (!isOpen || !media) return null;
 
   // Handle status change
-  const handleStatusChange = async (newStatus) => {
+  const handleStatusChange = async (newStatus: MediaStatus) => {
     setStatus(newStatus);
     await updateMediaStatus(media.id, newStatus);
     await loadEpisodes();
     if (onUpdated) onUpdated();
+    if (onUpdate) {
+      const updated = await getMediaById(media.id);
+      if (updated) onUpdate(updated);
+    }
   };
 
   // Handle rating & notes save
@@ -123,49 +158,13 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
     setNotesSavedNotice(true);
     setTimeout(() => setNotesSavedNotice(false), 2000);
     if (onUpdated) onUpdated();
-  };
-
-  // Toggle single episode
-  const handleToggleEpisode = async (ep) => {
-    await toggleEpisodeWatched(media.id, ep.seasonNumber, ep.episodeNumber);
-    await loadEpisodes(activeSeason);
-    if (onUpdated) onUpdated();
-  };
-
-  // Strike off / mark all episodes up to and including a specific episode
-  const handleMarkUpTo = async (ep) => {
-    await markEpisodesUpToWatched(media.id, ep.seasonNumber, ep.episodeNumber);
-    await loadEpisodes(activeSeason);
-    if (onUpdated) onUpdated();
-  };
-
-  // Apply exact progress input (User requested: precise to season and episode numbers)
-  const handleApplyExactProgress = async (markPrevious = true) => {
-    const s = Math.max(1, parseInt(inputSeason, 10) || 1);
-    const e = Math.max(0, parseInt(inputEpisode, 10) || 0);
-
-    await setExactProgress(media.id, s, e, markPrevious);
-    await loadEpisodes(s);
-    if (onUpdated) onUpdated();
-  };
-
-  // Mark full season watched or unwatched
-  const handleToggleSeason = async (seasonNum, markAsWatched) => {
-    await setSeasonWatched(media.id, seasonNum, markAsWatched);
-    await loadEpisodes(seasonNum);
-    if (onUpdated) onUpdated();
-  };
-
-  // Delete media item
-  const handleDelete = async () => {
-    if (window.confirm(`Are you sure you want to remove "${media.title}" from your library?`)) {
-      await deleteMediaItem(media.id);
-      if (onUpdated) onUpdated();
-      onClose();
+    if (onUpdate) {
+      const updated = await getMediaById(media.id);
+      if (updated) onUpdate(updated);
     }
   };
 
-  // Derived season lists
+  // Derived season lists and activeSeason pointer
   const seasonNumbers = Array.from(
     new Set(episodes.map(ep => ep.seasonNumber))
   ).sort((a, b) => a - b);
@@ -174,6 +173,63 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
     ? selectedSeason
     : (media.currentSeason || seasonNumbers[0] || 1);
 
+  // Toggle single episode (Issue #13: preserve active season)
+  const handleToggleEpisode = async (ep: EpisodeItem) => {
+    await toggleEpisodeWatched(media.id, ep.seasonNumber, ep.episodeNumber);
+    await loadEpisodes(activeSeason);
+    if (onUpdated) onUpdated();
+    if (onUpdate) {
+      const updated = await getMediaById(media.id);
+      if (updated) onUpdate(updated);
+    }
+  };
+
+  // Strike off / mark all episodes up to and including a specific episode (Issue #14)
+  const handleMarkUpTo = async (ep: EpisodeItem) => {
+    await markEpisodesUpToWatched(media.id, ep.seasonNumber, ep.episodeNumber);
+    await loadEpisodes(activeSeason);
+    if (onUpdated) onUpdated();
+    if (onUpdate) {
+      const updated = await getMediaById(media.id);
+      if (updated) onUpdate(updated);
+    }
+  };
+
+  // Apply exact progress input (User requested: precise to season and episode numbers)
+  const handleApplyExactProgress = async (markPrevious = true) => {
+    const s = Math.max(1, parseInt(String(inputSeason), 10) || 1);
+    const e = Math.max(0, parseInt(String(inputEpisode), 10) || 0);
+
+    await setExactProgress(media.id, s, e, markPrevious);
+    await loadEpisodes(s);
+    if (onUpdated) onUpdated();
+    if (onUpdate) {
+      const updated = await getMediaById(media.id);
+      if (updated) onUpdate(updated);
+    }
+  };
+
+  // Mark full season watched or unwatched
+  const handleToggleSeason = async (seasonNum: number, markAsWatched: boolean) => {
+    await setSeasonWatched(media.id, seasonNum, markAsWatched);
+    await loadEpisodes(seasonNum);
+    if (onUpdated) onUpdated();
+    if (onUpdate) {
+      const updated = await getMediaById(media.id);
+      if (updated) onUpdate(updated);
+    }
+  };
+
+  // Delete media item
+  const handleDelete = async () => {
+    if (window.confirm(`Are you sure you want to remove "${media.title}" from your library?`)) {
+      await deleteMediaItem(media.id);
+      if (onUpdated) onUpdated();
+      if (onDelete) onDelete(media.id);
+      onClose();
+    }
+  };
+
   const currentSeasonEpisodes = episodes.filter(ep => ep.seasonNumber === activeSeason);
   const currentSeasonWatchedCount = currentSeasonEpisodes.filter(ep => ep.isWatched === 1).length;
   const isSeasonFullyWatched = currentSeasonEpisodes.length > 0 && currentSeasonWatchedCount === currentSeasonEpisodes.length;
@@ -181,7 +237,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
   // Next up episode finder
   const nextUpEpisode = episodes.find(ep => ep.isWatched === 0);
 
-  const toggleExpand = (epId) => {
+  const toggleExpand = (epId: string) => {
     setExpandedEpisodes(prev => ({ ...prev, [epId]: !prev[epId] }));
   };
 
@@ -193,7 +249,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
         <div className="relative h-48 sm:h-64 w-full bg-zinc-950 shrink-0">
           {media.backdropUrl || media.posterUrl ? (
             <img
-              src={media.backdropUrl || media.posterUrl}
+              src={media.backdropUrl || media.posterUrl || ''}
               alt={media.title}
               className="w-full h-full object-cover opacity-35"
             />
@@ -202,6 +258,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
 
           {/* Close button */}
           <button
+            type="button"
             onClick={onClose}
             className="absolute top-4 right-4 p-2 rounded-full bg-black/60 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/10 backdrop-blur-md transition-all z-10"
           >
@@ -255,7 +312,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
               <span className="text-xs text-[var(--text-secondary)] font-medium">Status:</span>
               <select
                 value={status}
-                onChange={(e) => handleStatusChange(e.target.value)}
+                onChange={(e) => handleStatusChange(e.target.value as MediaStatus)}
                 className="px-3 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-lg text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] cursor-pointer"
               >
                 <option value="watching">Watching</option>
@@ -275,9 +332,13 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
               <select
                 value={rating}
                 onChange={(e) => {
-                  setRating(Number(e.target.value));
-                  updateMediaRatingAndNotes(media.id, Number(e.target.value), notes);
+                  const val = Number(e.target.value);
+                  setRating(val);
+                  updateMediaRatingAndNotes(media.id, val, notes);
                   if (onUpdated) onUpdated();
+                  if (onUpdate) {
+                    getMediaById(media.id).then(u => { if (u) onUpdate(u); });
+                  }
                 }}
                 className="px-2 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-lg text-xs font-semibold text-amber-300 focus:outline-none focus:border-[var(--accent)] cursor-pointer"
               >
@@ -292,6 +353,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
             <div className="flex items-center gap-2 ml-auto">
               {isTv && media.externalId && (
                 <button
+                  type="button"
                   onClick={() => handleSync(false)}
                   disabled={isSyncing}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] text-xs font-medium transition-all disabled:opacity-50"
@@ -304,6 +366,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
 
               {onEditCustom && (
                 <button
+                  type="button"
                   onClick={() => onEditCustom(media)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] text-xs font-medium transition-all"
                   title="Edit metadata or custom episodes"
@@ -313,6 +376,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                 </button>
               )}
               <button
+                type="button"
                 onClick={handleDelete}
                 className="p-1.5 rounded-lg bg-zinc-900 hover:bg-red-950/60 text-zinc-400 hover:text-red-400 border border-zinc-800 hover:border-red-800/60 text-xs transition-all"
                 title="Delete from library"
@@ -328,7 +392,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
               syncNotice.success ? 'bg-emerald-950/50 text-emerald-300 border-emerald-800/60' : 'bg-red-950/50 text-red-300 border-red-800/60'
             }`}>
               <span>{syncNotice.message}</span>
-              <button onClick={() => setSyncNotice(null)} className="text-zinc-400 hover:text-white text-xs px-1">✕</button>
+              <button type="button" onClick={() => setSyncNotice(null)} className="text-zinc-400 hover:text-white text-xs px-1">✕</button>
             </div>
           )}
 
@@ -386,6 +450,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => handleApplyExactProgress(true)}
                     className="px-3.5 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95"
                   >
@@ -393,6 +458,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => handleApplyExactProgress(false)}
                     className="px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-medium border border-[var(--border-light)] transition-all"
                     title="Update current pointer without altering episode checkboxes"
@@ -419,6 +485,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => handleToggleEpisode(nextUpEpisode)}
                     className="px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white font-bold text-xs shrink-0 transition-all shadow-sm"
                   >
@@ -448,6 +515,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                       return (
                         <button
                           key={sNum}
+                          type="button"
                           onClick={() => setSelectedSeason(sNum)}
                           className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ${
                             isSelected
@@ -481,6 +549,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                     </span>
 
                     <button
+                      type="button"
                       onClick={() => handleToggleSeason(activeSeason, !isSeasonFullyWatched)}
                       className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${
                         isSeasonFullyWatched
@@ -534,7 +603,9 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
                           </label>
 
                           <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Issue #14: Bulk Episode Strike-Off Button */}
                             <button
+                              type="button"
                               onClick={() => handleMarkUpTo(ep)}
                               className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-[var(--bg-tertiary)] hover:bg-[var(--accent)] text-[var(--text-secondary)] hover:text-white border border-[var(--border-light)] hover:border-[var(--accent)] transition-all active:scale-95 group/btn"
                               title={`Strike off / mark all episodes up to S${ep.seasonNumber}E${ep.episodeNumber} as watched`}
@@ -545,6 +616,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
 
                             {ep.overview && (
                               <button
+                                type="button"
                                 onClick={() => toggleExpand(ep.id)}
                                 className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                                 title="Toggle episode synopsis"
@@ -589,6 +661,7 @@ export default function MediaDetailModal({ media, onClose, onUpdated, onEditCust
             />
             <div className="flex justify-end mt-2">
               <button
+                type="button"
                 onClick={handleSaveNotes}
                 disabled={isSavingNotes}
                 className="px-3.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium border border-[var(--border-light)] transition-all"

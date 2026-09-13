@@ -1,16 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Film, Tv, Star, Plus, Check, Loader2, Key } from 'lucide-react';
+import { Search, X, Film, Tv, Plus, Check, Loader2, Key } from 'lucide-react';
 import { searchMedia, fetchFullMediaDetails, getTmdbApiKey } from '../services/api';
 import { saveMediaItem } from '../db';
+import type { MediaItem, MediaSearchResult, MediaStatus } from '../types';
 
-export default function SearchModal({ isOpen, onClose, onItemAdded, onOpenSettings }) {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [addingId, setAddingId] = useState(null);
-  const [addedIds, setAddedIds] = useState(new Set());
-  const [hasTmdbKey, setHasTmdbKey] = useState(false);
-  const inputRef = useRef(null);
+export interface SearchModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onItemAdded?: (item: Partial<MediaItem>) => void;
+  onOpenSettings?: () => void;
+}
+
+export default function SearchModal({
+  isOpen,
+  onClose,
+  onItemAdded,
+  onOpenSettings
+}: SearchModalProps): React.JSX.Element | null {
+  const [query, setQuery] = useState<string>('');
+  const [results, setResults] = useState<MediaSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [addingId, setAddingId] = useState<string | number | null>(null);
+  const [addedIds, setAddedIds] = useState<Set<string | number>>(new Set());
+  const [hasTmdbKey, setHasTmdbKey] = useState<boolean>(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Check TMDB key status on open
   useEffect(() => {
@@ -47,13 +60,14 @@ export default function SearchModal({ isOpen, onClose, onItemAdded, onOpenSettin
   }, [query]);
 
   // Add item to library
-  const handleAddMedia = async (item, initialStatus = 'plan_to_watch') => {
+  const handleAddMedia = async (item: MediaSearchResult, initialStatus: MediaStatus = 'plan_to_watch') => {
     setAddingId(item.externalId);
     try {
       // Fetch full metadata including all seasons and episodes with titles
-      const fullData = await fetchFullMediaDetails(item);
+      const { status: _rawStatus, ...mediaDetailsInput } = item;
+      const fullData = await fetchFullMediaDetails(mediaDetailsInput);
       
-      const mediaToSave = {
+      const mediaToSave: Partial<MediaItem> = {
         ...fullData.media,
         status: initialStatus
       };
@@ -88,6 +102,7 @@ export default function SearchModal({ isOpen, onClose, onItemAdded, onOpenSettin
           />
           {query && (
             <button
+              type="button"
               onClick={() => setQuery('')}
               className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             >
@@ -95,6 +110,7 @@ export default function SearchModal({ isOpen, onClose, onItemAdded, onOpenSettin
             </button>
           )}
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
@@ -115,6 +131,7 @@ export default function SearchModal({ isOpen, onClose, onItemAdded, onOpenSettin
 
           {!hasTmdbKey && (
             <button
+              type="button"
               onClick={() => {
                 onClose();
                 if (onOpenSettings) onOpenSettings();
@@ -200,6 +217,7 @@ export default function SearchModal({ isOpen, onClose, onItemAdded, onOpenSettin
                   ) : (
                     <div className="flex items-center gap-1.5">
                       <button
+                        type="button"
                         onClick={() => handleAddMedia(item, 'watching')}
                         disabled={isAdding}
                         className="px-2.5 py-1.5 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-semibold transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1 shadow-sm"
@@ -214,6 +232,7 @@ export default function SearchModal({ isOpen, onClose, onItemAdded, onOpenSettin
                       </button>
 
                       <button
+                        type="button"
                         onClick={() => handleAddMedia(item, 'plan_to_watch')}
                         disabled={isAdding}
                         className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium border border-[var(--border-light)] transition-all active:scale-95 disabled:opacity-50"

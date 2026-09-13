@@ -1,11 +1,18 @@
 import React from 'react';
 import { RefreshCw, CheckCircle2, AlertCircle, X, Sparkles } from 'lucide-react';
+import type { SyncState } from '../types';
+
+export interface SyncProgressBarProps {
+  syncState: SyncState | null;
+  onCancel: () => void;
+  onDismiss: () => void;
+}
 
 export default function SyncProgressBar({
   syncState,
   onCancel,
   onDismiss
-}) {
+}: SyncProgressBarProps): React.JSX.Element | null {
   if (!syncState || (!syncState.isActive && !syncState.isComplete)) {
     return null;
   }
@@ -24,14 +31,15 @@ export default function SyncProgressBar({
 
   return (
     <div className="w-full mb-6 transition-all duration-300 animate-in fade-in slide-in-from-top-2">
-      <div className={`p-4 rounded-2xl border shadow-xl backdrop-blur-md transition-all ${
-        isComplete
-          ? 'bg-[var(--card-bg)] border-emerald-500/40 text-[var(--text-primary)]'
-          : isCancelled
-          ? 'bg-[var(--card-bg)] border-amber-500/40 text-[var(--text-primary)]'
-          : 'bg-[var(--card-bg)] border-[var(--accent)]/40 text-[var(--text-primary)]'
-      }`}>
-        
+      <div
+        className={`p-4 rounded-2xl border shadow-xl backdrop-blur-md transition-all ${
+          isComplete
+            ? 'bg-[var(--card-bg)] border-emerald-500/40 text-[var(--text-primary)]'
+            : isCancelled
+            ? 'bg-[var(--card-bg)] border-amber-500/40 text-[var(--text-primary)]'
+            : 'bg-[var(--card-bg)] border-[var(--accent)]/40 text-[var(--text-primary)]'
+        }`}
+      >
         {/* Header Row */}
         <div className="flex items-center justify-between gap-3 mb-2.5">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -65,6 +73,7 @@ export default function SyncProgressBar({
 
             {isActive ? (
               <button
+                type="button"
                 onClick={onCancel}
                 className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all border border-[var(--border-light)] shadow-sm"
               >
@@ -72,6 +81,7 @@ export default function SyncProgressBar({
               </button>
             ) : (
               <button
+                type="button"
                 onClick={onDismiss}
                 className="p-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all"
                 title="Dismiss"
@@ -119,7 +129,6 @@ export default function SyncProgressBar({
             </div>
           )}
         </div>
-
       </div>
     </div>
   );

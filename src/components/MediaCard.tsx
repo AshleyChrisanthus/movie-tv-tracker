@@ -1,8 +1,13 @@
 import React from 'react';
 import { Film, Tv, Star, Plus, CheckCircle2, Check } from 'lucide-react';
-import { getGenreTagStyle } from '../styles/theme';
+import type { MediaItem, MediaStatus } from '../types';
 
-const STATUS_CONFIG = {
+interface StatusStyle {
+  label: string;
+  bg: string;
+}
+
+const STATUS_CONFIG: Record<MediaStatus, StatusStyle> = {
   watching: { label: 'Watching', bg: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
   completed: { label: 'Completed', bg: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
   plan_to_watch: { label: 'Plan to Watch', bg: 'bg-[var(--accent-bg)] text-[var(--accent)] border-[var(--accent)]/30' },
@@ -10,7 +15,19 @@ const STATUS_CONFIG = {
   dropped: { label: 'Dropped', bg: 'bg-red-500/15 text-red-400 border-red-500/30' },
 };
 
-export default function MediaCard({ item, onClick, onQuickIncrement, onQuickToggleMovie }) {
+export interface MediaCardProps {
+  item: MediaItem;
+  onClick: (item: MediaItem) => void;
+  onQuickIncrement?: (item: MediaItem) => void;
+  onQuickToggleMovie?: (item: MediaItem) => void;
+}
+
+export default function MediaCard({
+  item,
+  onClick,
+  onQuickIncrement,
+  onQuickToggleMovie
+}: MediaCardProps): React.JSX.Element {
   const isTv = item.type === 'tv';
   const statusCfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.plan_to_watch;
 
@@ -20,7 +37,7 @@ export default function MediaCard({ item, onClick, onQuickIncrement, onQuickTogg
   const progressPercent = totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0;
   const isCompleted = isTv ? (totalEps > 0 && watchedEps >= totalEps) : item.status === 'completed';
 
-  const handleQuickAction = (e) => {
+  const handleQuickAction = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (isTv) {
       if (onQuickIncrement) onQuickIncrement(item);
@@ -31,7 +48,15 @@ export default function MediaCard({ item, onClick, onQuickIncrement, onQuickTogg
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={() => onClick(item)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick(item);
+        }
+      }}
       className="group relative flex flex-col bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] border border-[var(--border-light)] hover:border-[var(--accent)] rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-xl hover:-translate-y-1"
     >
       {/* Poster Container */}
@@ -71,6 +96,7 @@ export default function MediaCard({ item, onClick, onQuickIncrement, onQuickTogg
         <div className="absolute bottom-2.5 right-2.5 z-10">
           {isTv && !isCompleted && (
             <button
+              type="button"
               onClick={handleQuickAction}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold shadow-lg shadow-[var(--accent)]/30 backdrop-blur-sm transition-all active:scale-95"
               title="Quick mark +1 episode watched"
@@ -82,6 +108,7 @@ export default function MediaCard({ item, onClick, onQuickIncrement, onQuickTogg
 
           {!isTv && (
             <button
+              type="button"
               onClick={handleQuickAction}
               className={`flex items-center gap-1 p-2 rounded-xl text-xs font-bold shadow-lg backdrop-blur-sm transition-all active:scale-95 ${
                 item.status === 'completed'

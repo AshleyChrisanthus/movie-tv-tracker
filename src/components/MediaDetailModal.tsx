@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
-  CheckCheck, Edit3, Trash2
+  CheckCheck, CheckCircle2, Edit3, Trash2
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
@@ -316,6 +316,7 @@ export default function MediaDetailModal({
                 className="px-3 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-lg text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] cursor-pointer"
               >
                 <option value="watching">Watching</option>
+                <option value="caught_up">Caught Up</option>
                 <option value="plan_to_watch">Plan to Watch</option>
                 <option value="completed">Completed</option>
                 <option value="on_hold">On Hold</option>
@@ -468,8 +469,8 @@ export default function MediaDetailModal({
                 </div>
               </div>
 
-              {/* 2. NEXT UP TO WATCH HIGHLIGHT */}
-              {nextUpEpisode && (
+              {/* 2. NEXT UP TO WATCH HIGHLIGHT OR CAUGHT UP BANNER */}
+              {nextUpEpisode ? (
                 <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-[var(--accent-bg)] border border-[var(--accent)]/30 text-xs">
                   <div className="flex items-center gap-2.5">
                     <PlayCircle className="w-5 h-5 text-[var(--accent)] shrink-0" />
@@ -492,7 +493,19 @@ export default function MediaDetailModal({
                     Mark Watched
                   </button>
                 </div>
-              )}
+              ) : status === 'caught_up' ? (
+                <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-5 h-5 text-sky-400 shrink-0" />
+                    <div>
+                      <span className="font-bold text-sky-400">All Caught Up! </span>
+                      <span className="text-[var(--text-secondary)] font-medium ml-1">
+                        You've watched every released episode. Awaiting new episodes or seasons to air!
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {/* 3. SEASON TABS & EPISODE CHECKLIST WITH TITLES */}
               <div>

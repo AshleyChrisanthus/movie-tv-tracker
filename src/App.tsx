@@ -125,6 +125,7 @@ export default function App(): React.JSX.Element {
     const counts: Record<string, number> = {
       all: mediaList.length,
       watching: 0,
+      caught_up: 0,
       plan_to_watch: 0,
       completed: 0,
       on_hold: 0,

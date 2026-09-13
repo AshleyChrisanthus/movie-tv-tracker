@@ -8,6 +8,7 @@ export type MediaType = 'movie' | 'tv';
  */
 export type MediaStatus =
   | 'watching'
+  | 'caught_up'
   | 'plan_to_watch'
   | 'completed'
   | 'on_hold'
@@ -17,6 +18,11 @@ export type MediaStatus =
  * Origin source of metadata.
  */
 export type MediaSource = 'tmdb' | 'tvmaze' | 'itunes' | 'custom';
+
+/**
+ * Series broadcast air status (e.g., 'Returning Series', 'Ended', 'Running', 'Canceled').
+ */
+export type SeriesAirStatus = 'Ended' | 'Returning Series' | 'In Production' | 'Running' | 'Canceled' | 'Pilot' | string;
 
 /**
  * Watched state representation in IndexedDB (0 for unwatched, 1 for watched).
@@ -30,6 +36,7 @@ export interface MediaItem {
   id: string;                               // Primary key: `media_${timestamp}_${hash}`
   type: MediaType;                          // 'movie' | 'tv'
   status: MediaStatus;                      // Tracking status
+  airStatus?: SeriesAirStatus;              // Ongoing/ended broadcast status ('Returning Series', 'Ended', etc.)
   title: string;                            // Title of the movie or TV show
   year: number | string;                    // Release year or 'N/A'
   releaseDate?: string;                     // ISO date or YYYY-MM-DD

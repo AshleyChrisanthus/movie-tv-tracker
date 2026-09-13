@@ -59,6 +59,7 @@ export interface TMDBTV {
   genre_ids?: number[];
   number_of_seasons?: number;
   number_of_episodes?: number;
+  status?: string;
   seasons?: TMDBSeasonOverview[];
   media_type?: 'tv';
 }

@@ -6,6 +6,7 @@ import {
   Tv,
   Play,
   CheckCircle,
+  CheckCheck,
   Clock,
   XCircle,
   PauseCircle,
@@ -22,6 +23,7 @@ interface StatusTab {
 const STATUS_TABS: StatusTab[] = [
   { key: 'all', label: 'All Items', icon: null },
   { key: 'watching', label: 'Watching', icon: Play },
+  { key: 'caught_up', label: 'Caught Up', icon: CheckCheck },
   { key: 'plan_to_watch', label: 'Plan to Watch', icon: Clock },
   { key: 'completed', label: 'Completed', icon: CheckCircle },
   { key: 'on_hold', label: 'On Hold', icon: PauseCircle },

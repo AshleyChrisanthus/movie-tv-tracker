@@ -60,6 +60,7 @@ export async function saveMediaItem(
     let watchedEpisodesCount = 0;
 
     // If episodes are provided, save/merge them
+    let storedEpisodes: EpisodeItem[] = [];
     if (episodes && episodes.length > 0) {
       totalEpisodes = episodes.length;
 
@@ -90,6 +91,7 @@ export async function saveMediaItem(
         };
       });
 
+      storedEpisodes = episodesToStore;
       await db.episodes.where('mediaId').equals(id).delete();
       await db.episodes.bulkPut(episodesToStore);
     } else if (existingMedia) {
@@ -100,8 +102,10 @@ export async function saveMediaItem(
 
     // Determine default status if not set
     let status: MediaStatus = mediaItem.status || existingMedia?.status || 'plan_to_watch';
-    if (mediaItem.type === 'tv' && totalEpisodes > 0 && watchedEpisodesCount === totalEpisodes) {
-      status = 'completed';
+    if (storedEpisodes.length > 0 && mediaItem.type === 'tv') {
+      status = computeAutoStatus(status, storedEpisodes, mediaItem.airStatus || existingMedia?.airStatus, 'tv');
+    } else if (mediaItem.type === 'tv' && totalEpisodes > 0 && watchedEpisodesCount === totalEpisodes) {
+      status = (mediaItem.airStatus === 'Ended' || mediaItem.airStatus === 'Canceled') ? 'completed' : 'caught_up';
     } else if (mediaItem.type === 'tv' && watchedEpisodesCount > 0 && status === 'plan_to_watch') {
       status = 'watching';
     }
@@ -179,6 +183,63 @@ export async function getEpisodesForMedia(mediaId: string): Promise<EpisodeItem[
 }
 
 /**
+ * Automatically compute appropriate status based on watched episodes, air dates, and series air status.
+ */
+export function computeAutoStatus(
+  currentStatus: MediaStatus,
+  episodes: EpisodeItem[],
+  airStatus?: string,
+  mediaType: string = 'tv'
+): MediaStatus {
+  if (mediaType !== 'tv') {
+    return currentStatus;
+  }
+
+  // Preserve explicit user choice to pause or abandon a show unless they resume
+  if (currentStatus === 'dropped' || currentStatus === 'on_hold') {
+    return currentStatus;
+  }
+
+  const totalCount = episodes.length;
+  if (totalCount === 0) {
+    return currentStatus;
+  }
+
+  const watchedCount = episodes.filter(e => e.isWatched === 1).length;
+
+  if (watchedCount === 0) {
+    return currentStatus === 'watching' || currentStatus === 'caught_up' ? 'plan_to_watch' : currentStatus;
+  }
+
+  const isOngoing = airStatus === 'Returning Series' || airStatus === 'Running' || airStatus === 'In Production';
+  const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  // Filter episodes that have actually aired (or have no airDate recorded, assuming aired)
+  const airedEpisodes = episodes.filter(e => !e.airDate || e.airDate <= todayStr);
+  const futureEpisodes = episodes.filter(e => e.airDate && e.airDate > todayStr);
+  const unwatchedAiredEpisodes = airedEpisodes.filter(e => e.isWatched !== 1);
+
+  // 1. If all known episodes are watched:
+  if (watchedCount === totalCount) {
+    // If the series is explicitly ongoing, the user is caught up awaiting the next season
+    if (isOngoing) {
+      return 'caught_up';
+    }
+    // Otherwise, the entire series is completed
+    return 'completed';
+  }
+
+  // 2. If there are unwatched episodes, check if ALL unwatched episodes are future un-aired episodes:
+  if (futureEpisodes.length > 0 && unwatchedAiredEpisodes.length === 0) {
+    // Every episode that has aired so far is watched! Only future un-aired episodes remain:
+    return 'caught_up';
+  }
+
+  // 3. Otherwise, there are aired episodes still unwatched:
+  return 'watching';
+}
+
+/**
  * Toggle single episode watched state.
  */
 export async function toggleEpisodeWatched(
@@ -207,12 +268,7 @@ export async function toggleEpisodeWatched(
 
     const media = await db.media.get(mediaId);
     if (media) {
-      let status: MediaStatus = media.status;
-      if (totalCount > 0 && watchedCount === totalCount) {
-        status = 'completed';
-      } else if (watchedCount > 0 && status === 'plan_to_watch') {
-        status = 'watching';
-      }
+      const status = computeAutoStatus(media.status, allEps, media.airStatus, media.type);
 
       await db.media.update(mediaId, {
         watchedEpisodesCount: watchedCount,
@@ -261,12 +317,7 @@ export async function setExactProgress(
 
     const media = await db.media.get(mediaId);
     if (media) {
-      let status: MediaStatus = media.status;
-      if (totalCount > 0 && watchedCount === totalCount) {
-        status = 'completed';
-      } else if (watchedCount > 0 && status === 'plan_to_watch') {
-        status = 'watching';
-      }
+      const status = computeAutoStatus(media.status, updatedEpisodes, media.airStatus, media.type);
 
       await db.media.update(mediaId, {
         currentSeason: targetSeason,
@@ -311,12 +362,7 @@ export async function markEpisodesUpToWatched(
 
     const media = await db.media.get(mediaId);
     if (media) {
-      let status: MediaStatus = media.status;
-      if (totalCount > 0 && watchedCount === totalCount) {
-        status = 'completed';
-      } else if (watchedCount > 0 && status === 'plan_to_watch') {
-        status = 'watching';
-      }
+      const status = computeAutoStatus(media.status, updatedEpisodes, media.airStatus, media.type);
 
       await db.media.update(mediaId, {
         currentSeason: targetSeason,
@@ -358,12 +404,7 @@ export async function setSeasonWatched(
 
     const media = await db.media.get(mediaId);
     if (media) {
-      let status: MediaStatus = media.status;
-      if (totalCount > 0 && watchedCount === totalCount) {
-        status = 'completed';
-      } else if (watchedCount > 0 && status === 'plan_to_watch') {
-        status = 'watching';
-      }
+      const status = computeAutoStatus(media.status, allEps, media.airStatus, media.type);
 
       await db.media.update(mediaId, {
         watchedEpisodesCount: watchedCount,

@@ -272,6 +272,7 @@ async function fetchTVMazeDetails(
     backdropUrl: showData?.image?.original || fallbackItem.backdropUrl,
     type: 'tv',
     source: 'tvmaze',
+    airStatus: showData?.status || fallbackItem.airStatus,
     externalId: showId,
     totalSeasons: maxSeason,
     totalEpisodes: formattedEpisodes.length,
@@ -330,6 +331,7 @@ async function fetchTMDBTVDetails(
     backdropUrl: data.backdrop_path ? `${TMDB_IMAGE_BASE}/original${data.backdrop_path}` : fallbackItem.backdropUrl,
     type: 'tv',
     source: 'tmdb',
+    airStatus: data.status || fallbackItem.airStatus,
     externalId: showId,
     totalSeasons: regularSeasons.length || data.number_of_seasons || 1,
     totalEpisodes: allEpisodes.length || data.number_of_episodes || 0,
@@ -433,10 +435,15 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
         ...mediaItem,
         totalSeasons: freshData.media.totalSeasons || mediaItem.totalSeasons,
         totalEpisodes: mergedEpisodes.length,
+        airStatus: freshData.media.airStatus || mediaItem.airStatus,
         lastSyncedAt: new Date().toISOString()
       };
       await saveMediaItem(updatedMedia, mergedEpisodes);
     } else {
+      // If series status changed (e.g. from Running to Ended), update airStatus
+      if (freshData.media.airStatus && freshData.media.airStatus !== mediaItem.airStatus) {
+        await saveMediaItem({ ...mediaItem, airStatus: freshData.media.airStatus });
+      }
       // Touch lastSyncedAt so cooldown timer knows this show was recently verified
       await touchMediaSyncedAt(mediaItem.id);
     }
@@ -447,7 +454,7 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
       updatedTitlesCount,
       totalEpisodes: mergedEpisodes.length,
       mediaTitle: mediaItem.title,
-      isCompletedWithNewEpisodes: (mediaItem.status === 'completed' && newEpisodesCount > 0),
+      isCompletedWithNewEpisodes: ((mediaItem.status === 'completed' || mediaItem.status === 'caught_up') && newEpisodesCount > 0),
       previousStatus: mediaItem.status
     };
   } catch (err: unknown) {
@@ -476,8 +483,8 @@ export function getShowsEligibleForSync(
   const now = Date.now();
 
   return tvShows.filter(show => {
-    // Active watching shows are always eligible
-    if (show.status === 'watching') return true;
+    // Active watching and caught-up shows are always eligible
+    if (show.status === 'watching' || show.status === 'caught_up') return true;
 
     // Dropped shows are skipped in automatic sync
     if (show.status === 'dropped') return false;

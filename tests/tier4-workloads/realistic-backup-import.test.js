@@ -12,21 +12,34 @@ describe('Tier 4: Realistic Multi-Tier Library Import Workload', () => {
     dbModule = await getDbModule();
   });
 
-  it('should import the real-world 9-show 423-episode backup and execute library queries', async () => {
-    const backupPath = path.resolve(process.cwd(), 'exports/watch-history-minimal-2026-09-10_18-50-02.json');
-    assert.ok(fs.existsSync(backupPath), 'Sample backup file must exist in exports/');
+  it('should import the real-world 9-show backup and execute library queries', async () => {
+    const compactPath = path.resolve(process.cwd(), 'exports/watch-history-compact-2026-09-10_18-33-40.json');
+    assert.ok(fs.existsSync(compactPath), 'Compact backup file must exist in exports/');
 
-    const rawJson = fs.readFileSync(backupPath, 'utf8');
-    const backupData = JSON.parse(rawJson);
+    const rawJson = fs.readFileSync(compactPath, 'utf8');
+    const compactBackup = JSON.parse(rawJson);
 
-    assert.equal(backupData.app, 'BingeLog');
-    assert.equal(backupData.totalMedia, 9);
-    assert.equal(backupData.totalEpisodes, 423);
+    assert.equal(compactBackup.app, 'BingeLog');
+    assert.equal(compactBackup.totalMedia, 9);
+    assert.equal(compactBackup.totalEpisodes, 882);
 
-    // Import the backup
-    const importResult = await dbModule.importData(backupData, true);
+    // 1. Import compact backup
+    const importResult = await dbModule.importData(compactBackup, true);
     assert.equal(importResult.mediaCount, 9);
-    assert.equal(importResult.episodesCount, 423);
+    assert.equal(importResult.episodesCount, 882);
+
+    // 2. Export minimal backup (only watched episodes: 423)
+    const minimalBackup = await dbModule.exportAllData({ mode: 'minimal' });
+    assert.equal(minimalBackup.app, 'BingeLog');
+    assert.equal(minimalBackup.totalMedia, 9);
+    assert.equal(minimalBackup.totalEpisodes, 423);
+
+    // 3. Re-import minimal backup into clean database
+    await resetDatabase();
+    dbModule = await getDbModule();
+    const minimalImportResult = await dbModule.importData(minimalBackup, true);
+    assert.equal(minimalImportResult.mediaCount, 9);
+    assert.equal(minimalImportResult.episodesCount, 423);
 
     // Verify all 9 media items exist in Dexie
     const allMedia = await dbModule.getAllMedia();

@@ -14,6 +14,7 @@ const testFiles = [
   'path:/tier1-features/multi-season-progress.test.js',
   'path:/tier1-features/bulk-strike-off.test.js',
   'path:/tier1-features/caught-up-status.test.js',
+  'path:/tier1-features/timezone-countdown.test.js',
   'path:/tier1-features/backup-tier-export.test.js',
   'path:/tier1-features/theme-system.test.js',
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Key, Download, Upload, Folder, FolderCheck, CheckCircle, 
   AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
-  Zap, Archive, Sparkles
+  Zap, Archive, Sparkles, Globe, Clock
 } from 'lucide-react';
 import { getSetting, setSetting } from '../db';
 import { 
@@ -11,6 +11,10 @@ import {
   isFileSystemAccessSupported, linkBackupDirectory, 
   getLinkedDirectoryHandle, unlinkBackupDirectory 
 } from '../services/exportService';
+import { 
+  getUserTimeZone, setUserTimeZone, getSystemTimeZone, 
+  COMMON_TIMEZONES, type TimeZoneOption 
+} from '../utils/timezone';
 import type { BackupMode, ExportFileInfo } from '../types';
 
 export interface SettingsModalProps {
@@ -32,6 +36,10 @@ export default function SettingsModal({
   const [apiKey, setApiKey] = useState<string>('');
   const [isTestingKey, setIsTestingKey] = useState<boolean>(false);
   const [keyStatus, setKeyStatus] = useState<NoticeStatus | null>(null);
+
+  // Timezone & Locale State
+  const [userTimezone, setUserTimezone] = useState<string>(getSystemTimeZone());
+  const [timezoneNotice, setTimezoneNotice] = useState<NoticeStatus | null>(null);
   
   // File System Access & Export State
   const [fsSupported, setFsSupported] = useState<boolean>(false);
@@ -57,12 +65,14 @@ export default function SettingsModal({
       setFsSupported(isFileSystemAccessSupported());
       getSetting<string>('tmdb_api_key', '').then(k => setApiKey(k || ''));
       getSetting<BackupMode>('backup_mode', 'compact').then(m => setBackupMode(m || 'compact'));
+      getUserTimeZone().then(tz => setUserTimezone(tz));
       checkLinkedDirectory();
       loadExportsList();
     } else {
       setKeyStatus(null);
       setExportNotice(null);
       setImportNotice(null);
+      setTimezoneNotice(null);
     }
   }, [isOpen]);
 
@@ -308,6 +318,71 @@ export default function SettingsModal({
               }`}>
                 {keyStatus.success ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
                 <span>{keyStatus.message}</span>
+              </div>
+            )}
+          </div>
+
+          {/* TIMEZONE & LOCALE CONFIGURATION SECTION */}
+          <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-sky-400" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Timezone & Release Schedules</h3>
+              </div>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/30 font-medium">
+                DST-Aware
+              </span>
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              Show release countdowns and episode air dates are automatically converted from origin networks (e.g. US Eastern) to your local time.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <select
+                value={userTimezone}
+                onChange={async (e) => {
+                  const tz = e.target.value;
+                  setUserTimezone(tz);
+                  await setUserTimeZone(tz);
+                  setTimezoneNotice({
+                    success: true,
+                    message: `Timezone updated to ${tz}. All release countdowns will use this schedule.`
+                  });
+                  setTimeout(() => setTimezoneNotice(null), 3000);
+                }}
+                className="flex-1 px-3 py-2 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)] font-medium cursor-pointer"
+              >
+                <option value={getSystemTimeZone()}>Auto-Detect (System: {getSystemTimeZone()})</option>
+                {COMMON_TIMEZONES.map(tz => (
+                  <option key={tz.value} value={tz.value}>
+                    {tz.label}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const sysTz = getSystemTimeZone();
+                  setUserTimezone(sysTz);
+                  await setUserTimeZone(sysTz);
+                  setTimezoneNotice({
+                    success: true,
+                    message: `Reset to system browser timezone (${sysTz}).`
+                  });
+                  setTimeout(() => setTimezoneNotice(null), 3000);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)] shrink-0"
+              >
+                Use System
+              </button>
+            </div>
+
+            {timezoneNotice && (
+              <div className="p-2.5 rounded-lg text-xs flex items-center gap-2 bg-sky-950/60 text-sky-300 border border-sky-800/60">
+                <CheckCircle className="w-4 h-4 text-sky-400" />
+                <span>{timezoneNotice.message}</span>
               </div>
             )}
           </div>

@@ -8,7 +8,7 @@ import ManualMediaModal from './components/ManualMediaModal';
 import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
 import ThemeModal from './components/ThemeModal';
-import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus } from './db';
+import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
@@ -97,7 +97,17 @@ export default function App(): React.JSX.Element {
       }
     };
 
-    refreshLibrary().then(() => {
+    refreshLibrary().then(async () => {
+      // Quietly heal existing library shows with missing status/next episode metadata
+      try {
+        const healed = await backfillMissingMediaMetadata();
+        if (healed > 0) {
+          await refreshLibrary();
+        }
+      } catch (err) {
+        console.warn('Metadata backfill error:', err);
+      }
+
       // Quiet background check after initial load
       setTimeout(checkEligibleShowsForUpdates, 2500);
     });

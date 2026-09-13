@@ -53,6 +53,15 @@ export interface MediaItem {
   currentSeason?: number;                   // Last active season pointer (1-based)
   currentEpisode?: number;                  // Last active episode pointer
   activeSeason?: number;                    // Navigation persistence pointer (Issue #13)
+  networkTimezone?: string;                 // e.g. 'America/New_York'
+  schedule?: {                              // Broadcast schedule
+    time?: string;                          // e.g. '20:30'
+    days?: string[];                        // e.g. ['Wednesday']
+  };
+  nextAirDate?: string | null;              // YYYY-MM-DD of next un-aired episode
+  nextAirstamp?: string | null;             // UTC ISO string of next un-aired episode
+  nextEpisodeSeason?: number | null;        // Season number of next un-aired episode
+  nextEpisodeNumber?: number | null;        // Episode number of next un-aired episode
   runtime?: number | null;                  // Movie runtime in minutes
   notes?: string;                           // Personal user review / notes
   lastSyncedAt?: string;                    // ISO timestamp of last successful sync
@@ -71,6 +80,7 @@ export interface EpisodeItem {
   title: string;                            // Episode title
   overview?: string;                        // Episode summary / synopsis
   airDate?: string;                         // Air date YYYY-MM-DD
+  airstamp?: string | null;                 // ISO-8601 UTC release timestamp e.g. '2026-10-08T00:30:00+00:00'
   runtime?: number | null;                  // Runtime in minutes
   stillUrl?: string | null;                 // Screenshot thumbnail URL
   isWatched: WatchedStatus;                 // 1 if watched, 0 if unwatched
@@ -87,6 +97,7 @@ export interface CompactEpisodeItem {
   episodeNumber: number;
   title: string;
   airDate?: string;
+  airstamp?: string | null;
   runtime?: number | null;
   isWatched: WatchedStatus;
   watchedAt?: string | null;

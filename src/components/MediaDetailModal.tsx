@@ -9,6 +9,9 @@ import {
   deleteMediaItem, getMediaById, markEpisodesUpToWatched
 } from '../db';
 import { syncMediaEpisodes } from '../services/api';
+import { 
+  getUserTimeZone, formatEpisodeAirDate, getEpisodeCountdown, isEpisodeAired 
+} from '../utils/timezone';
 import type { MediaItem, EpisodeItem, MediaStatus } from '../types';
 
 export interface MediaDetailModalProps {
@@ -51,6 +54,9 @@ export default function MediaDetailModal({
 
   // Expanded episode synopses
   const [expandedEpisodes, setExpandedEpisodes] = useState<Record<string, boolean>>({});
+
+  // Localized User Timezone
+  const [userTz, setUserTz] = useState<string>('');
 
   const isTv = media?.type === 'tv';
 
@@ -128,6 +134,7 @@ export default function MediaDetailModal({
 
   useEffect(() => {
     if (!isOpen || !media) return;
+    getUserTimeZone().then(tz => setUserTz(tz));
     setSelectedSeason(null);
     loadEpisodes();
     // Silently check for new episodes if watching a TV show with external ID
@@ -494,13 +501,21 @@ export default function MediaDetailModal({
                   </button>
                 </div>
               ) : status === 'caught_up' ? (
-                <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-xs">
                   <div className="flex items-center gap-2.5">
                     <CheckCircle2 className="w-5 h-5 text-sky-400 shrink-0" />
                     <div>
                       <span className="font-bold text-sky-400">All Caught Up! </span>
                       <span className="text-[var(--text-secondary)] font-medium ml-1">
-                        You've watched every released episode. Awaiting new episodes or seasons to air!
+                        {episodes.find(e => !isEpisodeAired(e, media?.networkTimezone)) ? (
+                          <>
+                            Next up: <strong className="text-[var(--text-primary)]">S{episodes.find(e => !isEpisodeAired(e, media?.networkTimezone))?.seasonNumber}E{episodes.find(e => !isEpisodeAired(e, media?.networkTimezone))?.episodeNumber}</strong> dropping on{' '}
+                            <strong className="text-sky-300">{formatEpisodeAirDate(episodes.find(e => !isEpisodeAired(e, media?.networkTimezone))?.airDate, episodes.find(e => !isEpisodeAired(e, media?.networkTimezone))?.airstamp, userTz, media?.networkTimezone)}</strong>{' '}
+                            ({getEpisodeCountdown(episodes.find(e => !isEpisodeAired(e, media?.networkTimezone))?.airDate, episodes.find(e => !isEpisodeAired(e, media?.networkTimezone))?.airstamp, media?.networkTimezone).label})
+                          </>
+                        ) : (
+                          "You've watched every released episode. Awaiting new episodes or seasons to air!"
+                        )}
                       </span>
                     </div>
                   </div>
@@ -608,9 +623,17 @@ export default function MediaDetailModal({
                                 </span>
                               </div>
                               {ep.airDate && (
-                                <span className="text-[11px] text-[var(--text-secondary)]">
-                                  Aired: {ep.airDate}
-                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-[var(--text-secondary)]">
+                                  <span>
+                                    {isEpisodeAired(ep, media?.networkTimezone) ? 'Aired: ' : 'Drops: '}
+                                    {formatEpisodeAirDate(ep.airDate, ep.airstamp, userTz, media?.networkTimezone)}
+                                  </span>
+                                  {!isEpisodeAired(ep, media?.networkTimezone) && (
+                                    <span className="px-1.5 py-0.2 rounded bg-sky-500/15 text-sky-400 font-medium text-[10px] border border-sky-500/30">
+                                      {getEpisodeCountdown(ep.airDate, ep.airstamp, media?.networkTimezone).label}
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </label>

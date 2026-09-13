@@ -115,6 +115,20 @@ export interface TVMazeShow {
   rating?: {
     average?: number | null;
   };
+  network?: {
+    country?: {
+      timezone?: string;
+    };
+  } | null;
+  webChannel?: {
+    country?: {
+      timezone?: string;
+    } | null;
+  } | null;
+  schedule?: {
+    time?: string;
+    days?: string[];
+  };
 }
 
 export interface TVMazeSearchResultItem {
@@ -132,6 +146,7 @@ export interface TVMazeEpisode {
   name: string;
   summary?: string | null;
   airdate?: string;
+  airstamp?: string | null;
   runtime?: number | null;
   image?: {
     medium?: string;

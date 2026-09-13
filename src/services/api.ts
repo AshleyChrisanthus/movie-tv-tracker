@@ -254,6 +254,7 @@ async function fetchTVMazeDetails(
       title: ep.name || `Episode ${ep.number}`,
       overview: epCleanSummary,
       airDate: ep.airdate || '',
+      airstamp: ep.airstamp || null,
       runtime: ep.runtime || null,
       stillUrl: ep.image?.medium || ep.image?.original || null,
       isWatched: 0 as WatchedStatus
@@ -262,6 +263,7 @@ async function fetchTVMazeDetails(
 
   // Calculate highest season number
   const maxSeason = formattedEpisodes.reduce((max, ep) => Math.max(max, ep.seasonNumber), 1);
+  const networkTimezone = showData?.network?.country?.timezone || showData?.webChannel?.country?.timezone || 'America/New_York';
 
   const media: Partial<MediaItem> = {
     ...fallbackItem,
@@ -273,6 +275,8 @@ async function fetchTVMazeDetails(
     type: 'tv',
     source: 'tvmaze',
     airStatus: showData?.status || fallbackItem.airStatus,
+    networkTimezone: networkTimezone || fallbackItem.networkTimezone,
+    schedule: showData?.schedule || fallbackItem.schedule,
     externalId: showId,
     totalSeasons: maxSeason,
     totalEpisodes: formattedEpisodes.length,
@@ -411,9 +415,11 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
           // Strictly retain watched state and timestamp!
           isWatched: existing.isWatched,
           watchedAt: existing.watchedAt,
-          // Update title and synopsis if newly published
+          // Update title, synopsis, and airstamp if newly published
           title: freshEp.title || existing.title,
-          overview: freshEp.overview || existing.overview
+          overview: freshEp.overview || existing.overview,
+          airDate: freshEp.airDate || existing.airDate,
+          airstamp: freshEp.airstamp || existing.airstamp
         };
       } else {
         // Completely new episode or newly dropped season!
@@ -436,13 +442,23 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
         totalSeasons: freshData.media.totalSeasons || mediaItem.totalSeasons,
         totalEpisodes: mergedEpisodes.length,
         airStatus: freshData.media.airStatus || mediaItem.airStatus,
+        networkTimezone: freshData.media.networkTimezone || mediaItem.networkTimezone,
+        schedule: freshData.media.schedule || mediaItem.schedule,
         lastSyncedAt: new Date().toISOString()
       };
       await saveMediaItem(updatedMedia, mergedEpisodes);
     } else {
-      // If series status changed (e.g. from Running to Ended), update airStatus
-      if (freshData.media.airStatus && freshData.media.airStatus !== mediaItem.airStatus) {
-        await saveMediaItem({ ...mediaItem, airStatus: freshData.media.airStatus });
+      // If series status or schedule changed, update media metadata
+      if (
+        (freshData.media.airStatus && freshData.media.airStatus !== mediaItem.airStatus) ||
+        (freshData.media.networkTimezone && freshData.media.networkTimezone !== mediaItem.networkTimezone)
+      ) {
+        await saveMediaItem({
+          ...mediaItem,
+          airStatus: freshData.media.airStatus || mediaItem.airStatus,
+          networkTimezone: freshData.media.networkTimezone || mediaItem.networkTimezone,
+          schedule: freshData.media.schedule || mediaItem.schedule
+        });
       }
       // Touch lastSyncedAt so cooldown timer knows this show was recently verified
       await touchMediaSyncedAt(mediaItem.id);
@@ -483,11 +499,11 @@ export function getShowsEligibleForSync(
   const now = Date.now();
 
   return tvShows.filter(show => {
-    // Active watching and caught-up shows are always eligible
-    if (show.status === 'watching' || show.status === 'caught_up') return true;
-
     // Dropped shows are skipped in automatic sync
     if (show.status === 'dropped') return false;
+
+    // Active watching and caught-up shows are always eligible
+    if (show.status === 'watching' || show.status === 'caught_up') return true;
 
     // Completed, Plan to Watch, and On Hold shows: sync if never synced or past cooldown
     if (!show.lastSyncedAt) return true;

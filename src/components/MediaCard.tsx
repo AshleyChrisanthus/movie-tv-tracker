@@ -1,6 +1,7 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, CheckCircle2, Check } from 'lucide-react';
+import { Film, Tv, Star, Plus, CheckCircle2, Check, Clock } from 'lucide-react';
 import type { MediaItem, MediaStatus } from '../types';
+import { getEpisodeCountdown } from '../utils/timezone';
 
 interface StatusStyle {
   label: string;
@@ -37,6 +38,11 @@ export default function MediaCard({
   const watchedEps = item.watchedEpisodesCount || 0;
   const progressPercent = totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0;
   const isCompleted = isTv ? (totalEps > 0 && watchedEps >= totalEps) : item.status === 'completed';
+
+  // Next episode countdown calculation
+  const countdown = isTv && (item.nextAirDate || item.nextAirstamp)
+    ? getEpisodeCountdown(item.nextAirDate || undefined, item.nextAirstamp, item.networkTimezone)
+    : null;
 
   const handleQuickAction = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -95,7 +101,7 @@ export default function MediaCard({
 
         {/* Quick Action Button overlay at bottom right of poster */}
         <div className="absolute bottom-2.5 right-2.5 z-10">
-          {isTv && !isCompleted && (
+          {isTv && !isCompleted && item.status !== 'caught_up' && (
             <button
               type="button"
               onClick={handleQuickAction}
@@ -122,6 +128,16 @@ export default function MediaCard({
             </button>
           )}
         </div>
+
+        {/* Caught Up overlay badge */}
+        {item.status === 'caught_up' && !isCompleted && (
+          <div className="absolute top-2.5 right-2.5">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-950/85 backdrop-blur-md border border-sky-500/40 text-[11px] font-semibold text-sky-400 shadow-md">
+              <Clock className="w-3 h-3 text-sky-400" />
+              <span>Caught Up</span>
+            </span>
+          </div>
+        )}
 
         {/* Completed overlay badge */}
         {isCompleted && (
@@ -172,11 +188,25 @@ export default function MediaCard({
                 className={`h-full transition-all duration-300 rounded-full ${
                   isCompleted
                     ? 'bg-emerald-500'
+                    : item.status === 'caught_up'
+                    ? 'bg-sky-500'
                     : 'bg-gradient-to-r from-[var(--accent)] to-[#30d158]'
                 }`}
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
+
+            {/* Localized Next Episode Countdown */}
+            {countdown && !countdown.isAired && (
+              <div className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[10px] text-sky-400 font-medium">
+                <Clock className="w-3 h-3 shrink-0 text-sky-400" />
+                <span className="truncate">
+                  {item.nextEpisodeSeason && item.nextEpisodeNumber
+                    ? `S${item.nextEpisodeSeason}E${item.nextEpisodeNumber} drops ${countdown.label}`
+                    : `Next ep drops ${countdown.label}`}
+                </span>
+              </div>
+            )}
           </div>
         )}
 

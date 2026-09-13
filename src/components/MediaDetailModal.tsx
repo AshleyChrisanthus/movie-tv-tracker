@@ -111,6 +111,8 @@ export default function MediaDetailModal({
           msg = `🎉 Added ${result.newEpisodesCount} newly dropped episode(s)!`;
         } else if (result.updatedTitlesCount && result.updatedTitlesCount > 0) {
           msg = `✨ Updated ${result.updatedTitlesCount} newly revealed episode title(s)!`;
+        } else {
+          msg = `✨ Updated episode release schedules and broadcast times!`;
         }
         setSyncNotice({ success: true, message: msg });
         await loadEpisodes();

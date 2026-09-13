@@ -398,6 +398,7 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
 
     let newEpisodesCount = 0;
     let updatedTitlesCount = 0;
+    let updatedAirstampsCount = 0;
 
     const mergedEpisodes: EpisodeItem[] = (freshData.episodes || []).map(freshEp => {
       const key = `${freshEp.seasonNumber}_${freshEp.episodeNumber}`;
@@ -407,6 +408,10 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
         // Check if title was updated from a generic placeholder to an official title
         if (existing.title !== freshEp.title && freshEp.title && !existing.title?.startsWith('Custom')) {
           updatedTitlesCount++;
+        }
+        // Check if airstamp was newly populated or updated
+        if (freshEp.airstamp && freshEp.airstamp !== existing.airstamp) {
+          updatedAirstampsCount++;
         }
         return {
           ...freshEp,
@@ -434,7 +439,7 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
       }
     });
 
-    const hasUpdates = newEpisodesCount > 0 || updatedTitlesCount > 0;
+    const hasUpdates = newEpisodesCount > 0 || updatedTitlesCount > 0 || updatedAirstampsCount > 0;
 
     if (hasUpdates) {
       const updatedMedia: Partial<MediaItem> = {

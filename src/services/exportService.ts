@@ -1,11 +1,18 @@
-import { exportAllData, importData, getSetting, setSetting } from '../db';
+import { exportAllData, importData, getSetting, setSetting } from '../db/index';
+import type {
+  BackupFile,
+  BackupMode,
+  ExportResult,
+  ExportFileInfo,
+  ImportResult
+} from '../types';
 
 const BACKUP_DIR_SETTING_KEY = 'backup_directory_handle';
 
 /**
  * Check if the browser supports the File System Access API.
  */
-export function isFileSystemAccessSupported() {
+export function isFileSystemAccessSupported(): boolean {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 }
 
@@ -13,8 +20,8 @@ export function isFileSystemAccessSupported() {
  * Prompt user once to select a backup directory (e.g. project's exports/ folder)
  * and persist the handle in IndexedDB.
  */
-export async function linkBackupDirectory() {
-  if (!isFileSystemAccessSupported()) {
+export async function linkBackupDirectory(): Promise<FileSystemDirectoryHandle> {
+  if (!isFileSystemAccessSupported() || !window.showDirectoryPicker) {
     throw new Error('Your browser does not support the File System Access API. Please use Chrome, Edge, or Brave.');
   }
 
@@ -38,11 +45,11 @@ export async function linkBackupDirectory() {
 /**
  * Retrieve saved directory handle and verify permission.
  */
-export async function getLinkedDirectoryHandle() {
+export async function getLinkedDirectoryHandle(): Promise<FileSystemDirectoryHandle | null> {
   if (!isFileSystemAccessSupported()) return null;
 
   try {
-    const dirHandle = await getSetting(BACKUP_DIR_SETTING_KEY);
+    const dirHandle = await getSetting<FileSystemDirectoryHandle>(BACKUP_DIR_SETTING_KEY);
     if (!dirHandle) return null;
 
     // Check if permission is still valid
@@ -67,16 +74,16 @@ export async function getLinkedDirectoryHandle() {
 /**
  * Unlink the saved backup folder.
  */
-export async function unlinkBackupDirectory() {
+export async function unlinkBackupDirectory(): Promise<void> {
   await setSetting(BACKUP_DIR_SETTING_KEY, null);
 }
 
 /**
  * Generate timestamped filename reflecting backup mode.
  */
-export function generateBackupFilename(mode = 'compact') {
+export function generateBackupFilename(mode: BackupMode = 'compact'): string {
   const now = new Date();
-  const pad = n => String(n).padStart(2, '0');
+  const pad = (n: number): string => String(n).padStart(2, '0');
   const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
   const prefix = mode === 'full' 
     ? 'watch-history-full' 
@@ -92,8 +99,11 @@ export function generateBackupFilename(mode = 'compact') {
  * 2. If no directory linked, attempts local Vite server /api/export endpoint.
  * 3. Falls back to window.showSaveFilePicker or standard browser download.
  */
-export async function saveExportToLocal(customFilename = null, options = {}) {
-  const mode = options?.mode || (await getSetting('backup_mode', 'compact'));
+export async function saveExportToLocal(
+  customFilename?: string | null,
+  options: { mode?: BackupMode } = {}
+): Promise<ExportResult> {
+  const mode: BackupMode = options?.mode || (await getSetting<BackupMode>('backup_mode')) || 'compact';
   const data = await exportAllData({ mode });
   const filename = customFilename || generateBackupFilename(mode);
   const content = (mode === 'compact' || mode === 'minimal') ? JSON.stringify(data) : JSON.stringify(data, null, 2);
@@ -134,8 +144,10 @@ export async function saveExportToLocal(customFilename = null, options = {}) {
     });
 
     if (res.ok) {
-      const serverResult = await res.json();
+      const serverResult: Partial<ExportResult> = await res.json();
       return {
+        success: true,
+        filename,
         ...serverResult,
         method: 'local_server'
       };
@@ -145,7 +157,7 @@ export async function saveExportToLocal(customFilename = null, options = {}) {
   }
 
   // 3. Fallback: Native Save File Picker or Browser Download
-  if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+  if (typeof window !== 'undefined' && window.showSaveFilePicker) {
     try {
       const fileHandle = await window.showSaveFilePicker({
         suggestedName: filename,
@@ -166,22 +178,22 @@ export async function saveExportToLocal(customFilename = null, options = {}) {
         fileSize: content.length,
         savedAt: new Date().toISOString()
       };
-    } catch (err) {
-      if (err.name === 'AbortError') {
+    } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError') {
         throw new Error('Export cancelled by user.');
       }
     }
   }
 
   // Final fallback: Standard browser download
-  return await downloadExportToBrowser(filename);
+  return await downloadExportToBrowser(filename, options);
 }
 
 /**
  * List files from linked folder or local server.
  */
-export async function getLocalExportsList() {
-  const files = [];
+export async function getLocalExportsList(): Promise<ExportFileInfo[]> {
+  const files: ExportFileInfo[] = [];
 
   // 1. Check Linked Directory handle
   try {
@@ -191,7 +203,8 @@ export async function getLocalExportsList() {
       if (perm === 'granted') {
         for await (const entry of dirHandle.values()) {
           if (entry.kind === 'file' && entry.name.endsWith('.json')) {
-            const file = await entry.getFile();
+            const fileHandle = entry as FileSystemFileHandle;
+            const file = await fileHandle.getFile();
             files.push({
               filename: entry.name,
               size: file.size,
@@ -200,7 +213,7 @@ export async function getLocalExportsList() {
             });
           }
         }
-        return files.sort((a, b) => new Date(b.modifiedAt) - new Date(a.modifiedAt));
+        return files.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
       }
     }
   } catch (err) {
@@ -212,7 +225,7 @@ export async function getLocalExportsList() {
     const res = await fetch('/api/exports');
     if (res.ok) {
       const data = await res.json();
-      return (data.files || []).map(f => ({ ...f, source: 'local_server' }));
+      return (data.files || []).map((f: ExportFileInfo) => ({ ...f, source: 'local_server' as const }));
     }
   } catch {
     // server not running
@@ -224,8 +237,11 @@ export async function getLocalExportsList() {
 /**
  * Direct browser download
  */
-export async function downloadExportToBrowser(customFilename = null, options = {}) {
-  const mode = options?.mode || (await getSetting('backup_mode', 'compact'));
+export async function downloadExportToBrowser(
+  customFilename?: string | null,
+  options: { mode?: BackupMode } = {}
+): Promise<ExportResult> {
+  const mode: BackupMode = options?.mode || (await getSetting<BackupMode>('backup_mode')) || 'compact';
   const data = await exportAllData({ mode });
   const filename = customFilename || generateBackupFilename(mode);
 
@@ -247,19 +263,24 @@ export async function downloadExportToBrowser(customFilename = null, options = {
 /**
  * Read and import a backup file from user selection.
  */
-export async function importBackupFile(file, overwrite = false) {
-  return new Promise((resolve, reject) => {
+export async function importBackupFile(
+  file: File | Blob | { name?: string; size?: number; content?: string },
+  overwrite: boolean = false
+): Promise<ImportResult> {
+  return new Promise<ImportResult>((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = async (e) => {
+    reader.onload = async (e: ProgressEvent<FileReader>) => {
       try {
-        const parsed = JSON.parse(e.target.result);
+        const text = e.target?.result as string;
+        const parsed = JSON.parse(text) as BackupFile;
         const result = await importData(parsed, overwrite);
         resolve(result);
-      } catch (err) {
-        reject(new Error(`Failed to import backup: ${err.message}`));
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        reject(new Error(`Failed to import backup: ${msg}`));
       }
     };
     reader.onerror = () => reject(new Error('Failed to read backup file'));
-    reader.readAsText(file);
+    reader.readAsText(file as Blob);
   });
 }

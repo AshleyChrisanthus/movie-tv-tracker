@@ -13,6 +13,11 @@ interface FileSystemHandlePermissionDescriptor {
   mode?: 'read' | 'readwrite';
 }
 
+interface FileSystemHandle {
+  queryPermission(descriptor?: FileSystemHandlePermissionDescriptor | unknown): Promise<PermissionState>;
+  requestPermission(descriptor?: FileSystemHandlePermissionDescriptor | unknown): Promise<PermissionState>;
+}
+
 interface DirectoryPickerOptions {
   id?: string;
   mode?: 'read' | 'readwrite';

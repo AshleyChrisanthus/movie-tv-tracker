@@ -2,12 +2,21 @@
  * Theme & Color Presets System (Ported from App Directory)
  */
 
+import type {
+  ThemeTokens,
+  ThemePreset,
+  ThemeMode,
+  GenreColors,
+  RgbColor,
+  GenreTagStyle
+} from '../types';
+
 export const THEME_KEY = 'bingelog_theme';
 export const ACTIVE_PRESET_KEY = 'bingelog_active_preset';
 export const CUSTOM_THEME_KEY = 'bingelog_custom_colors';
 export const GENRE_COLORS_KEY = 'bingelog_genre_colors';
 
-export const THEME_PRESETS = [
+export const THEME_PRESETS: ThemePreset[] = [
   {
     id: 'default',
     name: 'Modern Apple',
@@ -255,7 +264,7 @@ export const THEME_PRESETS = [
   }
 ];
 
-export function hexToRgb(hex) {
+export function hexToRgb(hex?: string | null): RgbColor | null {
   if (!hex) return null;
   let clean = hex.replace('#', '');
   if (clean.length === 3) {
@@ -270,15 +279,15 @@ export function hexToRgb(hex) {
   };
 }
 
-export function rgbToHex(r, g, b) {
+export function rgbToHex(r: number, g: number, b: number): string {
   return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
 }
 
-export function hslToHex(h, s, l) {
+export function hslToHex(h: number, s: number, l: number): string {
   s /= 100;
   l /= 100;
   const a = s * Math.min(l, 1 - l);
-  const f = (n) => {
+  const f = (n: number) => {
     const k = (n + h / 30) % 12;
     const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
     return Math.round(255 * color).toString(16).padStart(2, '0');
@@ -286,12 +295,14 @@ export function hslToHex(h, s, l) {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-export function getActivePreset() {
+export function getActivePreset(): ThemePreset {
   const id = localStorage.getItem(ACTIVE_PRESET_KEY) || 'default';
   return THEME_PRESETS.find(p => p.id === id) || THEME_PRESETS[0];
 }
 
-export function applyCustomThemeProperties(colorsObj) {
+export function applyCustomThemeProperties(
+  colorsObj?: Partial<ThemeTokens> | Record<string, string | undefined> | null
+): void {
   if (!colorsObj) return;
   const root = document.documentElement;
   Object.entries(colorsObj).forEach(([prop, val]) => {
@@ -311,7 +322,7 @@ export function applyCustomThemeProperties(colorsObj) {
   }
 }
 
-export function clearCustomThemeProperties() {
+export function clearCustomThemeProperties(): void {
   const root = document.documentElement;
   [
     '--bg-primary',
@@ -333,7 +344,7 @@ export function clearCustomThemeProperties() {
   ].forEach(prop => root.style.removeProperty(prop));
 }
 
-export function applyPresetPaletteForMode(mode = 'dark') {
+export function applyPresetPaletteForMode(mode: ThemeMode = 'dark'): void {
   const preset = getActivePreset();
   const colors = preset[mode] || preset.dark;
   clearCustomThemeProperties();
@@ -345,41 +356,43 @@ export function applyPresetPaletteForMode(mode = 'dark') {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
-        const overrides = parsed[mode] || parsed;
+        const overrides = (parsed as Record<string, Record<string, string>>)[mode] || (parsed as Record<string, string>);
         if (overrides && typeof overrides === 'object') {
           applyCustomThemeProperties(overrides);
         }
       }
     }
-  } catch (_) {}
+  } catch {
+    // Ignore JSON parse errors
+  }
 }
 
-export function initTheme() {
+export function initTheme(): void {
   const saved = localStorage.getItem(THEME_KEY);
-  const theme = saved === 'light' ? 'light' : 'dark';
+  const theme: ThemeMode = saved === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', theme);
   applyPresetPaletteForMode(theme);
 }
 
-export function toggleThemeMode() {
+export function toggleThemeMode(): ThemeMode {
   const current = document.documentElement.getAttribute('data-theme') || 'dark';
-  const next = current === 'dark' ? 'light' : 'dark';
+  const next: ThemeMode = current === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem(THEME_KEY, next);
   applyPresetPaletteForMode(next);
   return next;
 }
 
-export function getGenreColors() {
+export function getGenreColors(): GenreColors {
   try {
     const saved = localStorage.getItem(GENRE_COLORS_KEY);
-    return saved ? JSON.parse(saved) : {};
-  } catch (_) {
+    return saved ? (JSON.parse(saved) as GenreColors) : {};
+  } catch {
     return {};
   }
 }
 
-export function setGenreColor(genreName, color) {
+export function setGenreColor(genreName: string, color?: string | null): GenreColors {
   const current = getGenreColors();
   if (color) {
     current[genreName.toLowerCase()] = color;
@@ -390,8 +403,14 @@ export function setGenreColor(genreName, color) {
   return current;
 }
 
-export function getGenreTagStyle(genreName) {
-  if (!genreName) return {};
+export function getGenreTagStyle(genreName?: string | null): GenreTagStyle {
+  if (!genreName) {
+    return {
+      backgroundColor: 'var(--tag-bg, rgba(10,132,255,0.12))',
+      color: 'var(--tag-text, #0a84ff)',
+      borderColor: 'transparent'
+    };
+  }
   const genreColors = getGenreColors();
   const color = genreColors[genreName.toLowerCase()];
   if (!color) {
@@ -402,7 +421,7 @@ export function getGenreTagStyle(genreName) {
     };
   }
   const rgb = hexToRgb(color);
-  if (!rgb) return { color, borderColor: color };
+  if (!rgb) return { color, backgroundColor: 'transparent', borderColor: color };
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
   const bgAlpha = isDark ? 0.2 : 0.12;
   const borderAlpha = isDark ? 0.4 : 0.25;

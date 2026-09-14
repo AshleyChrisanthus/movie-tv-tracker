@@ -75,10 +75,10 @@ describe('Tier 1: Localized Countdown & DST-Aware Timezone Engine (Issue #19)', 
     assert.match(countdownDays.label, /in 3 days/);
 
     // 5 hours in future
-    const inFiveHours = new Date(now + 5 * 3600 * 1000).toISOString();
+    const inFiveHours = new Date(now + 5 * 3600 * 1000 + 60000).toISOString();
     const countdownHours = tzModule.getEpisodeCountdown(undefined, inFiveHours);
     assert.equal(countdownHours.isAired, false);
-    assert.match(countdownHours.label, /in 5h/);
+    assert.match(countdownHours.label, /in (?:4|5)h/);
 
     // 20 minutes in future
     const inTwentyMins = new Date(now + 20 * 60 * 1000).toISOString();

@@ -173,6 +173,58 @@ export default function App(): React.JSX.Element {
         return true;
       })
       .sort((a, b) => {
+        if (sortBy === 'release_desc') {
+          const getReleaseTime = (item: MediaItem) => {
+            if (item.releaseDate) {
+              const t = new Date(item.releaseDate).getTime();
+              if (!isNaN(t)) return t;
+            }
+            const y = parseInt(String(item.year), 10);
+            return !isNaN(y) && y > 1800 ? new Date(`${y}-01-01`).getTime() : 0;
+          };
+          return getReleaseTime(b) - getReleaseTime(a);
+        }
+        if (sortBy === 'release_asc') {
+          const getReleaseTime = (item: MediaItem) => {
+            if (item.releaseDate) {
+              const t = new Date(item.releaseDate).getTime();
+              if (!isNaN(t)) return t;
+            }
+            const y = parseInt(String(item.year), 10);
+            return !isNaN(y) && y > 1800 ? new Date(`${y}-01-01`).getTime() : 0;
+          };
+          return getReleaseTime(a) - getReleaseTime(b);
+        }
+        if (sortBy === 'last_aired_desc' || sortBy === 'last_aired') {
+          const getLastAiredTime = (item: MediaItem) => {
+            if (item.lastAiredDate) {
+              const t = new Date(item.lastAiredDate).getTime();
+              if (!isNaN(t)) return t;
+            }
+            if (item.releaseDate) {
+              const t = new Date(item.releaseDate).getTime();
+              if (!isNaN(t)) return t;
+            }
+            const y = parseInt(String(item.year), 10);
+            return !isNaN(y) && y > 1800 ? new Date(`${y}-01-01`).getTime() : 0;
+          };
+          return getLastAiredTime(b) - getLastAiredTime(a);
+        }
+        if (sortBy === 'last_aired_asc') {
+          const getLastAiredTime = (item: MediaItem) => {
+            if (item.lastAiredDate) {
+              const t = new Date(item.lastAiredDate).getTime();
+              if (!isNaN(t)) return t;
+            }
+            if (item.releaseDate) {
+              const t = new Date(item.releaseDate).getTime();
+              if (!isNaN(t)) return t;
+            }
+            const y = parseInt(String(item.year), 10);
+            return !isNaN(y) && y > 1800 ? new Date(`${y}-01-01`).getTime() : 0;
+          };
+          return getLastAiredTime(a) - getLastAiredTime(b);
+        }
         if (sortBy === 'title') {
           return (a.title || '').localeCompare(b.title || '');
         }

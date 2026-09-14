@@ -159,6 +159,10 @@ export default function FilterBar({
               className="bg-transparent text-[var(--text-primary)] text-xs focus:outline-none cursor-pointer"
             >
               <option value="updated" className="bg-[var(--card-bg)]">Recently Updated</option>
+              <option value="release_desc" className="bg-[var(--card-bg)]">Premiere Date (Newest)</option>
+              <option value="release_asc" className="bg-[var(--card-bg)]">Premiere Date (Oldest)</option>
+              <option value="last_aired_desc" className="bg-[var(--card-bg)]">Last Aired (Most Recent)</option>
+              <option value="last_aired_asc" className="bg-[var(--card-bg)]">Last Aired (Oldest)</option>
               <option value="title" className="bg-[var(--card-bg)]">Title (A-Z)</option>
               <option value="rating" className="bg-[var(--card-bg)]">Highest Rating</option>
               <option value="progress" className="bg-[var(--card-bg)]">Watch Progress</option>

@@ -62,6 +62,7 @@ export interface MediaItem {
   nextAirstamp?: string | null;             // UTC ISO string of next un-aired episode
   nextEpisodeSeason?: number | null;        // Season number of next un-aired episode
   nextEpisodeNumber?: number | null;        // Episode number of next un-aired episode
+  lastAiredDate?: string | null;            // ISO date or YYYY-MM-DD of most recent aired episode/release
   runtime?: number | null;                  // Movie runtime in minutes
   notes?: string;                           // Personal user review / notes
   lastSyncedAt?: string;                    // ISO timestamp of last successful sync

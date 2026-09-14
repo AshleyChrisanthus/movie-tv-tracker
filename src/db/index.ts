@@ -133,11 +133,23 @@ export async function saveMediaItem(
     let nextAirstamp: string | null = null;
     let nextEpisodeSeason: number | null = null;
     let nextEpisodeNumber: number | null = null;
+    let lastAiredDate: string | null = null;
 
     // Determine default status if not set
     let status: MediaStatus = mediaItem.status || existingMedia?.status || 'plan_to_watch';
     if (storedEpisodes.length > 0 && (mediaItem.type === 'tv' || existingMedia?.type === 'tv')) {
       status = computeAutoStatus(status, storedEpisodes, mediaItem.airStatus || existingMedia?.airStatus, 'tv', networkTz);
+
+      const airedEpisodes = storedEpisodes.filter(e => isEpisodeAired(e, networkTz) && (e.airDate || e.airstamp));
+      if (airedEpisodes.length > 0) {
+        airedEpisodes.sort((a, b) => {
+          const dateA = a.airDate || (a.airstamp ? a.airstamp.slice(0, 10) : '');
+          const dateB = b.airDate || (b.airstamp ? b.airstamp.slice(0, 10) : '');
+          if (dateA && dateB && dateA !== dateB) return dateB.localeCompare(dateA);
+          return (b.seasonNumber - a.seasonNumber) || (b.episodeNumber - a.episodeNumber);
+        });
+        lastAiredDate = airedEpisodes[0].airDate || (airedEpisodes[0].airstamp ? airedEpisodes[0].airstamp.slice(0, 10) : null);
+      }
 
       const nextUnaired = storedEpisodes
         .slice()
@@ -150,7 +162,11 @@ export async function saveMediaItem(
         nextEpisodeSeason = nextUnaired.seasonNumber;
         nextEpisodeNumber = nextUnaired.episodeNumber;
       }
-    } else if (mediaItem.type === 'tv' && totalEpisodes > 0 && watchedEpisodesCount === totalEpisodes) {
+    } else {
+      lastAiredDate = mediaItem.releaseDate || (mediaItem.year && mediaItem.year !== 'N/A' ? `${mediaItem.year}-01-01` : null);
+    }
+
+    if (mediaItem.type === 'tv' && totalEpisodes > 0 && watchedEpisodesCount === totalEpisodes) {
       status = (mediaItem.airStatus === 'Ended' || mediaItem.airStatus === 'Canceled') ? 'completed' : 'caught_up';
     } else if (mediaItem.type === 'tv' && watchedEpisodesCount > 0 && status === 'plan_to_watch') {
       status = 'watching';
@@ -170,6 +186,7 @@ export async function saveMediaItem(
       nextAirstamp: nextAirstamp !== null ? nextAirstamp : (existingMedia?.nextAirstamp ?? null),
       nextEpisodeSeason: nextEpisodeSeason !== null ? nextEpisodeSeason : (existingMedia?.nextEpisodeSeason ?? null),
       nextEpisodeNumber: nextEpisodeNumber !== null ? nextEpisodeNumber : (existingMedia?.nextEpisodeNumber ?? null),
+      lastAiredDate: lastAiredDate !== null ? lastAiredDate : (existingMedia?.lastAiredDate ?? null),
       updatedAt: now,
       createdAt: existingMedia?.createdAt || now,
       year: mediaItem.year ?? existingMedia?.year ?? 'N/A'
@@ -510,16 +527,30 @@ export async function backfillMissingMediaMetadata(): Promise<number> {
     const nextInfo = getNextUnairedEpisodeInfo(episodes, show.networkTimezone);
     const newStatus = computeAutoStatus(show.status, episodes, show.airStatus, 'tv', show.networkTimezone);
 
+    const airedEpisodes = episodes.filter(e => isEpisodeAired(e, show.networkTimezone) && (e.airDate || e.airstamp));
+    let computedLastAired: string | null = null;
+    if (airedEpisodes.length > 0) {
+      airedEpisodes.sort((a, b) => {
+        const dateA = a.airDate || (a.airstamp ? a.airstamp.slice(0, 10) : '');
+        const dateB = b.airDate || (b.airstamp ? b.airstamp.slice(0, 10) : '');
+        if (dateA && dateB && dateA !== dateB) return dateB.localeCompare(dateA);
+        return (b.seasonNumber - a.seasonNumber) || (b.episodeNumber - a.episodeNumber);
+      });
+      computedLastAired = airedEpisodes[0].airDate || (airedEpisodes[0].airstamp ? airedEpisodes[0].airstamp.slice(0, 10) : null);
+    }
+
     if (
       newStatus !== show.status ||
       nextInfo.nextAirDate !== show.nextAirDate ||
       nextInfo.nextAirstamp !== show.nextAirstamp ||
       nextInfo.nextEpisodeSeason !== show.nextEpisodeSeason ||
-      nextInfo.nextEpisodeNumber !== show.nextEpisodeNumber
+      nextInfo.nextEpisodeNumber !== show.nextEpisodeNumber ||
+      computedLastAired !== show.lastAiredDate
     ) {
       await db.media.update(show.id, {
         status: newStatus,
         ...nextInfo,
+        lastAiredDate: computedLastAired,
         updatedAt: new Date().toISOString()
       });
       updatedCount++;

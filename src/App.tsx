@@ -257,11 +257,18 @@ export default function App(): React.JSX.Element {
         await refreshLibrary();
       }
     } else if (item.type === 'book') {
-      const current = item.currentPage || 0;
-      const total = item.totalPages || 0;
-      const step = 10;
-      const target = total > 0 ? Math.min(current + step, total) : current + step;
-      await updateBookProgress(item.id, target);
+      if (item.progressMode === 'chapters') {
+        const current = item.currentChapter || 0;
+        const total = item.totalChapters || 0;
+        const target = total > 0 ? Math.min(current + 1, total) : current + 1;
+        await updateBookProgress(item.id, { currentChapter: target, progressMode: 'chapters' });
+      } else {
+        const current = item.currentPage || 0;
+        const total = item.totalPages || 0;
+        const step = 10;
+        const target = total > 0 ? Math.min(current + step, total) : current + step;
+        await updateBookProgress(item.id, { currentPage: target, progressMode: 'pages' });
+      }
       await refreshLibrary();
     }
   };
@@ -537,6 +544,10 @@ export default function App(): React.JSX.Element {
           media={selectedMedia}
           onClose={() => setSelectedMedia(null)}
           onUpdated={refreshLibrary}
+          onUpdate={(updated) => {
+            setSelectedMedia(updated);
+            refreshLibrary();
+          }}
           onEditCustom={handleOpenEdit}
         />
       )}

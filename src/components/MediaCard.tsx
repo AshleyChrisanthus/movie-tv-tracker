@@ -44,21 +44,28 @@ export default function MediaCard({
   const statusCfg = (isBook ? BOOK_STATUS_CONFIG[item.status] : STATUS_CONFIG[item.status]) || (isBook ? BOOK_STATUS_CONFIG.plan_to_watch : STATUS_CONFIG.plan_to_watch);
 
   // TV / Book progress calculation
+  const isChapters = isBook && item.progressMode === 'chapters';
   const totalEps = item.totalEpisodes || 0;
   const watchedEps = item.watchedEpisodesCount || 0;
   const totalPages = item.totalPages || 0;
   const currentPage = item.currentPage || 0;
+  const totalChapters = item.totalChapters || 0;
+  const currentChapter = item.currentChapter || 0;
 
   const progressPercent = isTv
     ? (totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0)
     : isBook
-    ? (totalPages > 0 ? Math.min(100, Math.round((currentPage / totalPages) * 100)) : 0)
+    ? isChapters
+      ? (totalChapters > 0 ? Math.min(100, Math.round((currentChapter / totalChapters) * 100)) : 0)
+      : (totalPages > 0 ? Math.min(100, Math.round((currentPage / totalPages) * 100)) : 0)
     : 0;
 
   const isCompleted = isTv
     ? (totalEps > 0 && watchedEps >= totalEps)
     : isBook
-    ? (totalPages > 0 && currentPage >= totalPages) || item.status === 'completed'
+    ? isChapters
+      ? (totalChapters > 0 && currentChapter >= totalChapters) || item.status === 'completed'
+      : (totalPages > 0 && currentPage >= totalPages) || item.status === 'completed'
     : item.status === 'completed';
 
   // Next episode countdown calculation
@@ -140,10 +147,10 @@ export default function MediaCard({
               type="button"
               onClick={handleQuickAction}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold shadow-lg shadow-[var(--accent)]/30 backdrop-blur-sm transition-all active:scale-95"
-              title="Quick read +10 pages"
+              title={isChapters ? 'Quick read +1 chapter' : 'Quick read +10 pages'}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>+10 p</span>
+              <span>{isChapters ? '+1 Ch' : '+10 p'}</span>
             </button>
           )}
 
@@ -268,7 +275,15 @@ export default function MediaCard({
             <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] mb-1.5 font-medium">
               <span>{isCompleted ? 'Finished' : 'Reading'}</span>
               <span className="font-mono text-[var(--text-primary)]">
-                {totalPages > 0 ? `${currentPage}/${totalPages} p (${progressPercent}%)` : `${currentPage} pages`}
+                {isChapters ? (
+                  totalChapters > 0
+                    ? `Ch ${currentChapter}/${totalChapters} (${progressPercent}%)`
+                    : `${currentChapter} chapters read`
+                ) : (
+                  totalPages > 0
+                    ? `${currentPage}/${totalPages} p (${progressPercent}%)`
+                    : `${currentPage} pages read`
+                )}
               </span>
             </div>
 
@@ -283,6 +298,13 @@ export default function MediaCard({
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
+
+            {/* Total count not set hint */}
+            {((isChapters && totalChapters === 0) || (!isChapters && totalPages === 0)) && (
+              <div className="mt-1 text-[10px] text-[var(--text-secondary)] italic">
+                Total {isChapters ? 'chapters' : 'pages'} not set — click to set
+              </div>
+            )}
           </div>
         )}
 

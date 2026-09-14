@@ -63,7 +63,11 @@ export default function MediaDetailModal({
   const [newListName, setNewListName] = useState<string>('');
 
   // Book Reading Progress state
+  const [bookProgressMode, setBookProgressMode] = useState<'pages' | 'chapters'>(media?.progressMode || 'pages');
   const [inputBookPage, setInputBookPage] = useState<number | string>(media?.currentPage || 0);
+  const [inputBookTotalPages, setInputBookTotalPages] = useState<number | string>(media?.totalPages || '');
+  const [inputBookChapter, setInputBookChapter] = useState<number | string>(media?.currentChapter || 0);
+  const [inputBookTotalChapters, setInputBookTotalChapters] = useState<number | string>(media?.totalChapters || '');
 
   // Localized User Timezone
   const [userTz, setUserTz] = useState<string>('');
@@ -75,15 +79,29 @@ export default function MediaDetailModal({
     if (media) {
       getCustomLists().then(setAllLists);
       setMediaLists(media.lists || []);
+      setBookProgressMode(media.progressMode || 'pages');
       setInputBookPage(media.currentPage || 0);
+      setInputBookTotalPages(media.totalPages || '');
+      setInputBookChapter(media.currentChapter || 0);
+      setInputBookTotalChapters(media.totalChapters || '');
     }
-  }, [media?.id, media?.currentPage]);
+  }, [media?.id, media?.currentPage, media?.totalPages, media?.currentChapter, media?.totalChapters, media?.progressMode]);
 
-  const handleApplyBookPage = async (page: number) => {
+  const handleApplyBookProgress = async (options: {
+    currentPage?: number;
+    totalPages?: number;
+    currentChapter?: number;
+    totalChapters?: number;
+    progressMode?: 'pages' | 'chapters';
+  }) => {
     if (!media) return;
-    const updated = await updateBookProgress(media.id, page);
+    const updated = await updateBookProgress(media.id, options);
     if (updated) {
+      setBookProgressMode(updated.progressMode || 'pages');
       setInputBookPage(updated.currentPage || 0);
+      setInputBookTotalPages(updated.totalPages || '');
+      setInputBookChapter(updated.currentChapter || 0);
+      setInputBookTotalChapters(updated.totalChapters || '');
       setStatus(updated.status);
       if (onUpdated) onUpdated();
       if (onUpdate) onUpdate(updated);
@@ -358,11 +376,19 @@ export default function MediaDetailModal({
                     by {media.author}
                   </span>
                 )}
-                {isBook && media.totalPages && (
-                  <span className="text-zinc-400 text-xs">
-                    • {media.totalPages} pages
-                  </span>
-                )}
+                {isBook && (media.progressMode === 'chapters' ? (
+                  Number(media.totalChapters) > 0 ? (
+                    <span className="text-zinc-400 text-xs">
+                      • {media.totalChapters} chapters
+                    </span>
+                  ) : null
+                ) : (
+                  Number(media.totalPages) > 0 ? (
+                    <span className="text-zinc-400 text-xs">
+                      • {media.totalPages} pages
+                    </span>
+                  ) : null
+                ))}
                 {isBook && media.isbn && (
                   <span className="text-zinc-400 text-xs">
                     • ISBN {media.isbn}
@@ -579,94 +605,285 @@ export default function MediaDetailModal({
                     <BookOpen className="w-4 h-4 text-[var(--accent)]" />
                     <h3 className="text-sm font-bold text-[var(--text-primary)]">Reading Progress</h3>
                   </div>
-                  <span className="text-xs text-[var(--text-secondary)] font-mono">
-                    {media.totalPages && media.totalPages > 0
-                      ? `${media.currentPage || 0} of ${media.totalPages} pages (${Math.min(100, Math.round(((media.currentPage || 0) / media.totalPages) * 100))}%)`
-                      : `${media.currentPage || 0} pages read`}
-                  </span>
+
+                  {/* Mode Selector Toggle: Pages vs Chapters */}
+                  <div className="flex items-center bg-[var(--bg-primary)] p-0.5 rounded-lg border border-[var(--border-light)] text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBookProgressMode('pages');
+                        handleApplyBookProgress({ progressMode: 'pages' });
+                      }}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
+                        bookProgressMode === 'pages'
+                          ? 'bg-[var(--accent)] text-white shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      Pages
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBookProgressMode('chapters');
+                        handleApplyBookProgress({ progressMode: 'chapters' });
+                      }}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
+                        bookProgressMode === 'chapters'
+                          ? 'bg-[var(--accent)] text-white shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      Chapters
+                    </button>
+                  </div>
                 </div>
 
-                {/* Progress Bar */}
-                {media.totalPages && media.totalPages > 0 ? (
-                  <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-300 rounded-full ${
-                        (media.currentPage || 0) >= media.totalPages
-                          ? 'bg-emerald-500'
-                          : 'bg-gradient-to-r from-[var(--accent)] to-[#30d158]'
-                      }`}
-                      style={{ width: `${Math.min(100, Math.round(((media.currentPage || 0) / media.totalPages) * 100))}%` }}
-                    />
-                  </div>
-                ) : null}
-
-                {/* Page input and Quick increments */}
-                <div className="flex flex-wrap items-center gap-3 pt-1">
-                  <div className="flex items-center gap-2 bg-[var(--bg-primary)] px-3 py-1.5 rounded-lg border border-[var(--border-light)]">
-                    <span className="text-xs text-[var(--text-secondary)] font-medium">Page:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max={media.totalPages || 99999}
-                      value={inputBookPage}
-                      onChange={(e) => setInputBookPage(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleApplyBookPage(parseInt(String(inputBookPage), 10) || 0);
-                        }
-                      }}
-                      className="w-16 bg-[var(--card-bg)] px-2 py-1 rounded text-xs text-center font-bold text-[var(--accent)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
-                    />
-                    {media.totalPages ? (
-                      <span className="text-xs text-[var(--text-secondary)] font-mono">/ {media.totalPages}</span>
+                {/* Progress Stats & Bar */}
+                {bookProgressMode === 'chapters' ? (
+                  <>
+                    <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] font-mono">
+                      <span>
+                        {(Number(media.totalChapters) || 0) > 0
+                          ? `Chapter ${media.currentChapter || 0} of ${media.totalChapters} (${Math.min(100, Math.round(((media.currentChapter || 0) / (media.totalChapters || 1)) * 100))}%)`
+                          : `${media.currentChapter || 0} chapters read (Total chapters not set)`}
+                      </span>
+                    </div>
+                    {(Number(media.totalChapters) || 0) > 0 ? (
+                      <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-300 rounded-full ${
+                            (media.currentChapter || 0) >= (media.totalChapters || 0)
+                              ? 'bg-emerald-500'
+                              : 'bg-gradient-to-r from-[var(--accent)] to-[#30d158]'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.round(((media.currentChapter || 0) / (media.totalChapters || 1)) * 100))}%` }}
+                        />
+                      </div>
                     ) : null}
-                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleApplyBookPage(parseInt(String(inputBookPage), 10) || 0)}
-                    className="px-3 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95"
-                  >
-                    Set Page
-                  </button>
+                    {/* Chapter input and Quick increments */}
+                    <div className="flex flex-wrap items-center gap-3 pt-1">
+                      <div className="flex items-center gap-1.5 bg-[var(--bg-primary)] px-3 py-1.5 rounded-lg border border-[var(--border-light)]">
+                        <span className="text-xs text-[var(--text-secondary)] font-medium">Chapter:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={inputBookChapter}
+                          onChange={(e) => setInputBookChapter(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleApplyBookProgress({
+                                currentChapter: Math.max(0, parseInt(String(inputBookChapter), 10) || 0),
+                                totalChapters: parseInt(String(inputBookTotalChapters), 10) || undefined,
+                                progressMode: 'chapters'
+                              });
+                            }
+                          }}
+                          className="w-14 bg-[var(--card-bg)] px-2 py-1 rounded text-xs text-center font-bold text-[var(--accent)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                          placeholder="0"
+                        />
+                        <span className="text-xs text-[var(--text-secondary)] font-mono">/</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={inputBookTotalChapters}
+                          onChange={(e) => setInputBookTotalChapters(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleApplyBookProgress({
+                                currentChapter: Math.max(0, parseInt(String(inputBookChapter), 10) || 0),
+                                totalChapters: parseInt(String(inputBookTotalChapters), 10) || undefined,
+                                progressMode: 'chapters'
+                              });
+                            }
+                          }}
+                          placeholder="Total"
+                          title="Total Chapters (editable)"
+                          className="w-16 bg-[var(--card-bg)] px-2 py-1 rounded text-xs text-center font-semibold text-[var(--text-primary)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                        />
+                      </div>
 
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => handleApplyBookPage((media.currentPage || 0) + 10)}
-                      className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
-                      title="Read 10 more pages"
-                    >
-                      +10 p
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApplyBookPage((media.currentPage || 0) + 25)}
-                      className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
-                      title="Read 25 more pages"
-                    >
-                      +25 p
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApplyBookPage((media.currentPage || 0) + 50)}
-                      className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
-                      title="Read 50 more pages"
-                    >
-                      +50 p
-                    </button>
-                    {media.totalPages && media.totalPages > 0 && (
                       <button
                         type="button"
-                        onClick={() => handleApplyBookPage(media.totalPages || 0)}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 text-xs font-semibold border border-emerald-700/50 transition-all active:scale-95"
-                        title="Mark entire book as finished"
+                        onClick={() => handleApplyBookProgress({
+                          currentChapter: Math.max(0, parseInt(String(inputBookChapter), 10) || 0),
+                          totalChapters: parseInt(String(inputBookTotalChapters), 10) || undefined,
+                          progressMode: 'chapters'
+                        })}
+                        className="px-3 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95"
                       >
-                        Finished Book
+                        Set Chapter
                       </button>
-                    )}
-                  </div>
-                </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => handleApplyBookProgress({
+                            currentChapter: (media.currentChapter || 0) + 1,
+                            progressMode: 'chapters'
+                          })}
+                          className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                          title="Read 1 more chapter"
+                        >
+                          +1 Ch
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyBookProgress({
+                            currentChapter: (media.currentChapter || 0) + 5,
+                            progressMode: 'chapters'
+                          })}
+                          className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                          title="Read 5 more chapters"
+                        >
+                          +5 Ch
+                        </button>
+                        {Number(media.totalChapters) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleApplyBookProgress({
+                              currentChapter: media.totalChapters || 0,
+                              progressMode: 'chapters'
+                            })}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 text-xs font-semibold border border-emerald-700/50 transition-all active:scale-95"
+                            title="Mark entire book as finished"
+                          >
+                            Finished Book
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] font-mono">
+                      <span>
+                        {(Number(media.totalPages) || 0) > 0
+                          ? `Page ${media.currentPage || 0} of ${media.totalPages} (${Math.min(100, Math.round(((media.currentPage || 0) / (media.totalPages || 1)) * 100))}%)`
+                          : `${media.currentPage || 0} pages read (Total pages not set)`}
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    {(Number(media.totalPages) || 0) > 0 ? (
+                      <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-300 rounded-full ${
+                            (media.currentPage || 0) >= (media.totalPages || 0)
+                              ? 'bg-emerald-500'
+                              : 'bg-gradient-to-r from-[var(--accent)] to-[#30d158]'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.round(((media.currentPage || 0) / (media.totalPages || 1)) * 100))}%` }}
+                        />
+                      </div>
+                    ) : null}
+
+                    {/* Page input and Quick increments */}
+                    <div className="flex flex-wrap items-center gap-3 pt-1">
+                      <div className="flex items-center gap-1.5 bg-[var(--bg-primary)] px-3 py-1.5 rounded-lg border border-[var(--border-light)]">
+                        <span className="text-xs text-[var(--text-secondary)] font-medium">Page:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={inputBookPage}
+                          onChange={(e) => setInputBookPage(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleApplyBookProgress({
+                                currentPage: Math.max(0, parseInt(String(inputBookPage), 10) || 0),
+                                totalPages: parseInt(String(inputBookTotalPages), 10) || undefined,
+                                progressMode: 'pages'
+                              });
+                            }
+                          }}
+                          className="w-16 bg-[var(--card-bg)] px-2 py-1 rounded text-xs text-center font-bold text-[var(--accent)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                          placeholder="0"
+                        />
+                        <span className="text-xs text-[var(--text-secondary)] font-mono">/</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={inputBookTotalPages}
+                          onChange={(e) => setInputBookTotalPages(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleApplyBookProgress({
+                                currentPage: Math.max(0, parseInt(String(inputBookPage), 10) || 0),
+                                totalPages: parseInt(String(inputBookTotalPages), 10) || undefined,
+                                progressMode: 'pages'
+                              });
+                            }
+                          }}
+                          placeholder="Total"
+                          title="Total Pages (editable - adjust for your book edition)"
+                          className="w-16 bg-[var(--card-bg)] px-2 py-1 rounded text-xs text-center font-semibold text-[var(--text-primary)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyBookProgress({
+                          currentPage: Math.max(0, parseInt(String(inputBookPage), 10) || 0),
+                          totalPages: parseInt(String(inputBookTotalPages), 10) || undefined,
+                          progressMode: 'pages'
+                        })}
+                        className="px-3 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95"
+                      >
+                        Set Page
+                      </button>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => handleApplyBookProgress({
+                            currentPage: (media.currentPage || 0) + 10,
+                            progressMode: 'pages'
+                          })}
+                          className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                          title="Read 10 more pages"
+                        >
+                          +10 p
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyBookProgress({
+                            currentPage: (media.currentPage || 0) + 25,
+                            progressMode: 'pages'
+                          })}
+                          className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                          title="Read 25 more pages"
+                        >
+                          +25 p
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyBookProgress({
+                            currentPage: (media.currentPage || 0) + 50,
+                            progressMode: 'pages'
+                          })}
+                          className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                          title="Read 50 more pages"
+                        >
+                          +50 p
+                        </button>
+                        {Number(media.totalPages) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleApplyBookProgress({
+                              currentPage: media.totalPages || 0,
+                              progressMode: 'pages'
+                            })}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 text-xs font-semibold border border-emerald-700/50 transition-all active:scale-95"
+                            title="Mark entire book as finished"
+                          >
+                            Finished Book
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Book Metadata details */}

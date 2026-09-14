@@ -172,15 +172,28 @@ export async function saveMediaItem(
     } else if (mediaItem.type === 'tv' && watchedEpisodesCount > 0 && status === 'plan_to_watch') {
       status = 'watching';
     } else if (mediaItem.type === 'book') {
-      const totalPages = mediaItem.totalPages ?? existingMedia?.totalPages ?? 0;
-      const currentPage = mediaItem.currentPage ?? existingMedia?.currentPage ?? 0;
-      if (totalPages > 0 && currentPage >= totalPages) {
-        status = 'completed';
-      } else if (currentPage > 0 && status === 'plan_to_watch') {
-        status = 'watching';
+      const mode = mediaItem.progressMode || existingMedia?.progressMode || 'pages';
+      if (mode === 'chapters') {
+        const totalChapters = mediaItem.totalChapters ?? existingMedia?.totalChapters ?? 0;
+        const currentChapter = mediaItem.currentChapter ?? existingMedia?.currentChapter ?? 0;
+        if (totalChapters > 0 && currentChapter >= totalChapters) {
+          status = 'completed';
+        } else if (currentChapter > 0 && status === 'plan_to_watch') {
+          status = 'watching';
+        }
+        totalEpisodes = totalChapters || 1;
+        watchedEpisodesCount = currentChapter;
+      } else {
+        const totalPages = mediaItem.totalPages ?? existingMedia?.totalPages ?? 0;
+        const currentPage = mediaItem.currentPage ?? existingMedia?.currentPage ?? 0;
+        if (totalPages > 0 && currentPage >= totalPages) {
+          status = 'completed';
+        } else if (currentPage > 0 && status === 'plan_to_watch') {
+          status = 'watching';
+        }
+        totalEpisodes = totalPages || 1;
+        watchedEpisodesCount = currentPage;
       }
-      totalEpisodes = totalPages || 1;
-      watchedEpisodesCount = currentPage;
     }
 
     const payload: MediaItem = {
@@ -193,8 +206,11 @@ export async function saveMediaItem(
       status,
       totalEpisodes,
       watchedEpisodesCount,
-      totalPages: mediaItem.totalPages ?? existingMedia?.totalPages,
-      currentPage: mediaItem.currentPage ?? existingMedia?.currentPage ?? (status === 'completed' && (mediaItem.totalPages || existingMedia?.totalPages) ? (mediaItem.totalPages || existingMedia?.totalPages) : 0),
+      progressMode: mediaItem.progressMode ?? existingMedia?.progressMode ?? 'pages',
+      totalPages: mediaItem.totalPages !== undefined ? mediaItem.totalPages : existingMedia?.totalPages,
+      currentPage: mediaItem.currentPage !== undefined ? mediaItem.currentPage : (existingMedia?.currentPage ?? (status === 'completed' && (mediaItem.totalPages || existingMedia?.totalPages) ? (mediaItem.totalPages || existingMedia?.totalPages) : 0)),
+      totalChapters: mediaItem.totalChapters !== undefined ? mediaItem.totalChapters : existingMedia?.totalChapters,
+      currentChapter: mediaItem.currentChapter !== undefined ? mediaItem.currentChapter : (existingMedia?.currentChapter ?? (status === 'completed' && (mediaItem.totalChapters || existingMedia?.totalChapters) ? (mediaItem.totalChapters || existingMedia?.totalChapters) : 0)),
       author: mediaItem.author || existingMedia?.author || '',
       isbn: mediaItem.isbn || existingMedia?.isbn,
       nextAirDate: nextAirDate !== null ? nextAirDate : (existingMedia?.nextAirDate ?? null),
@@ -613,11 +629,14 @@ export async function updateMediaStatus(id: string, status: MediaStatus): Promis
         updatedAt: now
       });
     } else if (status === 'completed' && media.type === 'book') {
+      const mode = media.progressMode || 'pages';
       const totalPages = media.totalPages || 0;
+      const totalChapters = media.totalChapters || 0;
       await db.media.update(id, {
         status,
         currentPage: totalPages,
-        watchedEpisodesCount: totalPages,
+        currentChapter: totalChapters,
+        watchedEpisodesCount: mode === 'chapters' ? totalChapters : totalPages,
         updatedAt: now
       });
     } else {
@@ -873,27 +892,58 @@ export async function updateMediaLists(mediaId: string, lists: string[]): Promis
 }
 
 /**
- * Update reading progress for a book (page count) (Issue #22).
+ * Update reading progress for a book (page count or chapter count) (Issue #22).
  */
-export async function updateBookProgress(mediaId: string, currentPage: number): Promise<MediaItem | null> {
+export async function updateBookProgress(
+  mediaId: string,
+  progress: {
+    currentPage?: number;
+    totalPages?: number;
+    currentChapter?: number;
+    totalChapters?: number;
+    progressMode?: 'pages' | 'chapters';
+  } | number
+): Promise<MediaItem | null> {
   const media = await db.media.get(mediaId);
   if (!media || media.type !== 'book') return null;
 
-  const totalPages = media.totalPages || 0;
-  const newPage = Math.max(0, totalPages > 0 ? Math.min(currentPage, totalPages) : currentPage);
-  const isFinished = totalPages > 0 && newPage >= totalPages;
+  const options = typeof progress === 'number' ? { currentPage: progress } : progress;
+  const mode = options.progressMode || media.progressMode || 'pages';
+
+  const totalPages = options.totalPages !== undefined ? options.totalPages : (media.totalPages || 0);
+  const totalChapters = options.totalChapters !== undefined ? options.totalChapters : (media.totalChapters || 0);
+
+  let newPage = options.currentPage !== undefined ? options.currentPage : (media.currentPage || 0);
+  newPage = Math.max(0, totalPages > 0 ? Math.min(newPage, totalPages) : newPage);
+
+  let newChapter = options.currentChapter !== undefined ? options.currentChapter : (media.currentChapter || 0);
+  newChapter = Math.max(0, totalChapters > 0 ? Math.min(newChapter, totalChapters) : newChapter);
+
+  const isFinished = mode === 'chapters'
+    ? (totalChapters > 0 && newChapter >= totalChapters)
+    : (totalPages > 0 && newPage >= totalPages);
+
+  const hasProgress = mode === 'chapters' ? newChapter > 0 : newPage > 0;
 
   let newStatus = media.status;
   if (isFinished) {
     newStatus = 'completed';
-  } else if (newPage > 0 && (media.status === 'plan_to_watch' || media.status === 'completed')) {
+  } else if (hasProgress && (media.status === 'plan_to_watch' || media.status === 'completed')) {
     newStatus = 'watching';
   }
 
+  const watchedEpisodesCount = mode === 'chapters' ? newChapter : newPage;
+  const totalEpisodes = mode === 'chapters' ? (totalChapters || 1) : (totalPages || 1);
+
   const now = new Date().toISOString();
   await db.media.update(mediaId, {
+    progressMode: mode,
     currentPage: newPage,
-    watchedEpisodesCount: newPage,
+    totalPages,
+    currentChapter: newChapter,
+    totalChapters,
+    watchedEpisodesCount,
+    totalEpisodes,
     status: newStatus,
     updatedAt: now
   });

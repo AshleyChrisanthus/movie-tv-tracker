@@ -32,8 +32,11 @@ export default function ManualMediaModal({
   const [overview, setOverview] = useState<string>(item?.overview || '');
   const [posterUrl, setPosterUrl] = useState<string>(item?.posterUrl || '');
   const [author, setAuthor] = useState<string>(item?.author || '');
+  const [progressMode, setProgressMode] = useState<'pages' | 'chapters'>(item?.progressMode || 'pages');
   const [totalPages, setTotalPages] = useState<number | string>(item?.totalPages || 300);
   const [currentPage, setCurrentPage] = useState<number | string>(item?.currentPage || 0);
+  const [totalChapters, setTotalChapters] = useState<number | string>(item?.totalChapters || 20);
+  const [currentChapter, setCurrentChapter] = useState<number | string>(item?.currentChapter || 0);
   const [isbn, setIsbn] = useState<string>(item?.isbn || '');
   
   // Custom episodes generator
@@ -65,8 +68,16 @@ export default function ManualMediaModal({
       const epCount = parseInt(String(episodesPerSeason), 10) || 1;
       const parsedPages = parseInt(String(totalPages), 10) || 0;
       const parsedCurrentPage = parseInt(String(currentPage), 10) || 0;
-      const totalEpisodes = type === 'tv' ? sCount * epCount : type === 'book' ? (parsedPages || 1) : 1;
-      const watchedCount = type === 'book' ? parsedCurrentPage : (item?.watchedEpisodesCount || 0);
+      const parsedTotalChapters = parseInt(String(totalChapters), 10) || 0;
+      const parsedCurrentChapter = parseInt(String(currentChapter), 10) || 0;
+      const totalEpisodes = type === 'tv'
+        ? sCount * epCount
+        : type === 'book'
+          ? (progressMode === 'chapters' ? (parsedTotalChapters || 1) : (parsedPages || 1))
+          : 1;
+      const watchedCount = type === 'book'
+        ? (progressMode === 'chapters' ? parsedCurrentChapter : parsedCurrentPage)
+        : (item?.watchedEpisodesCount || 0);
 
       // Generate episodes array if adding new TV series or if none exist
       const generatedEpisodes: EpisodeInput[] = [];
@@ -97,8 +108,11 @@ export default function ManualMediaModal({
         backdropUrl: posterUrl.trim() || null,
         author: type === 'book' ? author.trim() : undefined,
         isbn: type === 'book' ? isbn.trim() : undefined,
+        progressMode: type === 'book' ? progressMode : undefined,
         totalPages: type === 'book' ? parsedPages : undefined,
         currentPage: type === 'book' ? parsedCurrentPage : undefined,
+        totalChapters: type === 'book' ? parsedTotalChapters : undefined,
+        currentChapter: type === 'book' ? parsedCurrentChapter : undefined,
         source: item?.source || 'custom',
         externalId: item?.externalId || `custom_${Date.now()}`,
         totalSeasons: type === 'tv' ? sCount : 0,
@@ -320,6 +334,114 @@ export default function ManualMediaModal({
               <p className="text-[11px] text-[var(--text-secondary)]">
                 Total episodes generated: {(parseInt(String(seasonCount), 10) || 1) * (parseInt(String(episodesPerSeason), 10) || 1)}
               </p>
+            </div>
+          )}
+
+          {/* Book Structure & Progress Options */}
+          {type === 'book' && (
+            <div className="p-3.5 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
+              <span className="text-xs font-bold text-[var(--accent)] block">
+                Book Information & Tracking Mode
+              </span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Author(s)</label>
+                  <input
+                    type="text"
+                    value={author}
+                    onChange={(e) => setAuthor(e.target.value)}
+                    placeholder="e.g. Brandon Sanderson"
+                    className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-[var(--text-secondary)] mb-1">ISBN (Optional)</label>
+                  <input
+                    type="text"
+                    value={isbn}
+                    onChange={(e) => setIsbn(e.target.value)}
+                    placeholder="e.g. 9780765326355"
+                    className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)] font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-[var(--text-secondary)] mb-1.5 font-medium">Tracking Unit</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProgressMode('pages')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                      progressMode === 'pages'
+                        ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                        : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-light)]'
+                    }`}
+                  >
+                    📖 Track by Pages
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProgressMode('chapters')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                      progressMode === 'chapters'
+                        ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                        : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-light)]'
+                    }`}
+                  >
+                    📑 Track by Chapters
+                  </button>
+                </div>
+              </div>
+
+              {progressMode === 'pages' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Current Page</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={currentPage}
+                      onChange={(e) => setCurrentPage(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Total Pages</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={totalPages}
+                      onChange={(e) => setTotalPages(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Current Chapter</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={currentChapter}
+                      onChange={(e) => setCurrentChapter(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Total Chapters</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={totalChapters}
+                      onChange={(e) => setTotalChapters(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

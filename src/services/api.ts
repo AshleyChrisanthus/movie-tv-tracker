@@ -47,25 +47,85 @@ export async function getTmdbApiKey(): Promise<string> {
  * Search movies, TV shows, and books.
  * Intelligently queries TMDB + Open Library (if key exists) or TVMaze + iTunes + Open Library (if no key).
  */
-export async function searchMedia(query?: string | null): Promise<MediaSearchResult[]> {
+export interface SearchMediaOptions {
+  typeFilter?: 'all' | 'movie' | 'tv' | 'book';
+  onPartialResults?: (results: MediaSearchResult[]) => void;
+}
+
+export async function searchMedia(
+  query?: string | null,
+  options: SearchMediaOptions = {}
+): Promise<MediaSearchResult[]> {
   if (!query || query.trim().length === 0) return [];
   const trimmed = query.trim();
+  const typeFilter = options.typeFilter || 'all';
   const apiKey = await getTmdbApiKey();
 
-  if (apiKey) {
-    try {
-      const [tmdb, books] = await Promise.all([
-        searchTMDB(trimmed, apiKey),
-        searchOpenLibraryBooks(trimmed).catch(() => [])
-      ]);
-      return [...tmdb, ...books];
-    } catch (err) {
-      console.warn('TMDB search failed, falling back to free providers:', err);
-    }
+  // If user explicitly chose 'book', query Open Library exclusively
+  if (typeFilter === 'book') {
+    return await searchOpenLibraryBooks(trimmed, 7000);
   }
 
-  // Fallback: TVMaze for TV + iTunes for movies + Open Library for books (zero config needed)
-  return await searchFreeProviders(trimmed);
+  // If user chose 'tv' or 'movie', query video providers exclusively
+  if (typeFilter === 'tv') {
+    if (apiKey) {
+      try {
+        const results = await searchTMDB(trimmed, apiKey);
+        return results.filter(r => r.type === 'tv');
+      } catch (err) {
+        console.warn('TMDB TV search failed, falling back to TVMaze:', err);
+      }
+    }
+    return await searchTVMaze(trimmed);
+  }
+
+  if (typeFilter === 'movie') {
+    if (apiKey) {
+      try {
+        const results = await searchTMDB(trimmed, apiKey);
+        return results.filter(r => r.type === 'movie');
+      } catch (err) {
+        console.warn('TMDB Movie search failed, falling back to iTunes:', err);
+      }
+    }
+    return await searchITunesMovies(trimmed);
+  }
+
+  // Type filter is 'all': stream results!
+  const videoSearchPromise = (async (): Promise<MediaSearchResult[]> => {
+    if (apiKey) {
+      try {
+        return await searchTMDB(trimmed, apiKey);
+      } catch (err) {
+        console.warn('TMDB search failed, falling back to free providers:', err);
+      }
+    }
+    const [tvResults, movieResults] = await Promise.allSettled([
+      searchTVMaze(trimmed),
+      searchITunesMovies(trimmed)
+    ]);
+    const tv = tvResults.status === 'fulfilled' ? tvResults.value : [];
+    const movies = movieResults.status === 'fulfilled' ? movieResults.value : [];
+    return [...tv, ...movies];
+  })();
+
+  const bookSearchPromise = searchOpenLibraryBooks(trimmed, 7000).catch(() => []);
+
+  // Dispatch video results as soon as available if streaming callback provided
+  if (options.onPartialResults) {
+    videoSearchPromise.then(videoResults => {
+      if (options.onPartialResults && videoResults.length > 0) {
+        options.onPartialResults(videoResults);
+      }
+    });
+  }
+
+  const [videoResults, bookResults] = await Promise.all([
+    videoSearchPromise,
+    bookSearchPromise
+  ]);
+
+  return [...videoResults, ...bookResults];
 }
 
 /**
@@ -197,9 +257,9 @@ async function searchITunesMovies(query: string): Promise<MediaSearchResult[]> {
 /**
  * Free Book Search via Open Library API (zero keys required)
  */
-export async function searchOpenLibraryBooks(query: string): Promise<MediaSearchResult[]> {
+export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 7000): Promise<MediaSearchResult[]> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 3500);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const fields = 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,first_sentence';
@@ -262,17 +322,24 @@ export async function fetchFullMediaDetails(
   if (item.source === 'openlibrary' || item.type === 'book') {
     const totalPages = item.totalPages || 0;
     const currentPage = item.currentPage || 0;
+    const totalChapters = item.totalChapters || 0;
+    const currentChapter = item.currentChapter || 0;
+    const progressMode = item.progressMode || 'pages';
+
     return {
       media: {
         ...item,
         type: 'book',
         source: item.source || 'openlibrary',
+        progressMode,
         totalSeasons: 0,
-        totalEpisodes: totalPages || 1,
+        totalEpisodes: progressMode === 'chapters' ? (totalChapters || 1) : (totalPages || 1),
         totalPages,
         currentPage,
+        totalChapters,
+        currentChapter,
         author: item.author || '',
-        watchedEpisodesCount: currentPage
+        watchedEpisodesCount: progressMode === 'chapters' ? currentChapter : currentPage
       },
       episodes: []
     };

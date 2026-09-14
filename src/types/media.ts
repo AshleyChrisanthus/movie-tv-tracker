@@ -55,8 +55,11 @@ export interface MediaItem {
   activeSeason?: number;                    // Navigation persistence pointer (Issue #13)
   author?: string;                          // Book author (Issue #22)
   authors?: string[];                       // Book authors array
+  progressMode?: 'pages' | 'chapters';      // Book tracking mode (pages or chapters)
   totalPages?: number;                      // Total book pages (Issue #22)
   currentPage?: number;                     // Current page reading progress (Issue #22)
+  totalChapters?: number;                   // Total chapters for book chapter tracking
+  currentChapter?: number;                  // Current chapter reading progress
   isbn?: string;                            // ISBN-10 or ISBN-13
   publisher?: string;                       // Book publisher
   bookFormat?: 'paperback' | 'hardcover' | 'ebook' | 'audiobook' | string;

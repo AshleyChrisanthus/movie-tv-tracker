@@ -23,7 +23,9 @@ export default function SearchModal({
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<MediaSearchResult[]>([]);
   const [existingItems, setExistingItems] = useState<MediaItem[]>([]);
+  const [searchTypeTab, setSearchTypeTab] = useState<'all' | 'tv' | 'movie' | 'book'>('all');
   const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [isSearchingBooks, setIsSearchingBooks] = useState<boolean>(false);
   const [addingId, setAddingId] = useState<string | number | null>(null);
   const [addedIds, setAddedIds] = useState<Set<string | number>>(new Set());
   const [hasTmdbKey, setHasTmdbKey] = useState<boolean>(false);
@@ -41,28 +43,43 @@ export default function SearchModal({
     }
   }, [isOpen]);
 
-  // Debounced search
+  // Debounced search with asynchronous streaming
   useEffect(() => {
     if (!query.trim()) {
       setResults([]);
       setIsSearching(false);
+      setIsSearchingBooks(false);
       return;
     }
 
     setIsSearching(true);
+    if (searchTypeTab === 'all' || searchTypeTab === 'book') {
+      setIsSearchingBooks(true);
+    } else {
+      setIsSearchingBooks(false);
+    }
+
     const timeoutId = setTimeout(async () => {
       try {
-        const res = await searchMedia(query);
+        const res = await searchMedia(query, {
+          typeFilter: searchTypeTab,
+          onPartialResults: (partial) => {
+            // Instant video results arrived — display immediately!
+            setResults(partial);
+            setIsSearching(false);
+          }
+        });
         setResults(res);
       } catch (err) {
         console.error('Search error:', err);
       } finally {
         setIsSearching(false);
+        setIsSearchingBooks(false);
       }
     }, 350);
 
     return () => clearTimeout(timeoutId);
-  }, [query]);
+  }, [query, searchTypeTab]);
 
   // Add item to library
   const handleAddMedia = async (item: MediaSearchResult, initialStatus: MediaStatus = 'plan_to_watch') => {
@@ -187,28 +204,60 @@ export default function SearchModal({
           )}
         </div>
 
+        {/* Media Type Tabs */}
+        <div className="px-4 py-2 bg-[var(--bg-primary)] border-b border-[var(--border-light)] flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            {[
+              { key: 'all', label: 'All Types' },
+              { key: 'tv', label: 'TV Series' },
+              { key: 'movie', label: 'Movies' },
+              { key: 'book', label: 'Books' }
+            ].map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setSearchTypeTab(tab.key as 'all' | 'tv' | 'movie' | 'book')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  searchTypeTab === tab.key
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {isSearchingBooks && (
+            <div className="flex items-center gap-1.5 text-[11px] text-[var(--accent)] font-medium">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>Fetching books...</span>
+            </div>
+          )}
+        </div>
+
         {/* Search Results List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
-          {isSearching && (
+          {isSearching && results.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-[var(--text-secondary)] gap-2">
               <Loader2 className="w-6 h-6 animate-spin text-[var(--accent)]" />
               <span className="text-xs">Searching for titles...</span>
             </div>
           )}
 
-          {!isSearching && results.length === 0 && query.trim().length > 0 && (
+          {!isSearching && !isSearchingBooks && results.length === 0 && query.trim().length > 0 && (
             <div className="text-center py-12 text-[var(--text-secondary)] text-sm">
               No results found for "{query}". You can also click "+ Add Custom" on the navbar to add it manually.
             </div>
           )}
 
-          {!isSearching && results.length === 0 && query.trim().length === 0 && (
+          {results.length === 0 && query.trim().length === 0 && (
             <div className="text-center py-12 text-[var(--text-secondary)] text-xs">
               Search by title to pull in movies, TV shows, and books with metadata automatically.
             </div>
           )}
 
-          {!isSearching && results.map(item => {
+          {results.map(item => {
             const isTv = item.type === 'tv';
             const isBook = item.type === 'book';
             const isAdding = addingId === item.externalId;

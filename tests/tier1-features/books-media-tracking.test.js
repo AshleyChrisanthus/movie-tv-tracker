@@ -154,4 +154,73 @@ describe('Tier 1: Issue #22 Books as 3rd Media Type & Reading Progress', () => {
     assert.equal(restored[0].totalPages, 255);
     assert.deepEqual(restored[0].lists, ['Classic Sci-Fi']);
   });
+
+  it('should support chapter-based tracking and status transitions', async () => {
+    const book = await dbModule.saveMediaItem({
+      title: 'The Way of Kings',
+      type: 'book',
+      author: 'Brandon Sanderson',
+      progressMode: 'chapters',
+      totalChapters: 75,
+      currentChapter: 0,
+      status: 'plan_to_watch'
+    });
+
+    assert.equal(book.progressMode, 'chapters');
+    assert.equal(book.totalChapters, 75);
+    assert.equal(book.currentChapter, 0);
+
+    // Read chapter 10
+    const step1 = await dbModule.updateBookProgress(book.id, {
+      currentChapter: 10,
+      progressMode: 'chapters'
+    });
+    assert.equal(step1.currentChapter, 10);
+    assert.equal(step1.watchedEpisodesCount, 10);
+    assert.equal(step1.status, 'watching');
+
+    // Read to chapter 75 (finish book)
+    const step2 = await dbModule.updateBookProgress(book.id, {
+      currentChapter: 75,
+      progressMode: 'chapters'
+    });
+    assert.equal(step2.currentChapter, 75);
+    assert.equal(step2.watchedEpisodesCount, 75);
+    assert.equal(step2.status, 'completed');
+  });
+
+  it('should allow editing totalPages and totalChapters dynamically', async () => {
+    const book = await dbModule.saveMediaItem({
+      title: 'Mistborn: The Final Empire',
+      type: 'book',
+      author: 'Brandon Sanderson',
+      totalPages: 541, // Median from open library
+      currentPage: 50
+    });
+
+    // User has a different edition with 672 pages and edits totalPages
+    const updated = await dbModule.updateBookProgress(book.id, {
+      totalPages: 672,
+      currentPage: 100
+    });
+
+    assert.equal(updated.totalPages, 672);
+    assert.equal(updated.totalEpisodes, 672);
+    assert.equal(updated.currentPage, 100);
+    assert.equal(updated.watchedEpisodesCount, 100);
+    assert.equal(updated.status, 'watching');
+
+    // Switch to chapters mode with custom chapter total
+    const chaptersUpdated = await dbModule.updateBookProgress(book.id, {
+      progressMode: 'chapters',
+      totalChapters: 38,
+      currentChapter: 5
+    });
+
+    assert.equal(chaptersUpdated.progressMode, 'chapters');
+    assert.equal(chaptersUpdated.totalChapters, 38);
+    assert.equal(chaptersUpdated.totalEpisodes, 38);
+    assert.equal(chaptersUpdated.currentChapter, 5);
+    assert.equal(chaptersUpdated.watchedEpisodesCount, 5);
+  });
 });

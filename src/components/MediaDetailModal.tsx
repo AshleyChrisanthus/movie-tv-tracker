@@ -108,6 +108,19 @@ export default function MediaDetailModal({
     }
   };
 
+  const handleFinishBook = async () => {
+    if (!media) return;
+    const targetPage = Number(inputBookTotalPages) || media.totalPages || 0;
+    const targetChapter = Number(inputBookTotalChapters) || media.totalChapters || 0;
+    await handleApplyBookProgress({
+      currentPage: targetPage > 0 ? targetPage : undefined,
+      currentChapter: targetChapter > 0 ? targetChapter : undefined,
+      totalPages: targetPage > 0 ? targetPage : undefined,
+      totalChapters: targetChapter > 0 ? targetChapter : undefined,
+      progressMode: bookProgressMode
+    });
+  };
+
   const handleToggleList = async (listName: string) => {
     if (!media) return;
     const updated = await toggleMediaList(media.id, listName);
@@ -739,15 +752,12 @@ export default function MediaDetailModal({
                         >
                           +5 Ch
                         </button>
-                        {Number(media.totalChapters) > 0 && (
+                        {(Number(media.totalChapters) > 0 || Number(media.totalPages) > 0 || Number(inputBookTotalChapters) > 0 || Number(inputBookTotalPages) > 0) && (
                           <button
                             type="button"
-                            onClick={() => handleApplyBookProgress({
-                              currentChapter: media.totalChapters || 0,
-                              progressMode: 'chapters'
-                            })}
+                            onClick={handleFinishBook}
                             className="px-3 py-1.5 rounded-lg bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 text-xs font-semibold border border-emerald-700/50 transition-all active:scale-95"
-                            title="Mark entire book as finished"
+                            title="Mark entire book as finished (completes both chapters and pages)"
                           >
                             Finished Book
                           </button>
@@ -867,15 +877,12 @@ export default function MediaDetailModal({
                         >
                           +50 p
                         </button>
-                        {Number(media.totalPages) > 0 && (
+                        {(Number(media.totalPages) > 0 || Number(media.totalChapters) > 0 || Number(inputBookTotalPages) > 0 || Number(inputBookTotalChapters) > 0) && (
                           <button
                             type="button"
-                            onClick={() => handleApplyBookProgress({
-                              currentPage: media.totalPages || 0,
-                              progressMode: 'pages'
-                            })}
+                            onClick={handleFinishBook}
                             className="px-3 py-1.5 rounded-lg bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 text-xs font-semibold border border-emerald-700/50 transition-all active:scale-95"
-                            title="Mark entire book as finished"
+                            title="Mark entire book as finished (completes both pages and chapters)"
                           >
                             Finished Book
                           </button>

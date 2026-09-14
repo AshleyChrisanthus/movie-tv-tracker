@@ -223,4 +223,50 @@ describe('Tier 1: Issue #22 Books as 3rd Media Type & Reading Progress', () => {
     assert.equal(chaptersUpdated.currentChapter, 5);
     assert.equal(chaptersUpdated.watchedEpisodesCount, 5);
   });
+
+  it('should synchronize finished status and completion across pages and chapters mode', async () => {
+    // 1. Finish in pages mode -> should reflect as completed in chapters mode
+    const book1 = await dbModule.saveMediaItem({
+      title: 'Words of Radiance',
+      type: 'book',
+      author: 'Brandon Sanderson',
+      progressMode: 'pages',
+      totalPages: 1087,
+      currentPage: 300,
+      totalChapters: 89,
+      currentChapter: 24,
+      status: 'watching'
+    });
+
+    const finishedByPage = await dbModule.updateBookProgress(book1.id, {
+      currentPage: 1087,
+      progressMode: 'pages'
+    });
+
+    assert.equal(finishedByPage.status, 'completed');
+    assert.equal(finishedByPage.currentPage, 1087);
+    assert.equal(finishedByPage.currentChapter, 89); // Chapter mode also reached total!
+
+    // 2. Finish in chapters mode -> should reflect as completed in pages mode
+    const book2 = await dbModule.saveMediaItem({
+      title: 'Oathbringer',
+      type: 'book',
+      author: 'Brandon Sanderson',
+      progressMode: 'chapters',
+      totalPages: 1248,
+      currentPage: 400,
+      totalChapters: 122,
+      currentChapter: 40,
+      status: 'watching'
+    });
+
+    const finishedByChapter = await dbModule.updateBookProgress(book2.id, {
+      currentChapter: 122,
+      progressMode: 'chapters'
+    });
+
+    assert.equal(finishedByChapter.status, 'completed');
+    assert.equal(finishedByChapter.currentChapter, 122);
+    assert.equal(finishedByChapter.currentPage, 1248); // Page mode also reached total!
+  });
 });

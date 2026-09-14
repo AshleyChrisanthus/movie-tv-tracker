@@ -919,14 +919,30 @@ export async function updateBookProgress(
   let newChapter = options.currentChapter !== undefined ? options.currentChapter : (media.currentChapter || 0);
   newChapter = Math.max(0, totalChapters > 0 ? Math.min(newChapter, totalChapters) : newChapter);
 
-  const isFinished = mode === 'chapters'
-    ? (totalChapters > 0 && newChapter >= totalChapters)
-    : (totalPages > 0 && newPage >= totalPages);
+  // Check if either mode has reached its total (or if finishing via options)
+  const reachedPageFinish = totalPages > 0 && newPage >= totalPages;
+  const reachedChapterFinish = totalChapters > 0 && newChapter >= totalChapters;
+  const isFinished = reachedPageFinish || reachedChapterFinish;
+
+  // If finished in one mode, reflect completion in both modes
+  if (isFinished) {
+    if (totalPages > 0) newPage = totalPages;
+    if (totalChapters > 0) newChapter = totalChapters;
+  } else if (media.status === 'completed') {
+    // If book was already marked completed and user enters a new total without specifying a lesser progress
+    if (options.currentPage === undefined && options.currentChapter === undefined) {
+      if (totalPages > 0) newPage = totalPages;
+      if (totalChapters > 0) newChapter = totalChapters;
+    }
+  }
+
+  const finalIsFinished = (totalPages > 0 && newPage >= totalPages) ||
+                          (totalChapters > 0 && newChapter >= totalChapters);
 
   const hasProgress = mode === 'chapters' ? newChapter > 0 : newPage > 0;
 
   let newStatus = media.status;
-  if (isFinished) {
+  if (finalIsFinished) {
     newStatus = 'completed';
   } else if (hasProgress && (media.status === 'plan_to_watch' || media.status === 'completed')) {
     newStatus = 'watching';

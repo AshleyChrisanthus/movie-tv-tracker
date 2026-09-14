@@ -78,9 +78,7 @@ export async function saveMediaItem(
       }
     }
 
-    if (!id) {
-      id = `media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    }
+    const finalMediaId: string = id || `media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     // Calculate total episodes & watched count if TV show
     let totalEpisodes = mediaItem.totalEpisodes || 0;
@@ -91,7 +89,7 @@ export async function saveMediaItem(
     if (episodes && episodes.length > 0) {
       totalEpisodes = episodes.length;
 
-      const existingEpisodes = await db.episodes.where('mediaId').equals(id).toArray();
+      const existingEpisodes = await db.episodes.where('mediaId').equals(finalMediaId).toArray();
       const existingWatchedMap = new Map<string, WatchedStatus>(
         existingEpisodes.map(ep => [`${ep.seasonNumber}_${ep.episodeNumber}`, ep.isWatched])
       );
@@ -104,8 +102,8 @@ export async function saveMediaItem(
         if (isWatched) watchedEpisodesCount++;
 
         return {
-          id: ep.id || `${id}_S${ep.seasonNumber}E${ep.episodeNumber}`,
-          mediaId: id,
+          id: ep.id || `${finalMediaId}_S${ep.seasonNumber}E${ep.episodeNumber}`,
+          mediaId: finalMediaId,
           seasonNumber: Number(ep.seasonNumber) || 1,
           episodeNumber: Number(ep.episodeNumber) || 1,
           title: ep.title || `Episode ${ep.episodeNumber}`,
@@ -119,14 +117,14 @@ export async function saveMediaItem(
       });
 
       storedEpisodes = episodesToStore;
-      await db.episodes.where('mediaId').equals(id).delete();
+      await db.episodes.where('mediaId').equals(finalMediaId).delete();
       await db.episodes.bulkPut(episodesToStore);
     } else if (existingMedia) {
       // Keep existing counts if not replacing episodes
       totalEpisodes = existingMedia.totalEpisodes || 0;
       watchedEpisodesCount = existingMedia.watchedEpisodesCount || 0;
       if (mediaItem.type === 'tv' || existingMedia.type === 'tv') {
-        storedEpisodes = await db.episodes.where('mediaId').equals(id).toArray();
+        storedEpisodes = await db.episodes.where('mediaId').equals(finalMediaId).toArray();
       }
     }
 
@@ -164,7 +162,7 @@ export async function saveMediaItem(
       source: 'custom',
       ...existingMedia,
       ...mediaItem,
-      id,
+      id: finalMediaId,
       status,
       totalEpisodes,
       watchedEpisodesCount,

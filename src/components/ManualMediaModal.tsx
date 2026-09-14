@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
-import { X, Film, Tv, Save } from 'lucide-react';
-import { saveMediaItem, type EpisodeInput } from '../db';
+import React, { useState, useEffect } from 'react';
+import { X, Film, Tv, Save, AlertCircle, Eye } from 'lucide-react';
+import { saveMediaItem, getAllMedia, type EpisodeInput } from '../db';
 import type { MediaItem, MediaType, MediaStatus } from '../types';
 
 export interface ManualMediaModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaved?: () => void;
+  onSelectExisting?: (item: MediaItem) => void;
   initialItem?: MediaItem | null;
   initialData?: MediaItem | null;
 }
@@ -15,12 +16,14 @@ export default function ManualMediaModal({
   isOpen,
   onClose,
   onSaved,
+  onSelectExisting,
   initialItem = null,
   initialData = null
 }: ManualMediaModalProps): React.JSX.Element | null {
   const item = initialItem || initialData || null;
   const isEditing = !!item;
 
+  const [existingItems, setExistingItems] = useState<MediaItem[]>([]);
   const [type, setType] = useState<MediaType>(item?.type || 'tv');
   const [title, setTitle] = useState<string>(item?.title || '');
   const [year, setYear] = useState<string | number>(item?.year || new Date().getFullYear());
@@ -38,6 +41,12 @@ export default function ManualMediaModal({
   );
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      getAllMedia().then(setExistingItems);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -182,6 +191,34 @@ export default function ManualMediaModal({
               />
             </div>
           </div>
+
+          {/* Duplicate Warning Banner */}
+          {!isEditing && title.trim() && existingItems.some(libItem => libItem.type === type && libItem.title.trim().toLowerCase() === title.trim().toLowerCase()) && (() => {
+            const match = existingItems.find(libItem => libItem.type === type && libItem.title.trim().toLowerCase() === title.trim().toLowerCase())!;
+            return (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-300">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                  <span>
+                    <strong>{match.title}</strong> is already in your library ({match.year || 'N/A'}).
+                  </span>
+                </div>
+                {onSelectExisting && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectExisting(match);
+                      onClose();
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-semibold flex items-center gap-1 transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>View Entry</span>
+                  </button>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Status & Rating */}
           <div className="grid grid-cols-2 gap-3">

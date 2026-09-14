@@ -17,6 +17,7 @@ const testFiles = [
   'path:/tier1-features/timezone-countdown.test.js',
   'path:/tier1-features/backup-tier-export.test.js',
   'path:/tier1-features/theme-system.test.js',
+  'path:/tier1-features/deduplication.test.js',
 
   // Tier 2: Boundary & Corner Cases
   'path:/tier2-boundary/empty-and-edge-items.test.js',

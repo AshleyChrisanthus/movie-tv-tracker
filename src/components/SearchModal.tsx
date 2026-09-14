@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Film, Tv, Plus, Check, Loader2, Key } from 'lucide-react';
+import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye } from 'lucide-react';
 import { searchMedia, fetchFullMediaDetails, getTmdbApiKey } from '../services/api';
-import { saveMediaItem, computeAutoStatus } from '../db';
+import { saveMediaItem, computeAutoStatus, getAllMedia } from '../db';
 import { isEpisodeAired } from '../utils/timezone';
 import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus } from '../types';
 
@@ -9,6 +9,7 @@ export interface SearchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onItemAdded?: (item: Partial<MediaItem>) => void;
+  onSelectExisting?: (item: MediaItem) => void;
   onOpenSettings?: () => void;
 }
 
@@ -16,20 +17,23 @@ export default function SearchModal({
   isOpen,
   onClose,
   onItemAdded,
+  onSelectExisting,
   onOpenSettings
 }: SearchModalProps): React.JSX.Element | null {
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<MediaSearchResult[]>([]);
+  const [existingItems, setExistingItems] = useState<MediaItem[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [addingId, setAddingId] = useState<string | number | null>(null);
   const [addedIds, setAddedIds] = useState<Set<string | number>>(new Set());
   const [hasTmdbKey, setHasTmdbKey] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Check TMDB key status on open
+  // Check TMDB key status and load existing library on open
   useEffect(() => {
     if (isOpen) {
       getTmdbApiKey().then(key => setHasTmdbKey(!!key));
+      getAllMedia().then(items => setExistingItems(items));
       setTimeout(() => inputRef.current?.focus(), 50);
     } else {
       setQuery('');
@@ -110,9 +114,10 @@ export default function SearchModal({
         currentEpisode
       };
 
-      await saveMediaItem(mediaToSave, episodesToSave);
+      const savedMedia = await saveMediaItem(mediaToSave, episodesToSave);
       setAddedIds(prev => new Set(prev).add(item.externalId));
-      if (onItemAdded) onItemAdded(mediaToSave);
+      setExistingItems(prev => [...prev.filter(x => x.id !== savedMedia.id), savedMedia]);
+      if (onItemAdded) onItemAdded(savedMedia);
     } catch (err) {
       console.error('Failed to add media:', err);
       alert('Failed to retrieve full series details. Please check your connection.');
@@ -205,8 +210,11 @@ export default function SearchModal({
 
           {!isSearching && results.map(item => {
             const isTv = item.type === 'tv';
-            const isAdded = addedIds.has(item.externalId);
             const isAdding = addingId === item.externalId;
+            const existingMatch = existingItems.find(libItem =>
+              (item.externalId && libItem.externalId && String(libItem.externalId) === String(item.externalId) && libItem.source === item.source) ||
+              (libItem.type === item.type && libItem.title.trim().toLowerCase() === item.title.trim().toLowerCase())
+            );
 
             return (
               <div
@@ -245,13 +253,21 @@ export default function SearchModal({
                   )}
                 </div>
 
-                {/* Add Actions */}
+                {/* Add Actions or In Library Button */}
                 <div className="flex items-center gap-2 shrink-0">
-                  {isAdded ? (
-                    <span className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-950 text-emerald-400 border border-emerald-800/60 text-xs font-bold">
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Added</span>
-                    </span>
+                  {existingMatch ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onSelectExisting) onSelectExisting(existingMatch);
+                        onClose();
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-400 hover:text-emerald-300 border border-emerald-800/60 text-xs font-bold transition-all active:scale-95 shadow-sm"
+                      title="Already in library - click to open details"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>In Library</span>
+                    </button>
                   ) : (
                     <div className="flex items-center gap-1.5">
                       <button

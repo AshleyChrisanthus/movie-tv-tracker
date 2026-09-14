@@ -53,10 +53,34 @@ export async function saveMediaItem(
   episodes: EpisodeInput[] = []
 ): Promise<MediaItem> {
   const now = new Date().toISOString();
-  const id = mediaItem.id || `media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  let id = mediaItem.id;
 
   return await db.transaction('rw', db.media, db.episodes, async () => {
-    const existingMedia = await db.media.get(id);
+    let existingMedia = id ? await db.media.get(id) : undefined;
+
+    // Deduplication check if id was not provided or not yet found:
+    if (!existingMedia) {
+      if (mediaItem.externalId && mediaItem.source) {
+        existingMedia = await db.media
+          .where('type').equals(mediaItem.type || 'tv')
+          .filter(m => String(m.externalId) === String(mediaItem.externalId) && m.source === mediaItem.source)
+          .first();
+      }
+      if (!existingMedia && mediaItem.title && mediaItem.type) {
+        const cleanTitle = mediaItem.title.trim().toLowerCase();
+        existingMedia = await db.media
+          .where('type').equals(mediaItem.type)
+          .filter(m => m.title.trim().toLowerCase() === cleanTitle)
+          .first();
+      }
+      if (existingMedia) {
+        id = existingMedia.id;
+      }
+    }
+
+    if (!id) {
+      id = `media_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    }
 
     // Calculate total episodes & watched count if TV show
     let totalEpisodes = mediaItem.totalEpisodes || 0;

@@ -454,6 +454,10 @@ export default function App(): React.JSX.Element {
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         onItemAdded={refreshLibrary}
+        onSelectExisting={(item) => {
+          setSelectedMedia(item);
+          setIsSearchOpen(false);
+        }}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
@@ -473,6 +477,11 @@ export default function App(): React.JSX.Element {
         initialItem={manualEditItem}
         initialData={manualEditItem}
         onClose={() => {
+          setIsManualOpen(false);
+          setManualEditItem(null);
+        }}
+        onSelectExisting={(item) => {
+          setSelectedMedia(item);
           setIsManualOpen(false);
           setManualEditItem(null);
         }}

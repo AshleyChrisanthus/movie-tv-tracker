@@ -31,6 +31,8 @@ export interface OpenLibraryDoc {
   number_of_pages_median?: number;
   isbn?: string[];
   publisher?: string[];
+  subject?: string[];
+  first_sentence?: string | string[];
 }
 
 export interface OpenLibrarySearchResponse {

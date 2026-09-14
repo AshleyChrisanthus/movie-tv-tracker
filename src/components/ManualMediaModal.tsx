@@ -252,11 +252,23 @@ export default function ManualMediaModal({
                 onChange={(e) => setStatus(e.target.value as MediaStatus)}
                 className="w-full px-3 py-2 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)] cursor-pointer"
               >
-                <option value="watching" className="bg-[var(--card-bg)]">Watching</option>
-                <option value="plan_to_watch" className="bg-[var(--card-bg)]">Plan to Watch</option>
-                <option value="completed" className="bg-[var(--card-bg)]">Completed</option>
-                <option value="on_hold" className="bg-[var(--card-bg)]">On Hold</option>
-                <option value="dropped" className="bg-[var(--card-bg)]">Dropped</option>
+                {type === 'book' ? (
+                  <>
+                    <option value="watching" className="bg-[var(--card-bg)]">Reading</option>
+                    <option value="plan_to_watch" className="bg-[var(--card-bg)]">Plan to Read</option>
+                    <option value="completed" className="bg-[var(--card-bg)]">Read</option>
+                    <option value="on_hold" className="bg-[var(--card-bg)]">On Hold</option>
+                    <option value="dropped" className="bg-[var(--card-bg)]">Did Not Finish (DNF)</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="watching" className="bg-[var(--card-bg)]">Watching</option>
+                    <option value="plan_to_watch" className="bg-[var(--card-bg)]">Plan to Watch</option>
+                    <option value="completed" className="bg-[var(--card-bg)]">Completed</option>
+                    <option value="on_hold" className="bg-[var(--card-bg)]">On Hold</option>
+                    <option value="dropped" className="bg-[var(--card-bg)]">Dropped</option>
+                  </>
+                )}
               </select>
             </div>
 

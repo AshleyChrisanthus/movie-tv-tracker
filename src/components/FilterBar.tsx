@@ -65,11 +65,23 @@ export default function FilterBar({
   onSortChange,
   itemCounts = {}
 }: FilterBarProps): React.JSX.Element {
+  const isBookMode = typeFilter === 'book';
+  const statusTabs: StatusTab[] = isBookMode
+    ? [
+        { key: 'all', label: 'All Books', icon: null },
+        { key: 'watching', label: 'Reading', icon: BookOpen },
+        { key: 'plan_to_watch', label: 'Plan to Read', icon: Clock },
+        { key: 'completed', label: 'Read', icon: CheckCircle },
+        { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
+        { key: 'dropped', label: 'Did Not Finish', icon: XCircle },
+      ]
+    : STATUS_TABS;
+
   return (
     <div className="flex flex-col gap-3.5 mb-6">
       {/* Status Filter Tabs (Apple Segmented Pill Style) */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-        {STATUS_TABS.map(tab => {
+        {statusTabs.map(tab => {
           const count = itemCounts[tab.key] ?? 0;
           const isActive = statusFilter === tab.key;
           const Icon = tab.icon;

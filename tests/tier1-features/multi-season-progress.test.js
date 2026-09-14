@@ -30,6 +30,34 @@ describe('Tier 1: Multi-Season Progress Tracking & Season Persistence (Issue #13
     assert.equal(mediaAfter.watchedEpisodesCount, 2);
   });
 
+  it('should adjust currentSeason and currentEpisode to the highest remaining watched episode when unmarking an episode', async () => {
+    await dbModule.saveMediaItem(mockTvShowItem, mockTvEpisodes);
+
+    // Watch S1E1, S1E2, S1E3
+    await dbModule.toggleEpisodeWatched(mockTvShowItem.id, 1, 1);
+    await dbModule.toggleEpisodeWatched(mockTvShowItem.id, 1, 2);
+    await dbModule.toggleEpisodeWatched(mockTvShowItem.id, 1, 3);
+
+    let media = await dbModule.getMediaById(mockTvShowItem.id);
+    assert.equal(media.currentSeason, 1);
+    assert.equal(media.currentEpisode, 3);
+    assert.equal(media.watchedEpisodesCount, 3);
+
+    // Accidentally mark S2E1
+    await dbModule.toggleEpisodeWatched(mockTvShowItem.id, 2, 1);
+    media = await dbModule.getMediaById(mockTvShowItem.id);
+    assert.equal(media.currentSeason, 2);
+    assert.equal(media.currentEpisode, 1);
+    assert.equal(media.watchedEpisodesCount, 4);
+
+    // Now unmark S2E1 (simulating accidental mark)
+    await dbModule.toggleEpisodeWatched(mockTvShowItem.id, 2, 1);
+    media = await dbModule.getMediaById(mockTvShowItem.id);
+    assert.equal(media.currentSeason, 1);
+    assert.equal(media.currentEpisode, 3);
+    assert.equal(media.watchedEpisodesCount, 3);
+  });
+
   it('should mark an entire season as watched via setSeasonWatched', async () => {
     await dbModule.saveMediaItem(mockTvShowItem, mockTvEpisodes);
 

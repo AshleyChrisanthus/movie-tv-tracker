@@ -363,6 +363,12 @@ export async function toggleEpisodeWatched(
     const watchedCount = watchedEps.length;
     const totalCount = allEps.length;
 
+    // Find highest watched episode across the entire show to keep currentSeason & currentEpisode accurate
+    const sortedWatched = watchedEps.slice().sort((a, b) => b.seasonNumber - a.seasonNumber || b.episodeNumber - a.episodeNumber);
+    const latestWatched = sortedWatched[0];
+    const currentSeason = latestWatched ? latestWatched.seasonNumber : 1;
+    const currentEpisode = latestWatched ? latestWatched.episodeNumber : 0;
+
     const media = await db.media.get(mediaId);
     if (media) {
       const status = computeAutoStatus(media.status, allEps, media.airStatus, media.type, media.networkTimezone);
@@ -371,8 +377,8 @@ export async function toggleEpisodeWatched(
       await db.media.update(mediaId, {
         watchedEpisodesCount: watchedCount,
         totalEpisodes: totalCount,
-        currentSeason: seasonNumber,
-        currentEpisode: episodeNumber,
+        currentSeason,
+        currentEpisode,
         status,
         ...nextInfo,
         updatedAt: now

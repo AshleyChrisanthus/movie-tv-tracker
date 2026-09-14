@@ -395,12 +395,24 @@ export default function MediaDetailModal({
                 onChange={(e) => handleStatusChange(e.target.value as MediaStatus)}
                 className="px-3 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-lg text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] cursor-pointer"
               >
-                <option value="watching">Watching</option>
-                <option value="caught_up">Caught Up</option>
-                <option value="plan_to_watch">Plan to Watch</option>
-                <option value="completed">Completed</option>
-                <option value="on_hold">On Hold</option>
-                <option value="dropped">Dropped</option>
+                {isBook ? (
+                  <>
+                    <option value="watching">Reading</option>
+                    <option value="plan_to_watch">Plan to Read</option>
+                    <option value="completed">Read</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="dropped">Did Not Finish (DNF)</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="watching">Watching</option>
+                    {isTv && <option value="caught_up">Caught Up</option>}
+                    <option value="plan_to_watch">Plan to Watch</option>
+                    <option value="completed">Completed</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="dropped">Dropped</option>
+                  </>
+                )}
               </select>
             </div>
 

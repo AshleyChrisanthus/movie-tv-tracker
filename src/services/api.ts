@@ -198,8 +198,15 @@ async function searchITunesMovies(query: string): Promise<MediaSearchResult[]> {
  * Free Book Search via Open Library API (zero keys required)
  */
 export async function searchOpenLibraryBooks(query: string): Promise<MediaSearchResult[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+
   try {
-    const res = await fetch(`${OPENLIBRARY_BASE_URL}/search.json?q=${encodeURIComponent(query)}&limit=8`);
+    const fields = 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,first_sentence';
+    const res = await fetch(`${OPENLIBRARY_BASE_URL}/search.json?q=${encodeURIComponent(query)}&limit=8&fields=${fields}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timer);
     if (!res.ok) return [];
     const data: OpenLibrarySearchResponse = await res.json();
 
@@ -213,6 +220,13 @@ export async function searchOpenLibraryBooks(query: string): Promise<MediaSearch
         : null;
       const totalPages = doc.number_of_pages_median || 0;
       const isbn = Array.isArray(doc.isbn) && doc.isbn.length > 0 ? doc.isbn[0] : undefined;
+      const publisher = Array.isArray(doc.publisher) && doc.publisher.length > 0 ? doc.publisher[0] : undefined;
+      const firstSentence = Array.isArray(doc.first_sentence)
+        ? doc.first_sentence[0]
+        : (typeof doc.first_sentence === 'string' ? doc.first_sentence : '');
+      const overview = firstSentence
+        ? `"${firstSentence}" — By ${author}`
+        : `By ${author}${totalPages ? ` • ${totalPages} pages` : ''}${publisher ? ` • Published by ${publisher}` : ''}`;
 
       return {
         externalId: doc.key.replace('/works/', ''),
@@ -221,7 +235,7 @@ export async function searchOpenLibraryBooks(query: string): Promise<MediaSearch
         title: doc.title || 'Untitled Book',
         year,
         releaseDate: doc.first_publish_year ? `${doc.first_publish_year}-01-01` : '',
-        overview: `By ${author}${totalPages ? ` • ${totalPages} pages` : ''}`,
+        overview,
         rating: null,
         posterUrl,
         backdropUrl: posterUrl,
@@ -231,7 +245,8 @@ export async function searchOpenLibraryBooks(query: string): Promise<MediaSearch
       };
     });
   } catch (err) {
-    console.error('Open Library search error:', err);
+    clearTimeout(timer);
+    // Silent catch on abort or network error
     return [];
   }
 }

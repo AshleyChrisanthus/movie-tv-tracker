@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
-  CheckCheck, CheckCircle2, Edit3, Trash2
+  CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes, 
-  deleteMediaItem, getMediaById, markEpisodesUpToWatched
+  deleteMediaItem, getMediaById, markEpisodesUpToWatched,
+  getCustomLists, toggleMediaList, saveCustomList
 } from '../db';
 import { syncMediaEpisodes } from '../services/api';
 import { 
   getUserTimeZone, formatEpisodeAirDate, getEpisodeCountdown, isEpisodeAired 
 } from '../utils/timezone';
-import type { MediaItem, EpisodeItem, MediaStatus } from '../types';
+import type { MediaItem, EpisodeItem, MediaStatus, CustomList } from '../types';
 
 export interface MediaDetailModalProps {
   media: MediaItem | null;
@@ -55,10 +56,49 @@ export default function MediaDetailModal({
   // Expanded episode synopses
   const [expandedEpisodes, setExpandedEpisodes] = useState<Record<string, boolean>>({});
 
+  // Custom Folders & Lists State
+  const [allLists, setAllLists] = useState<CustomList[]>([]);
+  const [mediaLists, setMediaLists] = useState<string[]>(media?.lists || []);
+  const [isCreatingList, setIsCreatingList] = useState<boolean>(false);
+  const [newListName, setNewListName] = useState<string>('');
+
   // Localized User Timezone
   const [userTz, setUserTz] = useState<string>('');
 
   const isTv = media?.type === 'tv';
+
+  useEffect(() => {
+    if (media) {
+      getCustomLists().then(setAllLists);
+      setMediaLists(media.lists || []);
+    }
+  }, [media?.id]);
+
+  const handleToggleList = async (listName: string) => {
+    if (!media) return;
+    const updated = await toggleMediaList(media.id, listName);
+    setMediaLists(updated);
+    if (onUpdated) onUpdated();
+    if (onUpdate) {
+      const refreshed = await getMediaById(media.id);
+      if (refreshed) onUpdate(refreshed);
+    }
+  };
+
+  const handleCreateAndAddList = async () => {
+    if (!newListName.trim() || !media) return;
+    const created = await saveCustomList({ name: newListName.trim() });
+    setAllLists(prev => [...prev.filter(l => l.id !== created.id), created]);
+    const updated = await toggleMediaList(media.id, created.name);
+    setMediaLists(updated);
+    setNewListName('');
+    setIsCreatingList(false);
+    if (onUpdated) onUpdated();
+    if (onUpdate) {
+      const refreshed = await getMediaById(media.id);
+      if (refreshed) onUpdate(refreshed);
+    }
+  };
 
   // Load episodes from IndexedDB while preserving current active season (Issue #13)
   const loadEpisodes = async (targetSeason: number | null = null) => {
@@ -393,6 +433,79 @@ export default function MediaDetailModal({
               >
                 <Trash2 className="w-4 h-4" />
               </button>
+            </div>
+          </div>
+
+          {/* Folders & Custom Lists assignment */}
+          <div className="p-3.5 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-[var(--text-secondary)] flex items-center gap-1.5">
+                <Folder className="w-3.5 h-3.5 text-[var(--accent)]" />
+                <span>Folders & Custom Lists:</span>
+              </span>
+              {isCreatingList ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={newListName}
+                    onChange={(e) => setNewListName(e.target.value)}
+                    placeholder="New list name..."
+                    className="px-2 py-0.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded text-xs text-[var(--text-primary)] focus:outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCreateAndAddList();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCreateAndAddList}
+                    className="px-2 py-0.5 rounded bg-[var(--accent)] text-white text-xs font-semibold"
+                  >
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingList(false)}
+                    className="p-0.5 text-zinc-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingList(true)}
+                  className="text-xs text-[var(--accent)] hover:underline flex items-center gap-1 font-semibold"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>New Folder</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+              {allLists.length === 0 && !isCreatingList && (
+                <span className="text-xs text-zinc-500 italic">
+                  No folders created yet. Click "+ New Folder" to organize!
+                </span>
+              )}
+              {allLists.map(list => {
+                const isMember = mediaLists.includes(list.name);
+                return (
+                  <button
+                    key={list.id}
+                    type="button"
+                    onClick={() => handleToggleList(list.name)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                      isMember
+                        ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-sm'
+                        : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-light)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {isMember && <Check className="w-3 h-3" />}
+                    <span>{list.name}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

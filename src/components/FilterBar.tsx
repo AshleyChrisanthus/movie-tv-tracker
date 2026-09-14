@@ -11,8 +11,11 @@ import {
   XCircle,
   PauseCircle,
   X,
+  Folder,
+  FolderPlus,
   type LucideIcon
 } from 'lucide-react';
+import type { CustomList } from '../types';
 
 interface StatusTab {
   key: string;
@@ -35,6 +38,10 @@ export interface FilterBarProps {
   onStatusChange: (status: string) => void;
   typeFilter: string;
   onTypeChange: (type: string) => void;
+  listFilter?: string;
+  onListChange?: (listName: string) => void;
+  customLists?: CustomList[];
+  onOpenListManager?: () => void;
   librarySearch: string;
   onLibrarySearchChange: (search: string) => void;
   sortBy: string;
@@ -47,6 +54,10 @@ export default function FilterBar({
   onStatusChange,
   typeFilter,
   onTypeChange,
+  listFilter = 'all',
+  onListChange,
+  customLists = [],
+  onOpenListManager,
   librarySearch,
   onLibrarySearchChange,
   sortBy,
@@ -87,45 +98,75 @@ export default function FilterBar({
         })}
       </div>
 
-      {/* Sub-bar: Type capsule selector, In-library search with clear button, and Sort */}
+      {/* Sub-bar: Type capsule selector, List selector, In-library search with clear button, and Sort */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-        {/* Type Capsule Slider (App Directory Style) */}
-        <div className="flex items-center p-1 bg-[var(--bg-tertiary)] border border-[var(--border-light)] rounded-xl w-fit">
-          <button
-            type="button"
-            onClick={() => onTypeChange('all')}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-              typeFilter === 'all'
-                ? 'bg-[var(--card-bg)] text-[var(--text-primary)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            All Types
-          </button>
-          <button
-            type="button"
-            onClick={() => onTypeChange('tv')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-              typeFilter === 'tv'
-                ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Tv className="w-3.5 h-3.5" />
-            <span>TV Shows</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onTypeChange('movie')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-              typeFilter === 'movie'
-                ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Film className="w-3.5 h-3.5" />
-            <span>Movies</span>
-          </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Type Capsule Slider (App Directory Style) */}
+          <div className="flex items-center p-1 bg-[var(--bg-tertiary)] border border-[var(--border-light)] rounded-xl w-fit">
+            <button
+              type="button"
+              onClick={() => onTypeChange('all')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                typeFilter === 'all'
+                  ? 'bg-[var(--card-bg)] text-[var(--text-primary)] shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              All Types
+            </button>
+            <button
+              type="button"
+              onClick={() => onTypeChange('tv')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                typeFilter === 'tv'
+                  ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Tv className="w-3.5 h-3.5" />
+              <span>TV Shows</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onTypeChange('movie')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                typeFilter === 'movie'
+                  ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Film className="w-3.5 h-3.5" />
+              <span>Movies</span>
+            </button>
+          </div>
+
+          {/* Folder / Custom List Filter */}
+          {onListChange && (
+            <div className="flex items-center gap-1.5 bg-[var(--bg-tertiary)] border border-[var(--border-light)] rounded-xl px-2.5 py-1 text-xs">
+              <Folder className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+              <select
+                value={listFilter}
+                onChange={(e) => {
+                  if (e.target.value === '__manage__') {
+                    if (onOpenListManager) onOpenListManager();
+                  } else {
+                    onListChange(e.target.value);
+                  }
+                }}
+                className="bg-transparent text-[var(--text-primary)] text-xs focus:outline-none cursor-pointer"
+              >
+                <option value="all" className="bg-[var(--card-bg)]">All Folders</option>
+                {customLists.map(l => (
+                  <option key={l.id} value={l.name} className="bg-[var(--card-bg)]">
+                    📁 {l.name}
+                  </option>
+                ))}
+                <option value="__manage__" className="bg-[var(--card-bg)] text-[var(--accent)] font-semibold">
+                  ⚙️ Manage Folders...
+                </option>
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Right side: Search in library & Sort dropdown */}

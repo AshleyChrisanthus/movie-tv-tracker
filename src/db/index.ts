@@ -11,7 +11,8 @@ import type {
   WatchedStatus,
   SeriesAirStatus,
   MediaType,
-  CompactEpisodeItem
+  CompactEpisodeItem,
+  CustomList
 } from '../types';
 
 export class BingeLogDatabase extends Dexie {
@@ -187,6 +188,7 @@ export async function saveMediaItem(
       nextEpisodeSeason: nextEpisodeSeason !== null ? nextEpisodeSeason : (existingMedia?.nextEpisodeSeason ?? null),
       nextEpisodeNumber: nextEpisodeNumber !== null ? nextEpisodeNumber : (existingMedia?.nextEpisodeNumber ?? null),
       lastAiredDate: lastAiredDate !== null ? lastAiredDate : (existingMedia?.lastAiredDate ?? null),
+      lists: mediaItem.lists !== undefined ? mediaItem.lists : (existingMedia?.lists || []),
       updatedAt: now,
       createdAt: existingMedia?.createdAt || now,
       year: mediaItem.year ?? existingMedia?.year ?? 'N/A'
@@ -737,3 +739,108 @@ export async function setSetting<T = unknown>(key: string, value: T): Promise<T>
   await db.settings.put({ key, value });
   return value;
 }
+
+/**
+ * Retrieve all custom folders / lists (Issue #20).
+ */
+export async function getCustomLists(): Promise<CustomList[]> {
+  const setting = await db.settings.get('custom_lists');
+  if (setting && Array.isArray(setting.value)) {
+    return setting.value;
+  }
+  return [];
+}
+
+/**
+ * Save or overwrite custom lists array.
+ */
+export async function saveCustomLists(lists: CustomList[]): Promise<void> {
+  await db.settings.put({
+    key: 'custom_lists',
+    value: lists
+  });
+}
+
+/**
+ * Create or edit a custom list.
+ */
+export async function saveCustomList(
+  list: Omit<CustomList, 'id' | 'createdAt'> & { id?: string; createdAt?: string }
+): Promise<CustomList> {
+  const current = await getCustomLists();
+  const id = list.id || `list_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const now = new Date().toISOString();
+  const existingIndex = current.findIndex(l => l.id === id);
+
+  const fullList: CustomList = {
+    id,
+    name: list.name.trim(),
+    color: list.color || '#3b82f6',
+    description: list.description || '',
+    createdAt: list.createdAt || now
+  };
+
+  if (existingIndex >= 0) {
+    current[existingIndex] = fullList;
+  } else {
+    current.push(fullList);
+  }
+
+  await saveCustomLists(current);
+  return fullList;
+}
+
+/**
+ * Delete a custom list by id, and remove this list name from all media items.
+ */
+export async function deleteCustomList(listId: string): Promise<void> {
+  const current = await getCustomLists();
+  const target = current.find(l => l.id === listId);
+  if (!target) return;
+
+  const filtered = current.filter(l => l.id !== listId);
+  await saveCustomLists(filtered);
+
+  // Remove list name from all media items
+  const allMedia = await db.media.toArray();
+  for (const item of allMedia) {
+    if (item.lists && item.lists.includes(target.name)) {
+      const updatedLists = item.lists.filter(name => name !== target.name);
+      await db.media.update(item.id, { lists: updatedLists, updatedAt: new Date().toISOString() });
+    }
+  }
+}
+
+/**
+ * Toggle a media item's membership in a list by list name.
+ */
+export async function toggleMediaList(mediaId: string, listName: string): Promise<string[]> {
+  const media = await db.media.get(mediaId);
+  if (!media) return [];
+
+  const currentLists = new Set<string>(media.lists || []);
+  if (currentLists.has(listName)) {
+    currentLists.delete(listName);
+  } else {
+    currentLists.add(listName);
+  }
+
+  const updatedLists = Array.from(currentLists);
+  await db.media.update(mediaId, {
+    lists: updatedLists,
+    updatedAt: new Date().toISOString()
+  });
+
+  return updatedLists;
+}
+
+/**
+ * Update all lists for a media item.
+ */
+export async function updateMediaLists(mediaId: string, lists: string[]): Promise<void> {
+  await db.media.update(mediaId, {
+    lists,
+    updatedAt: new Date().toISOString()
+  });
+}
+

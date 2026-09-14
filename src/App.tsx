@@ -8,16 +8,19 @@ import ManualMediaModal from './components/ManualMediaModal';
 import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
 import ThemeModal from './components/ThemeModal';
-import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata } from './db';
+import ListManagerModal from './components/ListManagerModal';
+import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, getCustomLists } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
-import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus } from './types';
+import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList } from './types';
 
 export default function App(): React.JSX.Element {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
+  const [customLists, setCustomLists] = useState<CustomList[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [listFilter, setListFilter] = useState<string>('all');
   const [librarySearch, setLibrarySearch] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('updated');
 
@@ -27,6 +30,7 @@ export default function App(): React.JSX.Element {
   const [manualEditItem, setManualEditItem] = useState<MediaItem | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isThemeOpen, setIsThemeOpen] = useState<boolean>(false);
+  const [isListManagerOpen, setIsListManagerOpen] = useState<boolean>(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [syncAlerts, setSyncAlerts] = useState<SyncAlert[]>([]);
@@ -43,10 +47,11 @@ export default function App(): React.JSX.Element {
   });
   const syncAbortRef = useRef<AbortController | null>(null);
 
-  // Load library from IndexedDB
+  // Load library and lists from IndexedDB
   const refreshLibrary = async (): Promise<void> => {
-    const items = await getAllMedia();
+    const [items, lists] = await Promise.all([getAllMedia(), getCustomLists()]);
     setMediaList(items);
+    setCustomLists(lists);
 
     // If a media item is currently open in detail modal, refresh its state too
     if (selectedMedia) {
@@ -162,6 +167,7 @@ export default function App(): React.JSX.Element {
       .filter(item => {
         if (statusFilter !== 'all' && item.status !== statusFilter) return false;
         if (typeFilter !== 'all' && item.type !== typeFilter) return false;
+        if (listFilter !== 'all' && (!item.lists || !item.lists.includes(listFilter))) return false;
         if (librarySearch.trim()) {
           const q = librarySearch.trim().toLowerCase();
           const matchTitle = item.title?.toLowerCase().includes(q);
@@ -239,7 +245,7 @@ export default function App(): React.JSX.Element {
         // default 'updated'
         return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
       });
-  }, [mediaList, statusFilter, typeFilter, librarySearch, sortBy]);
+  }, [mediaList, statusFilter, typeFilter, listFilter, librarySearch, sortBy]);
 
   // Quick Action: +1 episode directly from media card
   const handleQuickIncrement = async (item: MediaItem): Promise<void> => {
@@ -411,6 +417,10 @@ export default function App(): React.JSX.Element {
           onStatusChange={setStatusFilter}
           typeFilter={typeFilter}
           onTypeChange={setTypeFilter}
+          listFilter={listFilter}
+          onListChange={setListFilter}
+          customLists={customLists}
+          onOpenListManager={() => setIsListManagerOpen(true)}
           librarySearch={librarySearch}
           onLibrarySearchChange={setLibrarySearch}
           sortBy={sortBy}
@@ -553,6 +563,15 @@ export default function App(): React.JSX.Element {
         onClose={() => setIsThemeOpen(false)}
         mediaList={mediaList}
         onThemeChanged={refreshLibrary}
+      />
+
+      {/* Folders & List Manager Modal */}
+      <ListManagerModal
+        isOpen={isListManagerOpen}
+        onClose={() => setIsListManagerOpen(false)}
+        customLists={customLists}
+        mediaList={mediaList}
+        onListsChanged={refreshLibrary}
       />
     </div>
   );

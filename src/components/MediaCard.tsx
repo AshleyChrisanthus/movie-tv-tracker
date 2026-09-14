@@ -166,6 +166,24 @@ export default function MediaCard({
               {statusCfg.label}
             </span>
           </div>
+
+          {item.lists && item.lists.length > 0 && (
+            <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+              {item.lists.slice(0, 2).map(listName => (
+                <span
+                  key={listName}
+                  className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--bg-tertiary)] text-[var(--accent)] border border-[var(--border-light)] truncate max-w-[120px]"
+                >
+                  📁 {listName}
+                </span>
+              ))}
+              {item.lists.length > 2 && (
+                <span className="text-[10px] text-[var(--text-secondary)] font-mono">
+                  +{item.lists.length - 2}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* TV Progress Details (App Directory slim track) */}

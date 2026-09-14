@@ -63,11 +63,23 @@ export interface MediaItem {
   nextEpisodeSeason?: number | null;        // Season number of next un-aired episode
   nextEpisodeNumber?: number | null;        // Episode number of next un-aired episode
   lastAiredDate?: string | null;            // ISO date or YYYY-MM-DD of most recent aired episode/release
+  lists?: string[];                         // Custom lists / folders (Issue #20)
   runtime?: number | null;                  // Movie runtime in minutes
   notes?: string;                           // Personal user review / notes
   lastSyncedAt?: string;                    // ISO timestamp of last successful sync
   createdAt: string;                        // ISO creation timestamp
   updatedAt: string;                        // ISO modification timestamp
+}
+
+/**
+ * Custom folder / list definition (Issue #20).
+ */
+export interface CustomList {
+  id: string;
+  name: string;
+  color?: string;
+  description?: string;
+  createdAt: string;
 }
 
 /**

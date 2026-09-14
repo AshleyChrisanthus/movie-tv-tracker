@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Film, Tv, Save, AlertCircle, Eye } from 'lucide-react';
+import { X, Film, Tv, Save, AlertCircle, Eye, BookOpen } from 'lucide-react';
 import { saveMediaItem, getAllMedia, type EpisodeInput } from '../db';
 import type { MediaItem, MediaType, MediaStatus } from '../types';
 
@@ -31,6 +31,10 @@ export default function ManualMediaModal({
   const [rating, setRating] = useState<number>(item?.rating || 0);
   const [overview, setOverview] = useState<string>(item?.overview || '');
   const [posterUrl, setPosterUrl] = useState<string>(item?.posterUrl || '');
+  const [author, setAuthor] = useState<string>(item?.author || '');
+  const [totalPages, setTotalPages] = useState<number | string>(item?.totalPages || 300);
+  const [currentPage, setCurrentPage] = useState<number | string>(item?.currentPage || 0);
+  const [isbn, setIsbn] = useState<string>(item?.isbn || '');
   
   // Custom episodes generator
   const [seasonCount, setSeasonCount] = useState<number | string>(item?.totalSeasons || 1);
@@ -59,7 +63,10 @@ export default function ManualMediaModal({
     try {
       const sCount = parseInt(String(seasonCount), 10) || 1;
       const epCount = parseInt(String(episodesPerSeason), 10) || 1;
-      const totalEpisodes = type === 'tv' ? sCount * epCount : 1;
+      const parsedPages = parseInt(String(totalPages), 10) || 0;
+      const parsedCurrentPage = parseInt(String(currentPage), 10) || 0;
+      const totalEpisodes = type === 'tv' ? sCount * epCount : type === 'book' ? (parsedPages || 1) : 1;
+      const watchedCount = type === 'book' ? parsedCurrentPage : (item?.watchedEpisodesCount || 0);
 
       // Generate episodes array if adding new TV series or if none exist
       const generatedEpisodes: EpisodeInput[] = [];
@@ -88,11 +95,15 @@ export default function ManualMediaModal({
         overview: overview.trim(),
         posterUrl: posterUrl.trim() || null,
         backdropUrl: posterUrl.trim() || null,
+        author: type === 'book' ? author.trim() : undefined,
+        isbn: type === 'book' ? isbn.trim() : undefined,
+        totalPages: type === 'book' ? parsedPages : undefined,
+        currentPage: type === 'book' ? parsedCurrentPage : undefined,
         source: item?.source || 'custom',
         externalId: item?.externalId || `custom_${Date.now()}`,
         totalSeasons: type === 'tv' ? sCount : 0,
-        totalEpisodes: type === 'tv' ? totalEpisodes : 1,
-        watchedEpisodesCount: item?.watchedEpisodesCount || 0
+        totalEpisodes,
+        watchedEpisodesCount: watchedCount
       };
 
       await saveMediaItem(mediaPayload, generatedEpisodes);
@@ -114,14 +125,14 @@ export default function ManualMediaModal({
         <div className="p-4 border-b border-[var(--border-light)] bg-[var(--bg-primary)] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-[var(--accent-bg)] text-[var(--accent)]">
-              {type === 'tv' ? <Tv className="w-5 h-5" /> : <Film className="w-5 h-5" />}
+              {type === 'tv' ? <Tv className="w-5 h-5" /> : type === 'book' ? <BookOpen className="w-5 h-5" /> : <Film className="w-5 h-5" />}
             </div>
             <div>
               <h2 className="text-base font-bold text-[var(--text-primary)]">
-                {isEditing ? 'Edit Media Details' : 'Add Custom Movie / Show'}
+                {isEditing ? 'Edit Media Details' : 'Add Custom Entry'}
               </h2>
               <p className="text-xs text-[var(--text-secondary)]">
-                Manually record YouTube series, anime specials, or personal entries
+                Manually record books, web series, indie movies, or personal entries
               </p>
             </div>
           </div>
@@ -150,7 +161,7 @@ export default function ManualMediaModal({
               }`}
             >
               <Tv className="w-4 h-4" />
-              <span>TV Series / Web Show</span>
+              <span>TV Series</span>
             </button>
             <button
               type="button"
@@ -162,7 +173,19 @@ export default function ManualMediaModal({
               }`}
             >
               <Film className="w-4 h-4" />
-              <span>Movie / Film</span>
+              <span>Movie</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setType('book')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all border ${
+                type === 'book'
+                  ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-md shadow-[var(--accent)]/20'
+                  : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] border-[var(--border-light)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>Book</span>
             </button>
           </div>
 

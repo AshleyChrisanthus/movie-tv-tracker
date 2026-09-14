@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
-  CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check
+  CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes, 
   deleteMediaItem, getMediaById, markEpisodesUpToWatched,
-  getCustomLists, toggleMediaList, saveCustomList
+  getCustomLists, toggleMediaList, saveCustomList, updateBookProgress
 } from '../db';
 import { syncMediaEpisodes } from '../services/api';
 import { 
@@ -62,17 +62,33 @@ export default function MediaDetailModal({
   const [isCreatingList, setIsCreatingList] = useState<boolean>(false);
   const [newListName, setNewListName] = useState<string>('');
 
+  // Book Reading Progress state
+  const [inputBookPage, setInputBookPage] = useState<number | string>(media?.currentPage || 0);
+
   // Localized User Timezone
   const [userTz, setUserTz] = useState<string>('');
 
   const isTv = media?.type === 'tv';
+  const isBook = media?.type === 'book';
 
   useEffect(() => {
     if (media) {
       getCustomLists().then(setAllLists);
       setMediaLists(media.lists || []);
+      setInputBookPage(media.currentPage || 0);
     }
-  }, [media?.id]);
+  }, [media?.id, media?.currentPage]);
+
+  const handleApplyBookPage = async (page: number) => {
+    if (!media) return;
+    const updated = await updateBookProgress(media.id, page);
+    if (updated) {
+      setInputBookPage(updated.currentPage || 0);
+      setStatus(updated.status);
+      if (onUpdated) onUpdated();
+      if (onUpdate) onUpdate(updated);
+    }
+  };
 
   const handleToggleList = async (listName: string) => {
     if (!media) return;
@@ -322,7 +338,7 @@ export default function MediaDetailModal({
                 <img src={media.posterUrl} alt={media.title} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-zinc-800 text-zinc-600">
-                  {isTv ? <Tv className="w-8 h-8" /> : <Film className="w-8 h-8" />}
+                  {isTv ? <Tv className="w-8 h-8" /> : isBook ? <BookOpen className="w-8 h-8" /> : <Film className="w-8 h-8" />}
                 </div>
               )}
             </div>
@@ -330,11 +346,26 @@ export default function MediaDetailModal({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className="px-2 py-0.5 rounded-lg bg-[var(--accent)] text-white text-[11px] font-bold">
-                  {isTv ? 'TV Series' : 'Movie'}
+                  {isTv ? 'TV Series' : isBook ? 'Book' : 'Movie'}
                 </span>
                 {media.year && (
                   <span className="text-zinc-300 text-xs font-medium">
                     {media.year}
+                  </span>
+                )}
+                {isBook && media.author && (
+                  <span className="text-zinc-300 text-xs font-medium">
+                    by {media.author}
+                  </span>
+                )}
+                {isBook && media.totalPages && (
+                  <span className="text-zinc-400 text-xs">
+                    • {media.totalPages} pages
+                  </span>
+                )}
+                {isBook && media.isbn && (
+                  <span className="text-zinc-400 text-xs">
+                    • ISBN {media.isbn}
                   </span>
                 )}
                 {media.genres && media.genres.length > 0 && (
@@ -524,6 +555,135 @@ export default function MediaDetailModal({
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">Overview</h3>
               <p className="text-sm text-zinc-300 leading-relaxed">{media.overview}</p>
+            </div>
+          )}
+
+          {/* BOOK READING PROGRESS TRACKING */}
+          {isBook && (
+            <div className="space-y-4 pt-2 border-t border-zinc-800">
+              <div className="p-4 bg-[var(--accent-bg)] rounded-xl border border-[var(--accent)]/30 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-[var(--accent)]" />
+                    <h3 className="text-sm font-bold text-[var(--text-primary)]">Reading Progress</h3>
+                  </div>
+                  <span className="text-xs text-[var(--text-secondary)] font-mono">
+                    {media.totalPages && media.totalPages > 0
+                      ? `${media.currentPage || 0} of ${media.totalPages} pages (${Math.min(100, Math.round(((media.currentPage || 0) / media.totalPages) * 100))}%)`
+                      : `${media.currentPage || 0} pages read`}
+                  </span>
+                </div>
+
+                {/* Progress Bar */}
+                {media.totalPages && media.totalPages > 0 ? (
+                  <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 rounded-full ${
+                        (media.currentPage || 0) >= media.totalPages
+                          ? 'bg-emerald-500'
+                          : 'bg-gradient-to-r from-[var(--accent)] to-[#30d158]'
+                      }`}
+                      style={{ width: `${Math.min(100, Math.round(((media.currentPage || 0) / media.totalPages) * 100))}%` }}
+                    />
+                  </div>
+                ) : null}
+
+                {/* Page input and Quick increments */}
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <div className="flex items-center gap-2 bg-[var(--bg-primary)] px-3 py-1.5 rounded-lg border border-[var(--border-light)]">
+                    <span className="text-xs text-[var(--text-secondary)] font-medium">Page:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max={media.totalPages || 99999}
+                      value={inputBookPage}
+                      onChange={(e) => setInputBookPage(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleApplyBookPage(parseInt(String(inputBookPage), 10) || 0);
+                        }
+                      }}
+                      className="w-16 bg-[var(--card-bg)] px-2 py-1 rounded text-xs text-center font-bold text-[var(--accent)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                    />
+                    {media.totalPages ? (
+                      <span className="text-xs text-[var(--text-secondary)] font-mono">/ {media.totalPages}</span>
+                    ) : null}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleApplyBookPage(parseInt(String(inputBookPage), 10) || 0)}
+                    className="px-3 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95"
+                  >
+                    Set Page
+                  </button>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleApplyBookPage((media.currentPage || 0) + 10)}
+                      className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                      title="Read 10 more pages"
+                    >
+                      +10 p
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyBookPage((media.currentPage || 0) + 25)}
+                      className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                      title="Read 25 more pages"
+                    >
+                      +25 p
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyBookPage((media.currentPage || 0) + 50)}
+                      className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                      title="Read 50 more pages"
+                    >
+                      +50 p
+                    </button>
+                    {media.totalPages && media.totalPages > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleApplyBookPage(media.totalPages || 0)}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 text-xs font-semibold border border-emerald-700/50 transition-all active:scale-95"
+                        title="Mark entire book as finished"
+                      >
+                        Finished Book
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Book Metadata details */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {media.author && (
+                  <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
+                    <span className="text-zinc-400 block mb-0.5">Author(s)</span>
+                    <span className="text-white font-medium">{media.author}</span>
+                  </div>
+                )}
+                {media.publisher && (
+                  <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
+                    <span className="text-zinc-400 block mb-0.5">Publisher</span>
+                    <span className="text-white font-medium">{media.publisher}</span>
+                  </div>
+                )}
+                {media.isbn && (
+                  <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
+                    <span className="text-zinc-400 block mb-0.5">ISBN</span>
+                    <span className="text-white font-mono">{media.isbn}</span>
+                  </div>
+                )}
+                {media.bookFormat && (
+                  <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
+                    <span className="text-zinc-400 block mb-0.5">Format</span>
+                    <span className="text-white capitalize">{media.bookFormat}</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

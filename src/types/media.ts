@@ -1,7 +1,7 @@
 /**
  * Media types supported by BingeLog.
  */
-export type MediaType = 'movie' | 'tv';
+export type MediaType = 'movie' | 'tv' | 'book';
 
 /**
  * Watch status lifecycle states.
@@ -17,7 +17,7 @@ export type MediaStatus =
 /**
  * Origin source of metadata.
  */
-export type MediaSource = 'tmdb' | 'tvmaze' | 'itunes' | 'custom';
+export type MediaSource = 'tmdb' | 'tvmaze' | 'itunes' | 'openlibrary' | 'custom';
 
 /**
  * Series broadcast air status (e.g., 'Returning Series', 'Ended', 'Running', 'Canceled').
@@ -34,18 +34,18 @@ export type WatchedStatus = 0 | 1;
  */
 export interface MediaItem {
   id: string;                               // Primary key: `media_${timestamp}_${hash}`
-  type: MediaType;                          // 'movie' | 'tv'
+  type: MediaType;                          // 'movie' | 'tv' | 'book'
   status: MediaStatus;                      // Tracking status
   airStatus?: SeriesAirStatus;              // Ongoing/ended broadcast status ('Returning Series', 'Ended', etc.)
-  title: string;                            // Title of the movie or TV show
+  title: string;                            // Title of the movie, TV show, or book
   year: number | string;                    // Release year or 'N/A'
   releaseDate?: string;                     // ISO date or YYYY-MM-DD
   overview?: string;                        // Synopsis / premise
   rating?: number | null;                   // 1-10 user rating or TMDB vote average
-  posterUrl?: string | null;                // Poster image URL
+  posterUrl?: string | null;                // Poster or book cover image URL
   backdropUrl?: string | null;              // Banner / backdrop image URL
   genres?: string[];                        // Array of genre names
-  source: MediaSource;                      // 'tmdb' | 'tvmaze' | 'itunes' | 'custom'
+  source: MediaSource;                      // 'tmdb' | 'tvmaze' | 'itunes' | 'openlibrary' | 'custom'
   externalId?: string | number;             // API provider ID or custom ID
   totalSeasons?: number;                    // Total number of seasons
   totalEpisodes: number;                    // Total episode count (1 for movies)
@@ -53,6 +53,13 @@ export interface MediaItem {
   currentSeason?: number;                   // Last active season pointer (1-based)
   currentEpisode?: number;                  // Last active episode pointer
   activeSeason?: number;                    // Navigation persistence pointer (Issue #13)
+  author?: string;                          // Book author (Issue #22)
+  authors?: string[];                       // Book authors array
+  totalPages?: number;                      // Total book pages (Issue #22)
+  currentPage?: number;                     // Current page reading progress (Issue #22)
+  isbn?: string;                            // ISBN-10 or ISBN-13
+  publisher?: string;                       // Book publisher
+  bookFormat?: 'paperback' | 'hardcover' | 'ebook' | 'audiobook' | string;
   networkTimezone?: string;                 // e.g. 'America/New_York'
   schedule?: {                              // Broadcast schedule
     time?: string;                          // e.g. '20:30'

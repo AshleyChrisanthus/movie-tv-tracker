@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, CheckCircle2, Check, Clock } from 'lucide-react';
+import { Film, Tv, Star, Plus, CheckCircle2, Check, Clock, BookOpen } from 'lucide-react';
 import type { MediaItem, MediaStatus } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 
@@ -31,13 +31,26 @@ export default function MediaCard({
   onQuickToggleMovie
 }: MediaCardProps): React.JSX.Element {
   const isTv = item.type === 'tv';
+  const isBook = item.type === 'book';
   const statusCfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.plan_to_watch;
 
-  // TV progress calculation
+  // TV / Book progress calculation
   const totalEps = item.totalEpisodes || 0;
   const watchedEps = item.watchedEpisodesCount || 0;
-  const progressPercent = totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0;
-  const isCompleted = isTv ? (totalEps > 0 && watchedEps >= totalEps) : item.status === 'completed';
+  const totalPages = item.totalPages || 0;
+  const currentPage = item.currentPage || 0;
+
+  const progressPercent = isTv
+    ? (totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0)
+    : isBook
+    ? (totalPages > 0 ? Math.min(100, Math.round((currentPage / totalPages) * 100)) : 0)
+    : 0;
+
+  const isCompleted = isTv
+    ? (totalEps > 0 && watchedEps >= totalEps)
+    : isBook
+    ? (totalPages > 0 && currentPage >= totalPages) || item.status === 'completed'
+    : item.status === 'completed';
 
   // Next episode countdown calculation
   const countdown = isTv && (item.nextAirDate || item.nextAirstamp)
@@ -46,7 +59,7 @@ export default function MediaCard({
 
   const handleQuickAction = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (isTv) {
+    if (isTv || isBook) {
       if (onQuickIncrement) onQuickIncrement(item);
     } else {
       if (onQuickToggleMovie) onQuickToggleMovie(item);
@@ -77,7 +90,7 @@ export default function MediaCard({
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-[var(--bg-secondary)] text-[var(--text-secondary)] p-4 text-center">
-            {isTv ? <Tv className="w-12 h-12 mb-2 opacity-40" /> : <Film className="w-12 h-12 mb-2 opacity-40" />}
+            {isTv ? <Tv className="w-12 h-12 mb-2 opacity-40" /> : isBook ? <BookOpen className="w-12 h-12 mb-2 opacity-40" /> : <Film className="w-12 h-12 mb-2 opacity-40" />}
             <span className="text-xs font-medium text-[var(--text-secondary)] line-clamp-2">{item.title}</span>
           </div>
         )}
@@ -86,8 +99,8 @@ export default function MediaCard({
         <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1 pointer-events-none">
           {/* Type Badge */}
           <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 text-[11px] font-semibold text-white">
-            {isTv ? <Tv className="w-3 h-3 text-[var(--accent)]" /> : <Film className="w-3 h-3 text-[var(--accent)]" />}
-            <span>{isTv ? 'TV' : 'Movie'}</span>
+            {isTv ? <Tv className="w-3 h-3 text-[var(--accent)]" /> : isBook ? <BookOpen className="w-3 h-3 text-[var(--accent)]" /> : <Film className="w-3 h-3 text-[var(--accent)]" />}
+            <span>{isTv ? 'TV' : isBook ? 'Book' : 'Movie'}</span>
           </span>
 
           {/* Rating in Apple Gold */}
@@ -113,7 +126,19 @@ export default function MediaCard({
             </button>
           )}
 
-          {!isTv && (
+          {isBook && !isCompleted && (
+            <button
+              type="button"
+              onClick={handleQuickAction}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold shadow-lg shadow-[var(--accent)]/30 backdrop-blur-sm transition-all active:scale-95"
+              title="Quick read +10 pages"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+10 p</span>
+            </button>
+          )}
+
+          {!isTv && !isBook && (
             <button
               type="button"
               onClick={handleQuickAction}
@@ -160,7 +185,7 @@ export default function MediaCard({
           </div>
 
           <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-            <span>{item.year || 'N/A'}</span>
+            <span className="truncate max-w-[140px]">{isBook && item.author ? item.author : item.year || 'N/A'}</span>
             <span>•</span>
             <span className={`px-2 py-0.2 rounded-md text-[10px] font-medium border ${statusCfg.bg}`}>
               {statusCfg.label}
@@ -228,8 +253,32 @@ export default function MediaCard({
           </div>
         )}
 
+        {/* Book Progress Details */}
+        {isBook && (
+          <div className="pt-2 border-t border-[var(--border-light)]">
+            <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] mb-1.5 font-medium">
+              <span>{isCompleted ? 'Finished' : 'Reading'}</span>
+              <span className="font-mono text-[var(--text-primary)]">
+                {totalPages > 0 ? `${currentPage}/${totalPages} p (${progressPercent}%)` : `${currentPage} pages`}
+              </span>
+            </div>
+
+            {/* Slim Reading Progress Track */}
+            <div className="w-full h-1.5 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-300 rounded-full ${
+                  isCompleted
+                    ? 'bg-emerald-500'
+                    : 'bg-gradient-to-r from-[var(--accent)] to-[#30d158]'
+                }`}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Movie status hint */}
-        {!isTv && (
+        {!isTv && !isBook && (
           <div className="pt-1 text-[11px] text-[var(--text-secondary)]">
             {item.status === 'completed' ? 'Watched' : 'In Watchlist'}
           </div>

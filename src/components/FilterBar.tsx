@@ -13,6 +13,7 @@ import {
   X,
   Folder,
   FolderPlus,
+  BookOpen,
   type LucideIcon
 } from 'lucide-react';
 import type { CustomList } from '../types';
@@ -137,6 +138,18 @@ export default function FilterBar({
             >
               <Film className="w-3.5 h-3.5" />
               <span>Movies</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onTypeChange('book')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                typeFilter === 'book'
+                  ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Books</span>
             </button>
           </div>
 

@@ -9,7 +9,7 @@ import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
 import ThemeModal from './components/ThemeModal';
 import ListManagerModal from './components/ListManagerModal';
-import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, getCustomLists } from './db';
+import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, getCustomLists, updateBookProgress } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
@@ -247,13 +247,21 @@ export default function App(): React.JSX.Element {
       });
   }, [mediaList, statusFilter, typeFilter, listFilter, librarySearch, sortBy]);
 
-  // Quick Action: +1 episode directly from media card
+  // Quick Action: +1 episode directly from media card (or +10 pages for books)
   const handleQuickIncrement = async (item: MediaItem): Promise<void> => {
-    if (item.type !== 'tv') return;
-    const episodes = await getEpisodesForMedia(item.id);
-    const nextEp = episodes.find(e => e.isWatched === 0);
-    if (nextEp) {
-      await toggleEpisodeWatched(item.id, nextEp.seasonNumber, nextEp.episodeNumber);
+    if (item.type === 'tv') {
+      const episodes = await getEpisodesForMedia(item.id);
+      const nextEp = episodes.find(e => e.isWatched === 0);
+      if (nextEp) {
+        await toggleEpisodeWatched(item.id, nextEp.seasonNumber, nextEp.episodeNumber);
+        await refreshLibrary();
+      }
+    } else if (item.type === 'book') {
+      const current = item.currentPage || 0;
+      const total = item.totalPages || 0;
+      const step = 10;
+      const target = total > 0 ? Math.min(current + step, total) : current + step;
+      await updateBookProgress(item.id, target);
       await refreshLibrary();
     }
   };

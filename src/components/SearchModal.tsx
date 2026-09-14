@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye } from 'lucide-react';
+import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen } from 'lucide-react';
 import { searchMedia, fetchFullMediaDetails, getTmdbApiKey } from '../services/api';
 import { saveMediaItem, computeAutoStatus, getAllMedia } from '../db';
 import { isEpisodeAired } from '../utils/timezone';
@@ -167,8 +167,8 @@ export default function SearchModal({
             <span className={`w-2 h-2 rounded-full ${hasTmdbKey ? 'bg-emerald-400' : 'bg-amber-400'}`} />
             <span>
               {hasTmdbKey
-                ? 'TMDB API Active (Full Movie & TV Data)'
-                : 'TVMaze & Free Fallback Active (TV Shows & iTunes Movies)'}
+                ? 'TMDB (Movies/TV) & Open Library (Books) Active'
+                : 'TVMaze, iTunes & Open Library (Books) Active'}
             </span>
           </div>
 
@@ -204,12 +204,13 @@ export default function SearchModal({
 
           {!isSearching && results.length === 0 && query.trim().length === 0 && (
             <div className="text-center py-12 text-[var(--text-secondary)] text-xs">
-              Search by title to pull in seasons, episodes, titles, and posters automatically.
+              Search by title to pull in movies, TV shows, and books with metadata automatically.
             </div>
           )}
 
           {!isSearching && results.map(item => {
             const isTv = item.type === 'tv';
+            const isBook = item.type === 'book';
             const isAdding = addingId === item.externalId;
             const existingMatch = existingItems.find(libItem =>
               (item.externalId && libItem.externalId && String(libItem.externalId) === String(item.externalId) && libItem.source === item.source) ||
@@ -227,7 +228,7 @@ export default function SearchModal({
                     <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-[var(--text-secondary)]">
-                      {isTv ? <Tv className="w-5 h-5" /> : <Film className="w-5 h-5" />}
+                      {isBook ? <BookOpen className="w-5 h-5" /> : isTv ? <Tv className="w-5 h-5" /> : <Film className="w-5 h-5" />}
                     </div>
                   )}
                 </div>
@@ -242,7 +243,7 @@ export default function SearchModal({
                       ({item.year || 'N/A'})
                     </span>
                     <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                      {isTv ? 'TV' : 'Movie'}
+                      {isBook ? 'Book' : isTv ? 'TV' : 'Movie'}
                     </span>
                   </div>
 
@@ -275,14 +276,14 @@ export default function SearchModal({
                         onClick={() => handleAddMedia(item, 'watching')}
                         disabled={isAdding}
                         className="px-2.5 py-1.5 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-semibold transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1 shadow-sm"
-                        title="Add directly to Watching"
+                        title={isBook ? "Add as Currently Reading" : "Add directly to Watching"}
                       >
                         {isAdding ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           <Plus className="w-3.5 h-3.5" />
                         )}
-                        <span className="hidden sm:inline">Watching</span>
+                        <span className="hidden sm:inline">{isBook ? 'Reading' : 'Watching'}</span>
                       </button>
 
                       <button
@@ -290,9 +291,9 @@ export default function SearchModal({
                         onClick={() => handleAddMedia(item, 'plan_to_watch')}
                         disabled={isAdding}
                         className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium border border-[var(--border-light)] transition-all active:scale-95 disabled:opacity-50"
-                        title="Add to Plan to Watch"
+                        title={isBook ? "Add to Want to Read" : "Add to Plan to Watch"}
                       >
-                        <span className="hidden sm:inline">Watchlist</span>
+                        <span className="hidden sm:inline">{isBook ? 'Want to Read' : 'Watchlist'}</span>
                         <span className="sm:hidden">+</span>
                       </button>
 
@@ -301,10 +302,10 @@ export default function SearchModal({
                         onClick={() => handleAddMedia(item, 'completed')}
                         disabled={isAdding}
                         className="px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 text-xs font-semibold transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1 shadow-sm"
-                        title="Add as Watched (Completed if ended, Caught Up if ongoing)"
+                        title={isBook ? "Add as Read" : "Add as Watched (Completed if ended, Caught Up if ongoing)"}
                       >
                         <Check className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Watched</span>
+                        <span className="hidden sm:inline">{isBook ? 'Read' : 'Watched'}</span>
                       </button>
                     </div>
                   )}

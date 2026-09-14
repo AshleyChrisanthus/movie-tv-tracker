@@ -17,6 +17,25 @@ export interface MediaSearchResult {
   popularity?: number;
   genres?: string[];
   status?: string;
+  author?: string;
+  totalPages?: number;
+  isbn?: string;
+}
+
+export interface OpenLibraryDoc {
+  key: string;
+  title: string;
+  author_name?: string[];
+  first_publish_year?: number;
+  cover_i?: number;
+  number_of_pages_median?: number;
+  isbn?: string[];
+  publisher?: string[];
+}
+
+export interface OpenLibrarySearchResponse {
+  numFound: number;
+  docs: OpenLibraryDoc[];
 }
 
 /**

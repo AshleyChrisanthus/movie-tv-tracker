@@ -171,6 +171,16 @@ export async function saveMediaItem(
       status = (mediaItem.airStatus === 'Ended' || mediaItem.airStatus === 'Canceled') ? 'completed' : 'caught_up';
     } else if (mediaItem.type === 'tv' && watchedEpisodesCount > 0 && status === 'plan_to_watch') {
       status = 'watching';
+    } else if (mediaItem.type === 'book') {
+      const totalPages = mediaItem.totalPages ?? existingMedia?.totalPages ?? 0;
+      const currentPage = mediaItem.currentPage ?? existingMedia?.currentPage ?? 0;
+      if (totalPages > 0 && currentPage >= totalPages) {
+        status = 'completed';
+      } else if (currentPage > 0 && status === 'plan_to_watch') {
+        status = 'watching';
+      }
+      totalEpisodes = totalPages || 1;
+      watchedEpisodesCount = currentPage;
     }
 
     const payload: MediaItem = {
@@ -183,6 +193,10 @@ export async function saveMediaItem(
       status,
       totalEpisodes,
       watchedEpisodesCount,
+      totalPages: mediaItem.totalPages ?? existingMedia?.totalPages,
+      currentPage: mediaItem.currentPage ?? existingMedia?.currentPage ?? (status === 'completed' && (mediaItem.totalPages || existingMedia?.totalPages) ? (mediaItem.totalPages || existingMedia?.totalPages) : 0),
+      author: mediaItem.author || existingMedia?.author || '',
+      isbn: mediaItem.isbn || existingMedia?.isbn,
       nextAirDate: nextAirDate !== null ? nextAirDate : (existingMedia?.nextAirDate ?? null),
       nextAirstamp: nextAirstamp !== null ? nextAirstamp : (existingMedia?.nextAirstamp ?? null),
       nextEpisodeSeason: nextEpisodeSeason !== null ? nextEpisodeSeason : (existingMedia?.nextEpisodeSeason ?? null),
@@ -592,6 +606,14 @@ export async function updateMediaStatus(id: string, status: MediaStatus): Promis
         watchedEpisodesCount: episodes.length,
         updatedAt: now
       });
+    } else if (status === 'completed' && media.type === 'book') {
+      const totalPages = media.totalPages || 0;
+      await db.media.update(id, {
+        status,
+        currentPage: totalPages,
+        watchedEpisodesCount: totalPages,
+        updatedAt: now
+      });
     } else {
       await db.media.update(id, { status, updatedAt: now });
     }
@@ -842,5 +864,34 @@ export async function updateMediaLists(mediaId: string, lists: string[]): Promis
     lists,
     updatedAt: new Date().toISOString()
   });
+}
+
+/**
+ * Update reading progress for a book (page count) (Issue #22).
+ */
+export async function updateBookProgress(mediaId: string, currentPage: number): Promise<MediaItem | null> {
+  const media = await db.media.get(mediaId);
+  if (!media || media.type !== 'book') return null;
+
+  const totalPages = media.totalPages || 0;
+  const newPage = Math.max(0, totalPages > 0 ? Math.min(currentPage, totalPages) : currentPage);
+  const isFinished = totalPages > 0 && newPage >= totalPages;
+
+  let newStatus = media.status;
+  if (isFinished) {
+    newStatus = 'completed';
+  } else if (newPage > 0 && (media.status === 'plan_to_watch' || media.status === 'completed')) {
+    newStatus = 'watching';
+  }
+
+  const now = new Date().toISOString();
+  await db.media.update(mediaId, {
+    currentPage: newPage,
+    watchedEpisodesCount: newPage,
+    status: newStatus,
+    updatedAt: now
+  });
+
+  return await db.media.get(mediaId) || null;
 }
 

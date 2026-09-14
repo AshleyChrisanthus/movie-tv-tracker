@@ -26,12 +26,14 @@ import type {
   TVMazeSearchResultItem,
   TVMazeEpisode,
   ITunesResult,
-  ITunesSearchResponse
+  ITunesSearchResponse,
+  OpenLibrarySearchResponse
 } from '../types';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
 const TVMAZE_BASE_URL = 'https://api.tvmaze.com';
+const OPENLIBRARY_BASE_URL = 'https://openlibrary.org';
 
 /**
  * Retrieve TMDB API key from IndexedDB or Vite env.
@@ -42,8 +44,8 @@ export async function getTmdbApiKey(): Promise<string> {
 }
 
 /**
- * Search movies and TV shows.
- * Intelligently switches between TMDB (if key exists) and TVMaze + iTunes (if no key).
+ * Search movies, TV shows, and books.
+ * Intelligently queries TMDB + Open Library (if key exists) or TVMaze + iTunes + Open Library (if no key).
  */
 export async function searchMedia(query?: string | null): Promise<MediaSearchResult[]> {
   if (!query || query.trim().length === 0) return [];
@@ -52,13 +54,17 @@ export async function searchMedia(query?: string | null): Promise<MediaSearchRes
 
   if (apiKey) {
     try {
-      return await searchTMDB(trimmed, apiKey);
+      const [tmdb, books] = await Promise.all([
+        searchTMDB(trimmed, apiKey),
+        searchOpenLibraryBooks(trimmed).catch(() => [])
+      ]);
+      return [...tmdb, ...books];
     } catch (err) {
       console.warn('TMDB search failed, falling back to free providers:', err);
     }
   }
 
-  // Fallback: TVMaze for TV shows + iTunes for movies (zero config needed)
+  // Fallback: TVMaze for TV + iTunes for movies + Open Library for books (zero config needed)
   return await searchFreeProviders(trimmed);
 }
 
@@ -101,19 +107,20 @@ async function searchTMDB(query: string, apiKey: string): Promise<MediaSearchRes
 }
 
 /**
- * Search TVMaze (TV shows) and iTunes (Movies) with zero API keys required
+ * Search TVMaze (TV shows), iTunes (Movies), and Open Library (Books) with zero API keys required
  */
 async function searchFreeProviders(query: string): Promise<MediaSearchResult[]> {
-  const [tvResults, movieResults] = await Promise.allSettled([
+  const [tvResults, movieResults, bookResults] = await Promise.allSettled([
     searchTVMaze(query),
-    searchITunesMovies(query)
+    searchITunesMovies(query),
+    searchOpenLibraryBooks(query)
   ]);
 
   const tv = tvResults.status === 'fulfilled' ? tvResults.value : [];
   const movies = movieResults.status === 'fulfilled' ? movieResults.value : [];
+  const books = bookResults.status === 'fulfilled' ? bookResults.value : [];
 
-  // Interleave or combine results with TV prioritized for matched queries
-  return [...tv, ...movies];
+  return [...tv, ...movies, ...books];
 }
 
 /**
@@ -188,12 +195,73 @@ async function searchITunesMovies(query: string): Promise<MediaSearchResult[]> {
 }
 
 /**
+ * Free Book Search via Open Library API (zero keys required)
+ */
+export async function searchOpenLibraryBooks(query: string): Promise<MediaSearchResult[]> {
+  try {
+    const res = await fetch(`${OPENLIBRARY_BASE_URL}/search.json?q=${encodeURIComponent(query)}&limit=8`);
+    if (!res.ok) return [];
+    const data: OpenLibrarySearchResponse = await res.json();
+
+    return (data.docs || []).map((doc): MediaSearchResult => {
+      const author = Array.isArray(doc.author_name) && doc.author_name.length > 0
+        ? doc.author_name.join(', ')
+        : 'Unknown Author';
+      const year = doc.first_publish_year ? String(doc.first_publish_year) : 'N/A';
+      const posterUrl = doc.cover_i
+        ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg`
+        : null;
+      const totalPages = doc.number_of_pages_median || 0;
+      const isbn = Array.isArray(doc.isbn) && doc.isbn.length > 0 ? doc.isbn[0] : undefined;
+
+      return {
+        externalId: doc.key.replace('/works/', ''),
+        source: 'openlibrary',
+        type: 'book',
+        title: doc.title || 'Untitled Book',
+        year,
+        releaseDate: doc.first_publish_year ? `${doc.first_publish_year}-01-01` : '',
+        overview: `By ${author}${totalPages ? ` • ${totalPages} pages` : ''}`,
+        rating: null,
+        posterUrl,
+        backdropUrl: posterUrl,
+        author,
+        totalPages,
+        isbn
+      };
+    });
+  } catch (err) {
+    console.error('Open Library search error:', err);
+    return [];
+  }
+}
+
+/**
  * Fetch complete media details along with full season and episode lists.
  */
 export async function fetchFullMediaDetails(
   item: Partial<MediaItem> & { externalId?: string | number; source?: MediaSource; type?: MediaType }
 ): Promise<FullMediaDetailsResponse> {
   const apiKey = await getTmdbApiKey();
+
+  if (item.source === 'openlibrary' || item.type === 'book') {
+    const totalPages = item.totalPages || 0;
+    const currentPage = item.currentPage || 0;
+    return {
+      media: {
+        ...item,
+        type: 'book',
+        source: item.source || 'openlibrary',
+        totalSeasons: 0,
+        totalEpisodes: totalPages || 1,
+        totalPages,
+        currentPage,
+        author: item.author || '',
+        watchedEpisodesCount: currentPage
+      },
+      episodes: []
+    };
+  }
 
   if (item.source === 'tmdb' && apiKey && item.externalId) {
     if (item.type === 'movie') {

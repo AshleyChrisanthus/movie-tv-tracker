@@ -39,6 +39,8 @@ describe('Tier 1: Multi-Season Progress Tracking & Season Persistence (Issue #13
     const media = await dbModule.getMediaById(mockTvShowItem.id);
     assert.equal(media.watchedEpisodesCount, 3);
     assert.equal(media.status, 'watching');
+    assert.equal(media.currentSeason, 1);
+    assert.equal(media.currentEpisode, 3);
 
     const episodes = await dbModule.getEpisodesForMedia(mockTvShowItem.id);
     const s1Episodes = episodes.filter(e => e.seasonNumber === 1);
@@ -65,6 +67,7 @@ describe('Tier 1: Multi-Season Progress Tracking & Season Persistence (Issue #13
 
     media = await dbModule.getMediaById(mockTvShowItem.id);
     assert.equal(media.watchedEpisodesCount, 0);
+    assert.equal(media.currentEpisode, 0);
 
     const episodes = await dbModule.getEpisodesForMedia(mockTvShowItem.id);
     const s1 = episodes.filter(e => e.seasonNumber === 1);

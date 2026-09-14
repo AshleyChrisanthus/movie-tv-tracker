@@ -447,8 +447,15 @@ export async function setSeasonWatched(
     }
 
     const allEps = await db.episodes.where('mediaId').equals(mediaId).toArray();
-    const watchedCount = allEps.filter(e => e.isWatched === 1).length;
+    const watchedEps = allEps.filter(e => e.isWatched === 1);
+    const watchedCount = watchedEps.length;
     const totalCount = allEps.length;
+
+    // Calculate updated progress pointer based on highest watched episode
+    const sortedWatched = watchedEps.slice().sort((a, b) => b.seasonNumber - a.seasonNumber || b.episodeNumber - a.episodeNumber);
+    const latestWatched = sortedWatched[0];
+    const currentSeason = latestWatched ? latestWatched.seasonNumber : 1;
+    const currentEpisode = latestWatched ? latestWatched.episodeNumber : 0;
 
     const media = await db.media.get(mediaId);
     if (media) {
@@ -456,6 +463,8 @@ export async function setSeasonWatched(
       const nextInfo = getNextUnairedEpisodeInfo(allEps, media.networkTimezone);
 
       await db.media.update(mediaId, {
+        currentSeason,
+        currentEpisode,
         watchedEpisodesCount: watchedCount,
         status,
         ...nextInfo,

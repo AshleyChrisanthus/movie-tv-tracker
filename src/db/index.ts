@@ -229,7 +229,7 @@ function getNextUnairedEpisodeInfo(episodes: EpisodeItem[], networkTz?: string) 
  */
 export function computeAutoStatus(
   currentStatus: MediaStatus,
-  episodes: EpisodeItem[],
+  episodes: Array<Pick<EpisodeItem, 'isWatched'> & Partial<EpisodeItem>>,
   airStatus?: SeriesAirStatus,
   mediaType: MediaType = 'tv',
   networkTz?: string

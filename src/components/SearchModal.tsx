@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Film, Tv, Plus, Check, Loader2, Key } from 'lucide-react';
 import { searchMedia, fetchFullMediaDetails, getTmdbApiKey } from '../services/api';
-import { saveMediaItem } from '../db';
-import type { MediaItem, MediaSearchResult, MediaStatus } from '../types';
+import { saveMediaItem, computeAutoStatus } from '../db';
+import { isEpisodeAired } from '../utils/timezone';
+import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus } from '../types';
 
 export interface SearchModalProps {
   isOpen: boolean;
@@ -67,12 +68,49 @@ export default function SearchModal({
       const { status: _rawStatus, ...mediaDetailsInput } = item;
       const fullData = await fetchFullMediaDetails(mediaDetailsInput);
       
+      let episodesToSave = fullData.episodes || [];
+      let finalStatus: MediaStatus = initialStatus;
+      let currentSeason = fullData.media.currentSeason || 1;
+      let currentEpisode = fullData.media.currentEpisode || 0;
+
+      if (initialStatus === 'completed') {
+        if (fullData.media.type === 'tv' && episodesToSave.length > 0) {
+          const now = new Date().toISOString();
+          const networkTz = fullData.media.networkTimezone || 'America/New_York';
+
+          // Mark all currently aired episodes as watched
+          episodesToSave = episodesToSave.map(ep => {
+            const aired = isEpisodeAired(ep, networkTz);
+            return {
+              ...ep,
+              isWatched: (aired ? 1 : 0) as WatchedStatus,
+              watchedAt: aired ? now : null
+            };
+          });
+
+          // Calculate current pointer from the latest aired episode
+          const airedEpisodes = episodesToSave.filter(e => isEpisodeAired(e, networkTz));
+          const sortedAired = airedEpisodes.slice().sort((a, b) => b.seasonNumber - a.seasonNumber || b.episodeNumber - a.episodeNumber);
+          if (sortedAired.length > 0) {
+            currentSeason = sortedAired[0].seasonNumber;
+            currentEpisode = sortedAired[0].episodeNumber;
+          }
+
+          // Smart status: 'completed' if ended, 'caught_up' if ongoing/returning with future un-aired episodes
+          finalStatus = computeAutoStatus('watching', episodesToSave, fullData.media.airStatus, 'tv', networkTz);
+        } else {
+          finalStatus = 'completed';
+        }
+      }
+
       const mediaToSave: Partial<MediaItem> = {
         ...fullData.media,
-        status: initialStatus
+        status: finalStatus,
+        currentSeason,
+        currentEpisode
       };
 
-      await saveMediaItem(mediaToSave, fullData.episodes);
+      await saveMediaItem(mediaToSave, episodesToSave);
       setAddedIds(prev => new Set(prev).add(item.externalId));
       if (onItemAdded) onItemAdded(mediaToSave);
     } catch (err) {
@@ -240,6 +278,17 @@ export default function SearchModal({
                       >
                         <span className="hidden sm:inline">Watchlist</span>
                         <span className="sm:hidden">+</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleAddMedia(item, 'completed')}
+                        disabled={isAdding}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 text-xs font-semibold transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1 shadow-sm"
+                        title="Add as Watched (Completed if ended, Caught Up if ongoing)"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Watched</span>
                       </button>
                     </div>
                   )}

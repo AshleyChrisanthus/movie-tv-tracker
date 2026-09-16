@@ -221,6 +221,10 @@ export async function saveMediaItem(
       nextEpisodeNumber: nextEpisodeNumber !== null ? nextEpisodeNumber : (existingMedia?.nextEpisodeNumber ?? null),
       lastAiredDate: lastAiredDate !== null ? lastAiredDate : (existingMedia?.lastAiredDate ?? null),
       lists: mediaItem.lists !== undefined ? mediaItem.lists : (existingMedia?.lists || []),
+      imdbId: mediaItem.imdbId || existingMedia?.imdbId || null,
+      tmdbId: mediaItem.tmdbId || existingMedia?.tmdbId || null,
+      tvmazeId: mediaItem.tvmazeId || existingMedia?.tvmazeId || null,
+      thetvdbId: mediaItem.thetvdbId || existingMedia?.thetvdbId || null,
       updatedAt: now,
       createdAt: existingMedia?.createdAt || now,
       year: mediaItem.year ?? existingMedia?.year ?? 'N/A'
@@ -594,6 +598,44 @@ export async function backfillMissingMediaMetadata(): Promise<number> {
         updatedAt: new Date().toISOString()
       });
       updatedCount++;
+    }
+  }
+
+  return updatedCount;
+}
+
+/**
+ * Backfill missing cross-reference IDs (IMDb ID, TMDB ID, TheTVDB ID) for existing library items (Issue #37).
+ */
+export async function backfillMediaCrossReferences(): Promise<number> {
+  const allMedia = await db.media.toArray();
+  let updatedCount = 0;
+
+  for (const item of allMedia) {
+    // If it's a TV show from TVMaze missing IMDb or TheTVDB ID, fetch its externals from TVMaze
+    if (item.type === 'tv' && item.source === 'tvmaze' && item.externalId && (!item.imdbId || !item.thetvdbId || !item.tmdbId)) {
+      try {
+        const res = await fetch(`https://api.tvmaze.com/shows/${item.externalId}`).catch(() => null);
+        if (res && res.ok) {
+          const showData = await res.json();
+          const imdbId = showData?.externals?.imdb || null;
+          const thetvdbId = showData?.externals?.thetvdb || null;
+          const tmdbId = showData?.externals?.themoviedb || null;
+
+          if (imdbId || thetvdbId || tmdbId) {
+            await db.media.update(item.id, {
+              ...(imdbId ? { imdbId } : {}),
+              ...(thetvdbId ? { thetvdbId } : {}),
+              ...(tmdbId ? { tmdbId } : {}),
+              tvmazeId: item.externalId,
+              updatedAt: new Date().toISOString()
+            });
+            updatedCount++;
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to backfill cross-references for', item.title, err);
+      }
     }
   }
 

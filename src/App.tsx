@@ -9,7 +9,7 @@ import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
 import ThemeModal from './components/ThemeModal';
 import ListManagerModal from './components/ListManagerModal';
-import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, getCustomLists, updateBookProgress } from './db';
+import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, getCustomLists, updateBookProgress } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
@@ -103,10 +103,11 @@ export default function App(): React.JSX.Element {
     };
 
     refreshLibrary().then(async () => {
-      // Quietly heal existing library shows with missing status/next episode metadata
+      // Quietly heal existing library shows with missing status/next episode metadata and cross-references
       try {
         const healed = await backfillMissingMediaMetadata();
-        if (healed > 0) {
+        const backfilledRefs = await backfillMediaCrossReferences();
+        if (healed > 0 || backfilledRefs > 0) {
           await refreshLibrary();
         }
       } catch (err) {

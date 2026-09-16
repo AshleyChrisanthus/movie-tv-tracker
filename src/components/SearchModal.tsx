@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen } from 'lucide-react';
 import { searchMedia, fetchFullMediaDetails, getTmdbApiKey } from '../services/api';
-import { saveMediaItem, computeAutoStatus, getAllMedia } from '../db';
+import { saveMediaItem, computeAutoStatus, getAllMedia, db } from '../db';
 import { isEpisodeAired } from '../utils/timezone';
 import { isMediaMatch } from '../utils/mediaMatch';
 import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus } from '../types';
@@ -306,7 +306,16 @@ export default function SearchModal({
                   {existingMatch ? (
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
+                        if (item.source === 'tmdb' && !existingMatch.tmdbId) {
+                          await db.media.update(existingMatch.id, {
+                            tmdbId: item.externalId,
+                            ...(item.imdbId && !existingMatch.imdbId ? { imdbId: item.imdbId } : {}),
+                            updatedAt: new Date().toISOString()
+                          }).catch(() => {});
+                          existingMatch.tmdbId = item.externalId;
+                          if (item.imdbId && !existingMatch.imdbId) existingMatch.imdbId = item.imdbId;
+                        }
                         if (onSelectExisting) onSelectExisting(existingMatch);
                         onClose();
                       }}

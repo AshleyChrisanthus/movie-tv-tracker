@@ -47,6 +47,10 @@ export interface MediaItem {
   genres?: string[];                        // Array of genre names
   source: MediaSource;                      // 'tmdb' | 'tvmaze' | 'itunes' | 'openlibrary' | 'custom'
   externalId?: string | number;             // API provider ID or custom ID
+  imdbId?: string | null;                   // IMDb ID (e.g. 'tt14688458')
+  tmdbId?: string | number | null;          // TMDB ID
+  tvmazeId?: string | number | null;        // TVMaze ID
+  thetvdbId?: string | number | null;       // TheTVDB ID
   totalSeasons?: number;                    // Total number of seasons
   totalEpisodes: number;                    // Total episode count (1 for movies)
   watchedEpisodesCount: number;             // Count of episodes marked watched

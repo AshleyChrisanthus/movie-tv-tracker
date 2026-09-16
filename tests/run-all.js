@@ -18,6 +18,7 @@ const testFiles = [
   'path:/tier1-features/backup-tier-export.test.js',
   'path:/tier1-features/theme-system.test.js',
   'path:/tier1-features/deduplication.test.js',
+  'path:/tier1-features/cross-provider.test.js',
   'path:/tier1-features/sorting-release-last-aired.test.js',
   'path:/tier1-features/folders-custom-lists.test.js',
   'path:/tier1-features/books-media-tracking.test.js',

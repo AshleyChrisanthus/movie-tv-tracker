@@ -20,6 +20,10 @@ export interface MediaSearchResult {
   author?: string;
   totalPages?: number;
   isbn?: string;
+  imdbId?: string | null;
+  tmdbId?: string | number | null;
+  tvmazeId?: string | number | null;
+  thetvdbId?: string | number | null;
 }
 
 export interface OpenLibraryDoc {
@@ -150,6 +154,12 @@ export interface TVMazeShow {
     time?: string;
     days?: string[];
   };
+  externals?: {
+    imdb?: string | null;
+    thetvdb?: number | null;
+    tvrage?: number | null;
+    themoviedb?: number | null;
+  } | null;
 }
 
 export interface TVMazeSearchResultItem {

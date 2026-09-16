@@ -151,6 +151,7 @@ async function searchTMDB(query: string, apiKey: string): Promise<MediaSearchRes
 
       return {
         externalId: item.id,
+        tmdbId: item.id,
         source: 'tmdb',
         type: isTv ? 'tv' : 'movie',
         title: title || 'Untitled',
@@ -199,6 +200,7 @@ async function searchTVMaze(query: string): Promise<MediaSearchResult[]> {
 
       return {
         externalId: show.id,
+        tvmazeId: show.id,
         source: 'tvmaze',
         type: 'tv',
         title: show.name,
@@ -209,7 +211,10 @@ async function searchTVMaze(query: string): Promise<MediaSearchResult[]> {
         posterUrl: show.image?.medium || show.image?.original || null,
         backdropUrl: show.image?.original || null,
         genres: show.genres || [],
-        status: show.status
+        status: show.status,
+        imdbId: show.externals?.imdb || null,
+        tmdbId: show.externals?.themoviedb || null,
+        thetvdbId: show.externals?.thetvdb || null
       };
     });
   } catch (err) {
@@ -429,6 +434,10 @@ async function fetchTVMazeDetails(
     networkTimezone: networkTimezone || fallbackItem.networkTimezone,
     schedule: showData?.schedule || fallbackItem.schedule,
     externalId: showId,
+    tvmazeId: showId,
+    imdbId: showData?.externals?.imdb || fallbackItem.imdbId || null,
+    tmdbId: showData?.externals?.themoviedb || fallbackItem.tmdbId || null,
+    thetvdbId: showData?.externals?.thetvdb || fallbackItem.thetvdbId || null,
     totalSeasons: maxSeason,
     totalEpisodes: formattedEpisodes.length,
     watchedEpisodesCount: 0,
@@ -447,7 +456,7 @@ async function fetchTMDBTVDetails(
   apiKey: string,
   fallbackItem: Partial<MediaItem> = {}
 ): Promise<FullMediaDetailsResponse> {
-  const res = await fetch(`${TMDB_BASE_URL}/tv/${showId}?api_key=${encodeURIComponent(apiKey)}`);
+  const res = await fetch(`${TMDB_BASE_URL}/tv/${showId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids`);
   if (!res.ok) throw new Error('Failed to fetch TMDB TV details');
   const data: TMDBTV = await res.json();
 
@@ -489,6 +498,9 @@ async function fetchTMDBTVDetails(
     source: 'tmdb',
     airStatus: data.status || fallbackItem.airStatus,
     externalId: showId,
+    tmdbId: showId,
+    imdbId: (data as { external_ids?: { imdb_id?: string } })?.external_ids?.imdb_id || fallbackItem.imdbId || null,
+    thetvdbId: (data as { external_ids?: { tvdb_id?: number } })?.external_ids?.tvdb_id || fallbackItem.thetvdbId || null,
     totalSeasons: regularSeasons.length || data.number_of_seasons || 1,
     totalEpisodes: allEpisodes.length || data.number_of_episodes || 0,
     watchedEpisodesCount: 0,
@@ -507,7 +519,7 @@ async function fetchTMDBMovieDetails(
   apiKey: string,
   fallbackItem: Partial<MediaItem> = {}
 ): Promise<FullMediaDetailsResponse> {
-  const res = await fetch(`${TMDB_BASE_URL}/movie/${movieId}?api_key=${encodeURIComponent(apiKey)}`);
+  const res = await fetch(`${TMDB_BASE_URL}/movie/${movieId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids`);
   if (!res.ok) throw new Error('Failed to fetch TMDB movie details');
   const data: TMDBMovie = await res.json();
 
@@ -522,6 +534,8 @@ async function fetchTMDBMovieDetails(
     type: 'movie',
     source: 'tmdb',
     externalId: movieId,
+    tmdbId: movieId,
+    imdbId: (data as { external_ids?: { imdb_id?: string } })?.external_ids?.imdb_id || (data as { imdb_id?: string })?.imdb_id || fallbackItem.imdbId || null,
     totalSeasons: 0,
     totalEpisodes: 1,
     watchedEpisodesCount: 0,

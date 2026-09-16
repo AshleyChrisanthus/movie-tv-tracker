@@ -23,3 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 scratch/
+
+# User data & exports
+exports/*.json
+!exports/.gitkeep
+
+# Environment & local settings
+.env
+.env.*
+!.env.example

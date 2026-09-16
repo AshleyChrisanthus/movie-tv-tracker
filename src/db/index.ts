@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { isEpisodeAired } from '../utils/timezone';
+import { isMediaMatch } from '../utils/mediaMatch';
 import type {
   MediaItem,
   EpisodeItem,
@@ -69,10 +70,11 @@ export async function saveMediaItem(
       }
       if (!existingMedia && mediaItem.title && mediaItem.type) {
         const cleanTitle = mediaItem.title.trim().toLowerCase();
-        existingMedia = await db.media
+        const candidates = await db.media
           .where('type').equals(mediaItem.type)
           .filter(m => m.title.trim().toLowerCase() === cleanTitle)
-          .first();
+          .toArray();
+        existingMedia = candidates.find(candidate => isMediaMatch(mediaItem, candidate));
       }
       if (existingMedia) {
         id = existingMedia.id;

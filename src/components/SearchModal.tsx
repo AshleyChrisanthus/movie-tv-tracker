@@ -3,6 +3,7 @@ import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen } from 'l
 import { searchMedia, fetchFullMediaDetails, getTmdbApiKey } from '../services/api';
 import { saveMediaItem, computeAutoStatus, getAllMedia } from '../db';
 import { isEpisodeAired } from '../utils/timezone';
+import { isMediaMatch } from '../utils/mediaMatch';
 import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus } from '../types';
 
 export interface SearchModalProps {
@@ -261,10 +262,7 @@ export default function SearchModal({
             const isTv = item.type === 'tv';
             const isBook = item.type === 'book';
             const isAdding = addingId === item.externalId;
-            const existingMatch = existingItems.find(libItem =>
-              (item.externalId && libItem.externalId && String(libItem.externalId) === String(item.externalId) && libItem.source === item.source) ||
-              (libItem.type === item.type && libItem.title.trim().toLowerCase() === item.title.trim().toLowerCase())
-            );
+            const existingMatch = existingItems.find(libItem => isMediaMatch(item, libItem));
 
             return (
               <div

@@ -50,6 +50,7 @@ export default function SettingsModal({
 
   // Upcoming Releases Window Days (Issue #40)
   const [upcomingDays, setUpcomingDays] = useState<number>(propUpcomingDays || 7);
+  const [customDaysInput, setCustomDaysInput] = useState<string>(String(propUpcomingDays || 7));
 
   // Timezone & Locale State
   const [userTimezone, setUserTimezone] = useState<string>(getSystemTimeZone());
@@ -110,6 +111,7 @@ export default function SettingsModal({
   const handleUpcomingDaysChange = async (days: number) => {
     const val = Math.max(1, Math.min(365, days));
     setUpcomingDays(val);
+    setCustomDaysInput(String(val));
     await setSetting('upcoming_window_days', val);
     localStorage.setItem('bingelog_upcoming_days', String(val));
     if (onUpcomingDaysChange) onUpcomingDaysChange(val);
@@ -504,8 +506,29 @@ export default function SettingsModal({
                   type="number"
                   min="1"
                   max="365"
-                  value={upcomingDays}
-                  onChange={(e) => handleUpcomingDaysChange(parseInt(e.target.value, 10) || 7)}
+                  value={customDaysInput}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setCustomDaysInput(raw);
+                    if (raw.trim() !== '') {
+                      const parsed = parseInt(raw, 10);
+                      if (!isNaN(parsed) && parsed >= 1) {
+                        const clamped = Math.min(365, parsed);
+                        setUpcomingDays(clamped);
+                        setSetting('upcoming_window_days', clamped);
+                        localStorage.setItem('bingelog_upcoming_days', String(clamped));
+                        if (onUpcomingDaysChange) onUpcomingDaysChange(clamped);
+                      }
+                    }
+                  }}
+                  onBlur={() => {
+                    if (customDaysInput.trim() === '' || parseInt(customDaysInput, 10) < 1) {
+                      handleUpcomingDaysChange(7);
+                    } else {
+                      const parsed = parseInt(customDaysInput, 10);
+                      handleUpcomingDaysChange(parsed);
+                    }
+                  }}
                   className="w-12 bg-transparent text-xs text-[var(--text-primary)] font-bold focus:outline-none"
                 />
                 <span className="text-[var(--text-secondary)]">days</span>

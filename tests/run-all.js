@@ -23,6 +23,8 @@ const testFiles = [
   'path:/tier1-features/folders-custom-lists.test.js',
   'path:/tier1-features/books-media-tracking.test.js',
   'path:/tier1-features/upcoming-releases-filter.test.js',
+  'path:/tier1-features/upcoming-marvel-simulation.test.js',
+  'path:/tier1-features/community-ratings-distinction.test.js',
 
   // Tier 2: Boundary & Corner Cases
   'path:/tier2-boundary/empty-and-edge-items.test.js',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen } from 'lucide-react';
+import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen, Star, Globe } from 'lucide-react';
 import { searchMedia, fetchFullMediaDetails, getTmdbApiKey } from '../services/api';
 import { saveMediaItem, computeAutoStatus, getAllMedia, db } from '../db';
 import { isEpisodeAired } from '../utils/timezone';
@@ -311,6 +311,12 @@ export default function SearchModal({
                     <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
                       {isBook ? 'Book' : isTv ? 'TV' : 'Movie'}
                     </span>
+                    {item.communityRating && (
+                      <span className="flex items-center gap-1 px-1.5 py-0.2 rounded bg-[var(--bg-secondary)] border border-[var(--border-light)] text-[10px] font-bold text-[#ffd60a]" title={`Community Rating: ${item.communityRating} / 10${item.communityRatingCount ? ` (${item.communityRatingCount.toLocaleString()} votes)` : ''}`}>
+                        <Star className="w-2.5 h-2.5 fill-[#ffd60a] text-[#ffd60a]" />
+                        <span>{item.communityRating}</span>
+                      </span>
+                    )}
                   </div>
 
                   {item.overview && (

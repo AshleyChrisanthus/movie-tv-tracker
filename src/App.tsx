@@ -10,7 +10,7 @@ import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
 import ThemeModal from './components/ThemeModal';
 import ListManagerModal from './components/ListManagerModal';
-import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, getCustomLists, updateBookProgress, getSetting } from './db';
+import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, getCustomLists, updateBookProgress, getSetting } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
@@ -190,7 +190,8 @@ export default function App(): React.JSX.Element {
       try {
         const healed = await backfillMissingMediaMetadata();
         const backfilledRefs = await backfillMediaCrossReferences();
-        if (healed > 0 || backfilledRefs > 0) {
+        const backfilledRatings = await backfillCommunityRatings();
+        if (healed > 0 || backfilledRefs > 0 || backfilledRatings > 0) {
           await refreshLibrary();
         }
       } catch (err) {
@@ -324,7 +325,9 @@ export default function App(): React.JSX.Element {
           return (a.title || '').localeCompare(b.title || '');
         }
         if (sortBy === 'rating') {
-          return (b.rating || 0) - (a.rating || 0);
+          const ratingA = (a.rating !== null && a.rating !== undefined && a.rating > 0) ? a.rating : (a.communityRating || 0);
+          const ratingB = (b.rating !== null && b.rating !== undefined && b.rating > 0) ? b.rating : (b.communityRating || 0);
+          return ratingB - ratingA;
         }
         if (sortBy === 'progress') {
           const progA = a.totalEpisodes ? (a.watchedEpisodesCount || 0) / a.totalEpisodes : 0;

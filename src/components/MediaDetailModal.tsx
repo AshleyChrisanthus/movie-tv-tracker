@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
-  CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen
+  CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen, Globe
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
@@ -14,7 +14,7 @@ import { syncMediaEpisodes } from '../services/api';
 import { 
   getUserTimeZone, formatEpisodeAirDate, getEpisodeCountdown, isEpisodeAired 
 } from '../utils/timezone';
-import { normalizeRating, denormalizeRating, RATING_SCALE_CONFIG } from '../utils/rating';
+import { normalizeRating, denormalizeRating, formatRating, RATING_SCALE_CONFIG } from '../utils/rating';
 import type { MediaItem, EpisodeItem, MediaStatus, CustomList, RatingScale } from '../types';
 
 export interface MediaDetailModalProps {
@@ -458,6 +458,15 @@ export default function MediaDetailModal({
                 {media.genres && media.genres.length > 0 && (
                   <span className="text-zinc-400 text-xs truncate max-w-xs">
                     • {Array.isArray(media.genres) ? media.genres.join(', ') : media.genres}
+                  </span>
+                )}
+                {media.communityRating !== undefined && media.communityRating !== null && (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-xs font-semibold text-white shrink-0 ml-1" title={`Public / Community Rating: ${formatRating(media.communityRating, activeScale)} / ${activeScale}${media.communityRatingCount ? ` (${media.communityRatingCount.toLocaleString()} votes)` : ''} [${media.source.toUpperCase()}]`}>
+                    <Globe className="w-3 h-3 text-sky-400 shrink-0" />
+                    <span>Public: <strong className="text-[#ffd60a]">{formatRating(media.communityRating, activeScale)}</strong> / {activeScale}</span>
+                    {media.communityRatingCount ? (
+                      <span className="text-[10px] text-zinc-300 font-normal">({media.communityRatingCount.toLocaleString()})</span>
+                    ) : null}
                   </span>
                 )}
               </div>

@@ -58,7 +58,9 @@ export interface MediaItem {
   year: number | string;                    // Release year or 'N/A'
   releaseDate?: string;                     // ISO date or YYYY-MM-DD
   overview?: string;                        // Synopsis / premise
-  rating?: number | null;                   // 1-10 user rating or TMDB vote average
+  rating?: number | null;                   // User's personal rating (0.0 - 10.0 scale normalized)
+  communityRating?: number | null;          // Fetched public / community rating (0.0 - 10.0 scale normalized)
+  communityRatingCount?: number | null;     // Fetched public vote count / review count
   posterUrl?: string | null;                // Poster or book cover image URL
   backdropUrl?: string | null;              // Banner / backdrop image URL
   genres?: string[];                        // Array of genre names

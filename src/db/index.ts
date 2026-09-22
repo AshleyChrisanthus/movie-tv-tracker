@@ -225,6 +225,9 @@ export async function saveMediaItem(
       tmdbId: mediaItem.tmdbId || existingMedia?.tmdbId || null,
       tvmazeId: mediaItem.tvmazeId || existingMedia?.tvmazeId || null,
       thetvdbId: mediaItem.thetvdbId || existingMedia?.thetvdbId || null,
+      rating: mediaItem.rating !== undefined ? mediaItem.rating : (existingMedia?.rating ?? null),
+      communityRating: mediaItem.communityRating !== undefined ? mediaItem.communityRating : (existingMedia?.communityRating ?? null),
+      communityRatingCount: mediaItem.communityRatingCount !== undefined ? mediaItem.communityRatingCount : (existingMedia?.communityRatingCount ?? null),
       updatedAt: now,
       createdAt: existingMedia?.createdAt || now,
       year: mediaItem.year ?? existingMedia?.year ?? 'N/A'
@@ -636,6 +639,114 @@ export async function backfillMediaCrossReferences(): Promise<number> {
       } catch (err) {
         console.warn('Failed to backfill cross-references for', item.title, err);
       }
+    }
+  }
+
+  return updatedCount;
+}
+
+/**
+ * Backfill missing community ratings (Open Library for books, TVMaze / TMDB for TV & Movies).
+ */
+export async function backfillCommunityRatings(): Promise<number> {
+  const allMedia = await db.media.toArray();
+  let updatedCount = 0;
+  const tmdbApiKey = await getSetting<string>('tmdb_api_key', '');
+
+  for (const item of allMedia) {
+    if (item.communityRating !== undefined && item.communityRating !== null) {
+      continue;
+    }
+
+    try {
+      if (item.type === 'book') {
+        let avg: number | null = null;
+        let count: number | null = null;
+
+        if (item.externalId && String(item.externalId).startsWith('OL')) {
+          const res = await fetch(`https://openlibrary.org/works/${item.externalId}/ratings.json`).catch(() => null);
+          if (res && res.ok) {
+            const data = await res.json();
+            if (typeof data?.summary?.average === 'number') {
+              avg = Math.round((data.summary.average * 2) * 10) / 10;
+              count = typeof data.summary.count === 'number' ? data.summary.count : null;
+            }
+          }
+        }
+
+        if (avg === null && item.title) {
+          const query = item.author ? `${item.title} ${item.author}` : item.title;
+          const searchRes = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=1&fields=ratings_average,ratings_count`).catch(() => null);
+          if (searchRes && searchRes.ok) {
+            const sData = await searchRes.json();
+            const first = sData?.docs?.[0];
+            if (first && typeof first.ratings_average === 'number') {
+              avg = Math.round((first.ratings_average * 2) * 10) / 10;
+              count = typeof first.ratings_count === 'number' ? first.ratings_count : null;
+            }
+          }
+        }
+
+        if (avg !== null) {
+          await db.media.update(item.id, {
+            communityRating: avg,
+            communityRatingCount: count,
+            updatedAt: new Date().toISOString()
+          });
+          updatedCount++;
+        }
+      } else if (item.type === 'tv') {
+        const tvmazeId = item.tvmazeId || (item.source === 'tvmaze' ? item.externalId : null);
+        if (tvmazeId) {
+          const res = await fetch(`https://api.tvmaze.com/shows/${tvmazeId}`).catch(() => null);
+          if (res && res.ok) {
+            const showData = await res.json();
+            if (showData?.rating?.average) {
+              const avg = Number(showData.rating.average);
+              await db.media.update(item.id, {
+                communityRating: avg,
+                updatedAt: new Date().toISOString()
+              });
+              updatedCount++;
+              continue;
+            }
+          }
+        }
+
+        const tmdbId = item.tmdbId || (item.source === 'tmdb' ? item.externalId : null);
+        if (tmdbId && tmdbApiKey) {
+          const res = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${encodeURIComponent(tmdbApiKey)}`).catch(() => null);
+          if (res && res.ok) {
+            const data = await res.json();
+            if (data?.vote_average) {
+              await db.media.update(item.id, {
+                communityRating: Number(data.vote_average.toFixed(1)),
+                communityRatingCount: data.vote_count || null,
+                updatedAt: new Date().toISOString()
+              });
+              updatedCount++;
+            }
+          }
+        }
+      } else if (item.type === 'movie') {
+        const tmdbId = item.tmdbId || (item.source === 'tmdb' ? item.externalId : null);
+        if (tmdbId && tmdbApiKey) {
+          const res = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${encodeURIComponent(tmdbApiKey)}`).catch(() => null);
+          if (res && res.ok) {
+            const data = await res.json();
+            if (data?.vote_average) {
+              await db.media.update(item.id, {
+                communityRating: Number(data.vote_average.toFixed(1)),
+                communityRatingCount: data.vote_count || null,
+                updatedAt: new Date().toISOString()
+              });
+              updatedCount++;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to backfill community rating for', item.title, err);
     }
   }
 

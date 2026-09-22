@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, Check, Clock, BookOpen } from 'lucide-react';
+import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe } from 'lucide-react';
 import type { MediaItem, MediaStatus, RatingScale, GridDensity } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
@@ -175,19 +175,33 @@ export default function MediaCard({
               {item.title}
             </h3>
             {formatRating(item.rating, ratingScale) ? (
-              <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] ${density === 'compact' ? 'text-[10px]' : 'text-[11px]'} font-bold text-[#ffd60a] shrink-0`} title={`Rating: ${formatRating(item.rating, ratingScale)} / ${ratingScale}`}>
+              <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--accent)]/15 border border-[var(--accent)]/30 ${density === 'compact' ? 'text-[10px]' : 'text-[11px]'} font-bold text-[#ffd60a] shrink-0`} title={`My Rating: ${formatRating(item.rating, ratingScale)} / ${ratingScale}`}>
                 <Star className={`${density === 'compact' ? 'w-2.5 h-2.5' : 'w-3 h-3'} fill-[#ffd60a] text-[#ffd60a]`} />
                 <span>{formatRating(item.rating, ratingScale)}</span>
+              </span>
+            ) : formatRating(item.communityRating, ratingScale) ? (
+              <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] ${density === 'compact' ? 'text-[10px]' : 'text-[11px]'} font-medium text-[var(--text-secondary)] shrink-0`} title={`Public / Community Rating: ${formatRating(item.communityRating, ratingScale)} / ${ratingScale}${item.communityRatingCount ? ` (${item.communityRatingCount.toLocaleString()} votes)` : ''}`}>
+                <Globe className={`${density === 'compact' ? 'w-2.5 h-2.5' : 'w-3 h-3'} text-sky-400`} />
+                <span className="font-bold text-[var(--text-primary)]">{formatRating(item.communityRating, ratingScale)}</span>
               </span>
             ) : null}
           </div>
 
           <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-            <span className="truncate max-w-[140px]">{isBook && item.author ? item.author : item.year || 'N/A'}</span>
+            <span className="truncate max-w-[120px]">{isBook && item.author ? item.author : item.year || 'N/A'}</span>
             <span>•</span>
             <span className={`px-2 py-0.2 rounded-md text-[10px] font-medium border ${statusCfg.bg}`}>
               {statusCfg.label}
             </span>
+            {item.rating && item.communityRating ? (
+              <>
+                <span>•</span>
+                <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-secondary)]" title={`Public Rating: ${formatRating(item.communityRating, ratingScale)} / ${ratingScale}`}>
+                  <Globe className="w-2.5 h-2.5 text-sky-400 shrink-0" />
+                  <span>{formatRating(item.communityRating, ratingScale)}</span>
+                </span>
+              </>
+            ) : null}
           </div>
 
           {item.lists && item.lists.length > 0 && (

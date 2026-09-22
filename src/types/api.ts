@@ -12,6 +12,8 @@ export interface MediaSearchResult {
   releaseDate: string;
   overview: string;
   rating: number | null;
+  communityRating?: number | null;
+  communityRatingCount?: number | null;
   posterUrl: string | null;
   backdropUrl: string | null;
   popularity?: number;
@@ -65,6 +67,7 @@ export interface TMDBMovie {
   poster_path?: string | null;
   backdrop_path?: string | null;
   vote_average?: number;
+  vote_count?: number;
   popularity?: number;
   genre_ids?: number[];
   runtime?: number | null;
@@ -82,6 +85,7 @@ export interface TMDBTV {
   poster_path?: string | null;
   backdrop_path?: string | null;
   vote_average?: number;
+  vote_count?: number;
   popularity?: number;
   genre_ids?: number[];
   number_of_seasons?: number;

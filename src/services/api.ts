@@ -158,7 +158,9 @@ async function searchTMDB(query: string, apiKey: string): Promise<MediaSearchRes
         year,
         releaseDate: releaseDate || '',
         overview: item.overview || '',
-        rating: item.vote_average ? Number(item.vote_average.toFixed(1)) : null,
+        rating: null,
+        communityRating: item.vote_average ? Number(item.vote_average.toFixed(1)) : null,
+        communityRatingCount: item.vote_count || null,
         posterUrl,
         backdropUrl,
         popularity: item.popularity || 0
@@ -207,7 +209,9 @@ async function searchTVMaze(query: string): Promise<MediaSearchResult[]> {
         year,
         releaseDate: show.premiered || '',
         overview: cleanOverview,
-        rating: show.rating?.average ? Number(show.rating.average) : null,
+        rating: null,
+        communityRating: show.rating?.average ? Number(show.rating.average) : null,
+        communityRatingCount: null,
         posterUrl: show.image?.medium || show.image?.original || null,
         backdropUrl: show.image?.original || null,
         genres: show.genres || [],
@@ -267,7 +271,7 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const fields = 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,first_sentence,ratings_average';
+    const fields = 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,first_sentence,ratings_average,ratings_count';
     const res = await fetch(`${OPENLIBRARY_BASE_URL}/search.json?q=${encodeURIComponent(query)}&limit=8&fields=${fields}`, {
       signal: controller.signal
     });
@@ -292,9 +296,10 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
       const overview = firstSentence
         ? `"${firstSentence}" — By ${author}`
         : `By ${author}${totalPages ? ` • ${totalPages} pages` : ''}${publisher ? ` • Published by ${publisher}` : ''}`;
-      const rating = typeof doc.ratings_average === 'number'
-        ? Math.round(doc.ratings_average * 10) / 10
+      const communityRating = typeof doc.ratings_average === 'number'
+        ? Math.round((doc.ratings_average * 2) * 10) / 10
         : null;
+      const communityRatingCount = typeof doc.ratings_count === 'number' ? doc.ratings_count : null;
 
       return {
         externalId: doc.key.replace('/works/', ''),
@@ -304,7 +309,9 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
         year,
         releaseDate: doc.first_publish_year ? `${doc.first_publish_year}-01-01` : '',
         overview,
-        rating,
+        rating: null,
+        communityRating,
+        communityRatingCount,
         posterUrl,
         backdropUrl: posterUrl,
         author,
@@ -334,14 +341,16 @@ export async function fetchFullMediaDetails(
     const currentChapter = item.currentChapter || 0;
     const progressMode = item.progressMode || 'pages';
 
-    let rating = item.rating ?? null;
-    if (rating == null && item.externalId && (item.source === 'openlibrary' || !item.source)) {
+    let communityRating = item.communityRating ?? null;
+    let communityRatingCount = item.communityRatingCount ?? null;
+    if (communityRating == null && item.externalId && (item.source === 'openlibrary' || !item.source)) {
       try {
         const ratingsRes = await fetch(`${OPENLIBRARY_BASE_URL}/works/${item.externalId}/ratings.json`);
         if (ratingsRes.ok) {
           const rData = await ratingsRes.json();
           if (typeof rData?.summary?.average === 'number') {
-            rating = Math.round(rData.summary.average * 10) / 10;
+            communityRating = Math.round((rData.summary.average * 2) * 10) / 10;
+            communityRatingCount = typeof rData.summary.count === 'number' ? rData.summary.count : null;
           }
         }
       } catch {
@@ -363,7 +372,9 @@ export async function fetchFullMediaDetails(
         currentChapter,
         author: item.author || '',
         watchedEpisodesCount: progressMode === 'chapters' ? currentChapter : currentPage,
-        rating
+        rating: item.rating ?? null,
+        communityRating,
+        communityRatingCount
       },
       episodes: []
     };
@@ -439,8 +450,13 @@ async function fetchTVMazeDetails(
   const maxSeason = formattedEpisodes.reduce((max, ep) => Math.max(max, ep.seasonNumber), 1);
   const networkTimezone = showData?.network?.country?.timezone || showData?.webChannel?.country?.timezone || 'America/New_York';
 
+  const communityRating = showData?.rating?.average ? Number(showData.rating.average) : (fallbackItem.communityRating ?? null);
+
   const media: Partial<MediaItem> = {
     ...fallbackItem,
+    rating: fallbackItem.rating ?? null,
+    communityRating,
+    communityRatingCount: fallbackItem.communityRatingCount ?? null,
     title: showData?.name || fallbackItem.title,
     year: showData?.premiered ? new Date(showData.premiered).getFullYear() : fallbackItem.year,
     releaseDate: showData?.premiered || fallbackItem.releaseDate || '',
@@ -505,8 +521,14 @@ async function fetchTMDBTVDetails(
   const seasonEpisodesArrays = await Promise.all(seasonPromises);
   const allEpisodes = seasonEpisodesArrays.flat();
 
+  const communityRating = data.vote_average ? Number(data.vote_average.toFixed(1)) : (fallbackItem.communityRating ?? null);
+  const communityRatingCount = data.vote_count || fallbackItem.communityRatingCount || null;
+
   const media: Partial<MediaItem> = {
     ...fallbackItem,
+    rating: fallbackItem.rating ?? null,
+    communityRating,
+    communityRatingCount,
     title: data.name || fallbackItem.title,
     year: data.first_air_date ? new Date(data.first_air_date).getFullYear() : fallbackItem.year,
     releaseDate: data.first_air_date || fallbackItem.releaseDate || '',
@@ -542,8 +564,14 @@ async function fetchTMDBMovieDetails(
   if (!res.ok) throw new Error('Failed to fetch TMDB movie details');
   const data: TMDBMovie = await res.json();
 
+  const communityRating = data.vote_average ? Number(data.vote_average.toFixed(1)) : (fallbackItem.communityRating ?? null);
+  const communityRatingCount = data.vote_count || fallbackItem.communityRatingCount || null;
+
   const media: Partial<MediaItem> = {
     ...fallbackItem,
+    rating: fallbackItem.rating ?? null,
+    communityRating,
+    communityRatingCount,
     title: data.title || fallbackItem.title,
     year: data.release_date ? new Date(data.release_date).getFullYear() : fallbackItem.year,
     releaseDate: data.release_date || fallbackItem.releaseDate || '',
@@ -635,23 +663,25 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
         airStatus: freshData.media.airStatus || mediaItem.airStatus,
         networkTimezone: freshData.media.networkTimezone || mediaItem.networkTimezone,
         schedule: freshData.media.schedule || mediaItem.schedule,
+        communityRating: freshData.media.communityRating !== undefined ? freshData.media.communityRating : mediaItem.communityRating,
+        communityRatingCount: freshData.media.communityRatingCount !== undefined ? freshData.media.communityRatingCount : mediaItem.communityRatingCount,
         lastSyncedAt: new Date().toISOString()
       };
       await saveMediaItem(updatedMedia, mergedEpisodes);
     } else {
-      // If series status or schedule changed, update media metadata
       if (
         (freshData.media.airStatus && freshData.media.airStatus !== mediaItem.airStatus) ||
-        (freshData.media.networkTimezone && freshData.media.networkTimezone !== mediaItem.networkTimezone)
+        (freshData.media.networkTimezone && freshData.media.networkTimezone !== mediaItem.networkTimezone) ||
+        (freshData.media.communityRating && freshData.media.communityRating !== mediaItem.communityRating)
       ) {
         await saveMediaItem({
           ...mediaItem,
           airStatus: freshData.media.airStatus || mediaItem.airStatus,
           networkTimezone: freshData.media.networkTimezone || mediaItem.networkTimezone,
-          schedule: freshData.media.schedule || mediaItem.schedule
+          communityRating: freshData.media.communityRating || mediaItem.communityRating,
+          communityRatingCount: freshData.media.communityRatingCount || mediaItem.communityRatingCount
         });
       }
-      // Touch lastSyncedAt so cooldown timer knows this show was recently verified
       await touchMediaSyncedAt(mediaItem.id);
     }
 

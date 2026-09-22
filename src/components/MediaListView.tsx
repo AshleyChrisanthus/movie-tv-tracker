@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, Check, Clock, BookOpen } from 'lucide-react';
+import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe } from 'lucide-react';
 import type { MediaItem, MediaStatus, RatingScale } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
@@ -86,7 +86,8 @@ export default function MediaListView({
           }
         };
 
-        const formattedRating = formatRating(item.rating, ratingScale);
+        const userRatingFormatted = formatRating(item.rating, ratingScale);
+        const communityRatingFormatted = formatRating(item.communityRating, ratingScale);
 
         return (
           <div
@@ -188,12 +189,17 @@ export default function MediaListView({
               )}
             </div>
 
-            {/* Rating */}
-            <div className="w-14 sm:w-16 shrink-0 flex items-center justify-end">
-              {formattedRating ? (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-xs font-bold text-[#ffd60a]" title={`Rating: ${formattedRating} / ${ratingScale}`}>
+            {/* Rating Column */}
+            <div className="w-16 sm:w-20 shrink-0 flex items-center justify-end gap-1.5">
+              {userRatingFormatted ? (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--accent)]/15 border border-[var(--accent)]/30 text-xs font-bold text-[#ffd60a]" title={`My Rating: ${userRatingFormatted} / ${ratingScale}`}>
                   <Star className="w-3 h-3 fill-[#ffd60a] text-[#ffd60a]" />
-                  <span>{formattedRating}</span>
+                  <span>{userRatingFormatted}</span>
+                </span>
+              ) : communityRatingFormatted ? (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-xs font-medium text-[var(--text-secondary)]" title={`Public / Community Rating: ${communityRatingFormatted} / ${ratingScale}${item.communityRatingCount ? ` (${item.communityRatingCount.toLocaleString()} votes)` : ''}`}>
+                  <Globe className="w-3 h-3 text-sky-400" />
+                  <span className="font-bold text-[var(--text-primary)]">{communityRatingFormatted}</span>
                 </span>
               ) : null}
             </div>

@@ -10,7 +10,7 @@ import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
 import ThemeModal from './components/ThemeModal';
 import ListManagerModal from './components/ListManagerModal';
-import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, getCustomLists, updateBookProgress, getSetting } from './db';
+import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, clearAllPersonalRatings, getCustomLists, updateBookProgress, getSetting, setSetting } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
@@ -191,7 +191,16 @@ export default function App(): React.JSX.Element {
         const healed = await backfillMissingMediaMetadata();
         const backfilledRefs = await backfillMediaCrossReferences();
         const backfilledRatings = await backfillCommunityRatings();
-        if (healed > 0 || backfilledRefs > 0 || backfilledRatings > 0) {
+
+        // One-time housekeeping: reset legacy user ratings that were cloned from community ratings
+        const ratingsResetDone = await getSetting<boolean>('personal_ratings_cleared_v1', false);
+        let resetRatingsCount = 0;
+        if (!ratingsResetDone) {
+          resetRatingsCount = await clearAllPersonalRatings();
+          await setSetting('personal_ratings_cleared_v1', true);
+        }
+
+        if (healed > 0 || backfilledRefs > 0 || backfilledRatings > 0 || resetRatingsCount > 0) {
           await refreshLibrary();
         }
       } catch (err) {

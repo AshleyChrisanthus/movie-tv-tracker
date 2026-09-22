@@ -754,6 +754,34 @@ export async function backfillCommunityRatings(): Promise<number> {
 }
 
 /**
+ * Reset all personal user ratings (`rating`) to null across all library items.
+ * Leaves community ratings (`communityRating`) completely intact.
+ */
+export async function clearAllPersonalRatings(): Promise<number> {
+  const allMedia = await db.media.toArray();
+  let count = 0;
+  const now = new Date().toISOString();
+
+  await db.transaction('rw', db.media, async () => {
+    for (const item of allMedia) {
+      if (item.rating !== null && item.rating !== undefined) {
+        await db.media.update(item.id, {
+          rating: null,
+          updatedAt: now
+        });
+        count++;
+      }
+    }
+  });
+
+  return count;
+}
+
+if (typeof globalThis !== 'undefined') {
+  (globalThis as any).clearAllPersonalRatings = clearAllPersonalRatings;
+}
+
+/**
  * Delete a media item and all associated episodes.
  */
 export async function deleteMediaItem(id: string): Promise<void> {

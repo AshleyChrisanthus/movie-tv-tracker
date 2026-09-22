@@ -113,4 +113,49 @@ describe('Tier 1: Community Ratings Separation & Backfill', () => {
     const healedShow = await dbModule.getMediaById(show.id);
     assert.equal(healedShow.communityRating, 9.2);
   });
+
+  it('resets all personal user ratings to null with clearAllPersonalRatings while preserving communityRating', async () => {
+    // Media 1: Has legacy personal rating equal to community rating
+    const m1 = await dbModule.saveMediaItem({
+      title: 'Inception',
+      type: 'movie',
+      rating: 8.8,
+      communityRating: 8.8,
+      communityRatingCount: 35000
+    });
+
+    // Media 2: Has personal rating and community rating
+    const m2 = await dbModule.saveMediaItem({
+      title: 'Severance',
+      type: 'tv',
+      rating: 9.0,
+      communityRating: 8.5,
+      communityRatingCount: 12000
+    });
+
+    // Media 3: Already null rating
+    const m3 = await dbModule.saveMediaItem({
+      title: 'Dune',
+      type: 'book',
+      rating: null,
+      communityRating: 8.6,
+      communityRatingCount: 446
+    });
+
+    const resetCount = await dbModule.clearAllPersonalRatings();
+    assert.equal(resetCount, 2);
+
+    const m1After = await dbModule.getMediaById(m1.id);
+    assert.equal(m1After.rating, null);
+    assert.equal(m1After.communityRating, 8.8);
+    assert.equal(m1After.communityRatingCount, 35000);
+
+    const m2After = await dbModule.getMediaById(m2.id);
+    assert.equal(m2After.rating, null);
+    assert.equal(m2After.communityRating, 8.5);
+
+    const m3After = await dbModule.getMediaById(m3.id);
+    assert.equal(m3After.rating, null);
+    assert.equal(m3After.communityRating, 8.6);
+  });
 });

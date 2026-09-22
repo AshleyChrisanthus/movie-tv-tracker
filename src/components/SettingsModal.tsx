@@ -4,7 +4,7 @@ import {
   AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
   Zap, Archive, Sparkles, Globe, Clock, Star, Calendar
 } from 'lucide-react';
-import { getSetting, setSetting } from '../db';
+import { getSetting, setSetting, clearAllPersonalRatings } from '../db';
 import { 
   saveExportToLocal, downloadExportToBrowser, 
   getLocalExportsList, importBackupFile,
@@ -47,6 +47,8 @@ export default function SettingsModal({
 
   // User Rating Scale (Issue #29)
   const [ratingScale, setRatingScale] = useState<RatingScale>(propRatingScale || '10');
+  const [ratingNotice, setRatingNotice] = useState<NoticeStatus | null>(null);
+  const [isClearingRatings, setIsClearingRatings] = useState<boolean>(false);
 
   // Upcoming Releases Window Days (Issue #40)
   const [upcomingDays, setUpcomingDays] = useState<number>(propUpcomingDays || 7);
@@ -98,6 +100,7 @@ export default function SettingsModal({
       setExportNotice(null);
       setImportNotice(null);
       setTimezoneNotice(null);
+      setRatingNotice(null);
     }
   }, [isOpen, propRatingScale, propUpcomingDays]);
 
@@ -106,6 +109,29 @@ export default function SettingsModal({
     await setSetting('rating_scale', scale);
     localStorage.setItem('bingelog_rating_scale', scale);
     if (onRatingScaleChange) onRatingScaleChange(scale);
+  };
+
+  const handleClearPersonalRatings = async () => {
+    if (!window.confirm('Are you sure you want to reset all your personal ratings to unrated across your library? Public/community ratings will NOT be touched.')) {
+      return;
+    }
+    setIsClearingRatings(true);
+    try {
+      const count = await clearAllPersonalRatings();
+      setRatingNotice({
+        success: true,
+        message: `Successfully reset personal ratings to unrated on ${count} item(s).`
+      });
+      if (onDataRestored) onDataRestored();
+      setTimeout(() => setRatingNotice(null), 4000);
+    } catch (err) {
+      setRatingNotice({
+        success: false,
+        message: 'Failed to reset personal ratings: ' + String(err)
+      });
+    } finally {
+      setIsClearingRatings(false);
+    }
   };
 
   const handleUpcomingDaysChange = async (days: number) => {
@@ -467,6 +493,33 @@ export default function SettingsModal({
                 </button>
               ))}
             </div>
+
+            {/* Reset personal ratings housekeeping */}
+            <div className="pt-3 border-t border-[var(--border-light)] flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold text-[var(--text-primary)]">Personal Ratings Reset</div>
+                <div className="text-[11px] text-[var(--text-secondary)]">
+                  Reset all "My Rating" values to unrated across your library. Public community ratings will be preserved.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearPersonalRatings}
+                disabled={isClearingRatings}
+                className="px-3 py-1.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/30 text-[var(--text-secondary)] text-xs font-semibold transition-all border border-[var(--border-light)] shrink-0 disabled:opacity-50"
+              >
+                {isClearingRatings ? 'Resetting...' : 'Reset My Ratings'}
+              </button>
+            </div>
+
+            {ratingNotice && (
+              <div className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                ratingNotice.success ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/60' : 'bg-rose-950/60 text-rose-300 border border-rose-800/60'
+              }`}>
+                {ratingNotice.success ? <CheckCircle className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-rose-400" />}
+                <span>{ratingNotice.message}</span>
+              </div>
+            )}
           </div>
 
           {/* UPCOMING RELEASES WINDOW SECTION (Issue #40) */}

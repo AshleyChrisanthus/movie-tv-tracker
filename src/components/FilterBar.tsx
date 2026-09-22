@@ -66,16 +66,50 @@ export default function FilterBar({
   itemCounts = {}
 }: FilterBarProps): React.JSX.Element {
   const isBookMode = typeFilter === 'book';
-  const statusTabs: StatusTab[] = isBookMode
-    ? [
-        { key: 'all', label: 'All Books', icon: null },
-        { key: 'watching', label: 'Reading', icon: BookOpen },
-        { key: 'plan_to_watch', label: 'Plan to Read', icon: Clock },
-        { key: 'completed', label: 'Read', icon: CheckCircle },
-        { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
-        { key: 'dropped', label: 'Did Not Finish', icon: XCircle },
-      ]
-    : STATUS_TABS;
+  const isTvMode = typeFilter === 'tv';
+  const isMovieMode = typeFilter === 'movie';
+
+  let statusTabs: StatusTab[];
+  if (isBookMode) {
+    statusTabs = [
+      { key: 'all', label: 'All Books', icon: null },
+      { key: 'watching', label: 'Reading', icon: BookOpen },
+      { key: 'plan_to_watch', label: 'Plan to Read', icon: Clock },
+      { key: 'completed', label: 'Read', icon: CheckCircle },
+      { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
+      { key: 'dropped', label: 'Did Not Finish', icon: XCircle },
+    ];
+  } else if (isTvMode) {
+    statusTabs = [
+      { key: 'all', label: 'All TV', icon: null },
+      { key: 'watching', label: 'Watching', icon: Play },
+      { key: 'caught_up', label: 'Caught Up', icon: CheckCheck },
+      { key: 'plan_to_watch', label: 'Plan to Watch', icon: Clock },
+      { key: 'completed', label: 'Completed', icon: CheckCircle },
+      { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
+      { key: 'dropped', label: 'Dropped', icon: XCircle },
+    ];
+  } else if (isMovieMode) {
+    statusTabs = [
+      { key: 'all', label: 'All Movies', icon: null },
+      { key: 'watching', label: 'Watching', icon: Play },
+      { key: 'plan_to_watch', label: 'Plan to Watch', icon: Clock },
+      { key: 'completed', label: 'Completed', icon: CheckCircle },
+      { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
+      { key: 'dropped', label: 'Dropped', icon: XCircle },
+    ];
+  } else {
+    // Mixed media ("All Items")
+    statusTabs = [
+      { key: 'all', label: 'All Items', icon: null },
+      { key: 'watching', label: 'Watching / Reading', icon: Play },
+      { key: 'caught_up', label: 'Caught Up', icon: CheckCheck },
+      { key: 'plan_to_watch', label: 'Plan to Watch / Read', icon: Clock },
+      { key: 'completed', label: 'Completed / Read', icon: CheckCircle },
+      { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
+      { key: 'dropped', label: 'Dropped', icon: XCircle },
+    ];
+  }
 
   return (
     <div className="flex flex-col gap-3.5 mb-6">

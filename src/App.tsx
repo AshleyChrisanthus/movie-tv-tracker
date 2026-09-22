@@ -139,7 +139,7 @@ export default function App(): React.JSX.Element {
   // Compute status counts for filter tabs
   const itemCounts = useMemo<Record<string, number>>(() => {
     const counts: Record<string, number> = {
-      all: mediaList.length,
+      all: 0,
       watching: 0,
       caught_up: 0,
       plan_to_watch: 0,
@@ -148,12 +148,15 @@ export default function App(): React.JSX.Element {
       dropped: 0
     };
     for (const item of mediaList) {
+      if (typeFilter !== 'all' && item.type !== typeFilter) continue;
+      if (listFilter !== 'all' && (!item.lists || !item.lists.includes(listFilter))) continue;
+      counts.all++;
       if (counts[item.status] !== undefined) {
         counts[item.status]++;
       }
     }
     return counts;
-  }, [mediaList]);
+  }, [mediaList, typeFilter, listFilter]);
 
   // Compute overall stats for navbar
   const stats = useMemo(() => ({

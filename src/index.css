@@ -238,3 +238,34 @@ body {
   color: var(--text-secondary);
   line-height: 1.3;
 }
+
+/* ========================================
+   Issue #31: Custom Grid Columns & Density
+   ======================================== */
+
+.bingelog-media-grid {
+  display: grid;
+}
+
+@media (max-width: 639px) {
+  .bingelog-media-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .bingelog-media-grid[data-cols="4"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .bingelog-media-grid[data-cols="5"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .bingelog-media-grid[data-cols="6"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .bingelog-media-grid[data-cols="7"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .bingelog-media-grid[data-cols="8"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1024px) {
+  .bingelog-media-grid[data-cols="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .bingelog-media-grid[data-cols="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .bingelog-media-grid[data-cols="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .bingelog-media-grid[data-cols="7"] { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .bingelog-media-grid[data-cols="8"] { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+}
+

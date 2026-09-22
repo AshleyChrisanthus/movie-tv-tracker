@@ -19,7 +19,7 @@ import {
   Calendar,
   type LucideIcon
 } from 'lucide-react';
-import type { CustomList, ViewMode, GridDensity, UpcomingFilter } from '../types';
+import type { CustomList, ViewMode, GridDensity, GridColumns, UpcomingFilter } from '../types';
 
 interface StatusTab {
   key: string;
@@ -55,6 +55,8 @@ export interface FilterBarProps {
   onViewModeChange?: (mode: ViewMode) => void;
   gridDensity?: GridDensity;
   onGridDensityChange?: (density: GridDensity) => void;
+  gridColumns?: GridColumns;
+  onGridColumnsChange?: (cols: GridColumns) => void;
   upcomingFilter?: UpcomingFilter;
   onUpcomingFilterChange?: (filter: UpcomingFilter) => void;
   upcomingDays?: number;
@@ -78,6 +80,8 @@ export default function FilterBar({
   onViewModeChange,
   gridDensity = 'comfortable',
   onGridDensityChange,
+  gridColumns = 'auto',
+  onGridColumnsChange,
   upcomingFilter = 'show_all',
   onUpcomingFilterChange,
   upcomingDays = 7
@@ -129,7 +133,7 @@ export default function FilterBar({
   }
 
   return (
-    <div className="flex flex-col gap-3.5 mb-6">
+    <div className={`flex flex-col ${gridDensity === 'compact' ? 'gap-2 mb-3.5' : 'gap-3.5 mb-6'}`}>
       {/* Status Filter Tabs (Apple Segmented Pill Style) */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
         {statusTabs.map(tab => {
@@ -142,13 +146,15 @@ export default function FilterBar({
               key={tab.key}
               type="button"
               onClick={() => onStatusChange(tab.key)}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all select-none border ${
+              className={`flex items-center gap-1.5 rounded-xl font-semibold whitespace-nowrap transition-all select-none border ${
+                gridDensity === 'compact' ? 'px-2.5 py-1 text-[11px]' : 'px-3.5 py-1.5 text-xs'
+              } ${
                 isActive
                   ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-md shadow-[var(--accent)]/20'
                   : 'bg-[var(--card-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] border-[var(--border-light)]'
               }`}
             >
-              {Icon && <Icon className="w-3.5 h-3.5" />}
+              {Icon && <Icon className={gridDensity === 'compact' ? 'w-3 h-3' : 'w-3.5 h-3.5'} />}
               <span>{tab.label}</span>
               <span
                 className={`text-[11px] px-1.5 py-0.2 rounded-full font-mono ${
@@ -355,6 +361,28 @@ export default function FilterBar({
               >
                 Compact
               </button>
+            </div>
+          )}
+
+          {/* Columns Per Row Selector (Issue #31) */}
+          {viewMode === 'grid' && onGridColumnsChange && (
+            <div className="flex items-center bg-[var(--card-bg)] border border-[var(--border-light)] rounded-xl p-0.5 text-xs">
+              <span className="text-[10px] font-semibold text-[var(--text-secondary)] px-1.5 hidden xs:inline">Cols:</span>
+              {(['auto', '4', '5', '6', '7', '8'] as GridColumns[]).map((col) => (
+                <button
+                  key={col}
+                  type="button"
+                  onClick={() => onGridColumnsChange(col)}
+                  className={`px-1.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                    gridColumns === col
+                      ? 'bg-[var(--accent)] text-white shadow-sm'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title={col === 'auto' ? 'Automatic responsive columns' : `${col} cards per row`}
+                >
+                  {col === 'auto' ? 'Auto' : col}
+                </button>
+              ))}
             </div>
           )}
 

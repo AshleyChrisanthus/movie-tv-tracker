@@ -15,7 +15,7 @@ import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './serv
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
-import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, UpcomingFilter } from './types';
+import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, GridColumns, UpcomingFilter } from './types';
 
 export default function App(): React.JSX.Element {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
@@ -98,14 +98,23 @@ export default function App(): React.JSX.Element {
         localStorage.setItem('bingelog_upcoming_days', String(days));
       }
     });
+    getSetting<GridColumns>('grid_columns', 'auto').then(cols => {
+      if (cols) {
+        setGridColumns(cols);
+        localStorage.setItem('bingelog_grid_columns', cols);
+      }
+    });
   }, []);
 
-  // View Mode & Grid Density (Issue #31)
+  // View Mode, Grid Density & Columns (Issue #31)
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => (localStorage.getItem('bingelog_view_mode') as ViewMode) || 'grid'
   );
   const [gridDensity, setGridDensity] = useState<GridDensity>(
     () => (localStorage.getItem('bingelog_grid_density') as GridDensity) || 'comfortable'
+  );
+  const [gridColumns, setGridColumns] = useState<GridColumns>(
+    () => (localStorage.getItem('bingelog_grid_columns') as GridColumns) || 'auto'
   );
 
   const handleViewModeChange = (mode: ViewMode) => {
@@ -116,6 +125,13 @@ export default function App(): React.JSX.Element {
   const handleGridDensityChange = (density: GridDensity) => {
     setGridDensity(density);
     localStorage.setItem('bingelog_grid_density', density);
+    setSetting('grid_density', density);
+  };
+
+  const handleGridColumnsChange = (cols: GridColumns) => {
+    setGridColumns(cols);
+    localStorage.setItem('bingelog_grid_columns', cols);
+    setSetting('grid_columns', cols);
   };
 
   // Live Sync Progress State
@@ -518,7 +534,7 @@ export default function App(): React.JSX.Element {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6">
+      <main className={`flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-8 ${gridDensity === 'compact' ? 'py-3 sm:py-4' : 'py-6'}`}>
         
         {/* Live Progress Bar for Library Sync */}
         <SyncProgressBar
@@ -546,6 +562,8 @@ export default function App(): React.JSX.Element {
           onViewModeChange={handleViewModeChange}
           gridDensity={gridDensity}
           onGridDensityChange={handleGridDensityChange}
+          gridColumns={gridColumns}
+          onGridColumnsChange={handleGridColumnsChange}
           upcomingFilter={upcomingFilter}
           onUpcomingFilterChange={handleUpcomingFilterChange}
           upcomingDays={upcomingDays}
@@ -562,11 +580,20 @@ export default function App(): React.JSX.Element {
               ratingScale={ratingScale}
             />
           ) : (
-            <div className={`grid ${
-              gridDensity === 'compact'
-                ? 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-6 gap-2 sm:gap-2.5 lg:gap-3'
-                : 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 sm:gap-4 lg:gap-5'
-            }`}>
+            <div
+              data-cols={gridColumns}
+              className={`bingelog-media-grid ${
+                gridDensity === 'compact'
+                  ? 'gap-2 sm:gap-2.5'
+                  : 'gap-3.5 sm:gap-4 lg:gap-5'
+              } ${
+                gridColumns === 'auto'
+                  ? gridDensity === 'compact'
+                    ? 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8'
+                    : 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+                  : ''
+              }`}
+            >
               {filteredItems.map(item => (
                 <MediaCard
                   key={item.id}

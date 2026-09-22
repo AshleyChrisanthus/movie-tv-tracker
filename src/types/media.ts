@@ -13,7 +13,7 @@ export type RatingScale = '10' | '5' | '100';
  */
 export type ViewMode = 'grid' | 'list';
 export type GridDensity = 'comfortable' | 'compact';
-export type GridColumns = 'auto' | '4' | '5' | '6';
+export type GridColumns = 'auto' | '4' | '5' | '6' | '7' | '8';
 
 /**
  * Upcoming release filter tiers (Issue #40).

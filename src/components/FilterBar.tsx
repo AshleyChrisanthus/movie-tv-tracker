@@ -168,8 +168,9 @@ export default function FilterBar({
         })}
       </div>
 
-      {/* Sub-bar: Type capsule selector, List selector, In-library search with clear button, and Sort */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+      {/* Row 2: Content Type, Folders, Search, and Sorting */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+        {/* Left: Media Type capsule selector & Folder selector */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Type Capsule Slider (App Directory Style) */}
           <div className="flex items-center p-1 bg-[var(--bg-tertiary)] border border-[var(--border-light)] rounded-xl w-fit">
@@ -251,7 +252,7 @@ export default function FilterBar({
           )}
         </div>
 
-        {/* Right side: Search in library & Sort dropdown */}
+        {/* Right: Search in library & Sort dropdown */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1 sm:w-56">
             <Search className="w-3.5 h-3.5 text-[var(--text-secondary)] absolute left-3 top-1/2 -translate-y-1/2" />
@@ -291,14 +292,20 @@ export default function FilterBar({
               <option value="progress" className="bg-[var(--card-bg)]">Watch Progress</option>
             </select>
           </div>
+        </div>
+      </div>
 
-          {/* 3-Tier Upcoming Releases Filter (Issue #40) */}
+      {/* Row 3: Upcoming Releases Timeline & Layout / View Controls */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-[var(--border-light)]/50">
+        {/* Left: 3-Tier Upcoming Releases Filter (Issue #40) */}
+        <div className="flex items-center gap-2">
           {onUpcomingFilterChange && (
             <div className="flex items-center bg-[var(--card-bg)] border border-[var(--border-light)] rounded-xl p-0.5 text-xs">
+              <span className="text-[10px] font-semibold text-[var(--text-secondary)] px-2 hidden sm:inline">Schedule:</span>
               <button
                 type="button"
                 onClick={() => onUpcomingFilterChange('show_all')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                   upcomingFilter === 'show_all'
                     ? 'bg-[var(--accent)] text-white shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -310,7 +317,7 @@ export default function FilterBar({
               <button
                 type="button"
                 onClick={() => onUpcomingFilterChange('next_n_days')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                   upcomingFilter === 'next_n_days'
                     ? 'bg-[var(--accent)] text-white shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -322,7 +329,7 @@ export default function FilterBar({
               <button
                 type="button"
                 onClick={() => onUpcomingFilterChange('hide_all')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                   upcomingFilter === 'hide_all'
                     ? 'bg-[var(--accent)] text-white shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -333,14 +340,17 @@ export default function FilterBar({
               </button>
             </div>
           )}
+        </div>
 
+        {/* Right: Grid Density, Columns Per Row & View Switcher */}
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-end">
           {/* Grid Density Toggle (Comfortable vs Compact) */}
           {viewMode === 'grid' && onGridDensityChange && (
             <div className="flex items-center bg-[var(--card-bg)] border border-[var(--border-light)] rounded-xl p-0.5 text-xs">
               <button
                 type="button"
                 onClick={() => onGridDensityChange('comfortable')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                   gridDensity === 'comfortable'
                     ? 'bg-[var(--accent)] text-white shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -352,7 +362,7 @@ export default function FilterBar({
               <button
                 type="button"
                 onClick={() => onGridDensityChange('compact')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                   gridDensity === 'compact'
                     ? 'bg-[var(--accent)] text-white shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -373,7 +383,7 @@ export default function FilterBar({
                   key={col}
                   type="button"
                   onClick={() => onGridColumnsChange(col)}
-                  className={`px-1.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                     gridColumns === col
                       ? 'bg-[var(--accent)] text-white shadow-sm'
                       : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'

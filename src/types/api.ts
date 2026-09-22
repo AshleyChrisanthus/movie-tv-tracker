@@ -37,6 +37,8 @@ export interface OpenLibraryDoc {
   publisher?: string[];
   subject?: string[];
   first_sentence?: string | string[];
+  ratings_average?: number;
+  ratings_count?: number;
 }
 
 export interface OpenLibrarySearchResponse {

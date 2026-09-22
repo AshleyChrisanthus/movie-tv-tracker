@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, CheckCircle2, Check, Clock, BookOpen } from 'lucide-react';
+import { Film, Tv, Star, Plus, Check, Clock, BookOpen } from 'lucide-react';
 import type { MediaItem, MediaStatus } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 
@@ -111,21 +111,12 @@ export default function MediaCard({
           </div>
         )}
 
-        {/* Top Badges */}
-        <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1 pointer-events-none">
-          {/* Type Badge */}
+        {/* Type Badge */}
+        <div className="absolute top-2.5 left-2.5 pointer-events-none">
           <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 text-[11px] font-semibold text-white">
             {isTv ? <Tv className="w-3 h-3 text-[var(--accent)]" /> : isBook ? <BookOpen className="w-3 h-3 text-[var(--accent)]" /> : <Film className="w-3 h-3 text-[var(--accent)]" />}
             <span>{isTv ? 'TV' : isBook ? 'Book' : 'Movie'}</span>
           </span>
-
-          {/* Rating in Apple Gold */}
-          {item.rating ? (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 text-[11px] font-bold text-[#ffd60a]">
-              <Star className="w-3 h-3 fill-[#ffd60a] text-[#ffd60a]" />
-              <span>{item.rating}</span>
-            </span>
-          ) : null}
         </div>
 
         {/* Quick Action Button overlay at bottom right of poster */}
@@ -169,26 +160,6 @@ export default function MediaCard({
             </button>
           )}
         </div>
-
-        {/* Caught Up overlay badge */}
-        {item.status === 'caught_up' && !isCompleted && (
-          <div className="absolute top-2.5 right-2.5">
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-950/85 backdrop-blur-md border border-sky-500/40 text-[11px] font-semibold text-sky-400 shadow-md">
-              <Clock className="w-3 h-3 text-sky-400" />
-              <span>Caught Up</span>
-            </span>
-          </div>
-        )}
-
-        {/* Completed overlay badge */}
-        {isCompleted && (
-          <div className="absolute top-2.5 right-2.5">
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-950/80 backdrop-blur-md border border-emerald-500/40 text-[11px] font-semibold text-emerald-400">
-              <CheckCircle2 className="w-3 h-3" />
-              <span>Done</span>
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Content */}
@@ -198,6 +169,12 @@ export default function MediaCard({
             <h3 className="font-semibold text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors line-clamp-1" title={item.title}>
               {item.title}
             </h3>
+            {item.rating ? (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-[11px] font-bold text-[#ffd60a] shrink-0">
+                <Star className="w-3 h-3 fill-[#ffd60a] text-[#ffd60a]" />
+                <span>{item.rating}</span>
+              </span>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">

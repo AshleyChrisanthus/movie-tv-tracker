@@ -267,7 +267,7 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const fields = 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,first_sentence';
+    const fields = 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,first_sentence,ratings_average';
     const res = await fetch(`${OPENLIBRARY_BASE_URL}/search.json?q=${encodeURIComponent(query)}&limit=8&fields=${fields}`, {
       signal: controller.signal
     });
@@ -292,6 +292,9 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
       const overview = firstSentence
         ? `"${firstSentence}" — By ${author}`
         : `By ${author}${totalPages ? ` • ${totalPages} pages` : ''}${publisher ? ` • Published by ${publisher}` : ''}`;
+      const rating = typeof doc.ratings_average === 'number'
+        ? Math.round(doc.ratings_average * 10) / 10
+        : null;
 
       return {
         externalId: doc.key.replace('/works/', ''),
@@ -301,7 +304,7 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
         year,
         releaseDate: doc.first_publish_year ? `${doc.first_publish_year}-01-01` : '',
         overview,
-        rating: null,
+        rating,
         posterUrl,
         backdropUrl: posterUrl,
         author,
@@ -331,6 +334,21 @@ export async function fetchFullMediaDetails(
     const currentChapter = item.currentChapter || 0;
     const progressMode = item.progressMode || 'pages';
 
+    let rating = item.rating ?? null;
+    if (rating == null && item.externalId && (item.source === 'openlibrary' || !item.source)) {
+      try {
+        const ratingsRes = await fetch(`${OPENLIBRARY_BASE_URL}/works/${item.externalId}/ratings.json`);
+        if (ratingsRes.ok) {
+          const rData = await ratingsRes.json();
+          if (typeof rData?.summary?.average === 'number') {
+            rating = Math.round(rData.summary.average * 10) / 10;
+          }
+        }
+      } catch {
+        // ignore rating fetch errors
+      }
+    }
+
     return {
       media: {
         ...item,
@@ -344,7 +362,8 @@ export async function fetchFullMediaDetails(
         totalChapters,
         currentChapter,
         author: item.author || '',
-        watchedEpisodesCount: progressMode === 'chapters' ? currentChapter : currentPage
+        watchedEpisodesCount: progressMode === 'chapters' ? currentChapter : currentPage,
+        rating
       },
       episodes: []
     };

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Navbar from './components/Navbar';
 import FilterBar from './components/FilterBar';
 import MediaCard from './components/MediaCard';
+import MediaListView from './components/MediaListView';
 import MediaDetailModal from './components/MediaDetailModal';
 import SearchModal from './components/SearchModal';
 import ManualMediaModal from './components/ManualMediaModal';
@@ -13,7 +14,7 @@ import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStat
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
-import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale } from './types';
+import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity } from './types';
 
 export default function App(): React.JSX.Element {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
@@ -46,6 +47,24 @@ export default function App(): React.JSX.Element {
       }
     });
   }, []);
+
+  // View Mode & Grid Density (Issue #31)
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => (localStorage.getItem('bingelog_view_mode') as ViewMode) || 'grid'
+  );
+  const [gridDensity, setGridDensity] = useState<GridDensity>(
+    () => (localStorage.getItem('bingelog_grid_density') as GridDensity) || 'comfortable'
+  );
+
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem('bingelog_view_mode', mode);
+  };
+
+  const handleGridDensityChange = (density: GridDensity) => {
+    setGridDensity(density);
+    localStorage.setItem('bingelog_grid_density', density);
+  };
 
   // Live Sync Progress State
   const [syncState, setSyncState] = useState<SyncState>({
@@ -457,22 +476,41 @@ export default function App(): React.JSX.Element {
           sortBy={sortBy}
           onSortChange={setSortBy}
           itemCounts={itemCounts}
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+          gridDensity={gridDensity}
+          onGridDensityChange={handleGridDensityChange}
         />
 
-        {/* Media Grid */}
+        {/* Media Content (Grid or List View) */}
         {filteredItems.length > 0 ? (
-          <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 sm:gap-4 lg:gap-5">
-            {filteredItems.map(item => (
-              <MediaCard
-                key={item.id}
-                item={item}
-                onClick={(clicked) => setSelectedMedia(clicked)}
-                onQuickIncrement={handleQuickIncrement}
-                onQuickToggleMovie={handleQuickToggleMovie}
-                ratingScale={ratingScale}
-              />
-            ))}
-          </div>
+          viewMode === 'list' ? (
+            <MediaListView
+              items={filteredItems}
+              onClick={(clicked) => setSelectedMedia(clicked)}
+              onQuickIncrement={handleQuickIncrement}
+              onQuickToggleMovie={handleQuickToggleMovie}
+              ratingScale={ratingScale}
+            />
+          ) : (
+            <div className={`grid ${
+              gridDensity === 'compact'
+                ? 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-6 gap-2 sm:gap-2.5 lg:gap-3'
+                : 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 sm:gap-4 lg:gap-5'
+            }`}>
+              {filteredItems.map(item => (
+                <MediaCard
+                  key={item.id}
+                  item={item}
+                  onClick={(clicked) => setSelectedMedia(clicked)}
+                  onQuickIncrement={handleQuickIncrement}
+                  onQuickToggleMovie={handleQuickToggleMovie}
+                  ratingScale={ratingScale}
+                  density={gridDensity}
+                />
+              ))}
+            </div>
+          )
         ) : (
           /* Empty State */
           <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-dashed border-[var(--border-light)] rounded-3xl bg-[var(--bg-secondary)]/40 my-8">

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Film, Tv, Star, Plus, Check, Clock, BookOpen } from 'lucide-react';
-import type { MediaItem, MediaStatus, RatingScale } from '../types';
+import type { MediaItem, MediaStatus, RatingScale, GridDensity } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
 
@@ -33,6 +33,7 @@ export interface MediaCardProps {
   onQuickIncrement?: (item: MediaItem) => void;
   onQuickToggleMovie?: (item: MediaItem) => void;
   ratingScale?: RatingScale;
+  density?: GridDensity;
 }
 
 export default function MediaCard({
@@ -40,7 +41,8 @@ export default function MediaCard({
   onClick,
   onQuickIncrement,
   onQuickToggleMovie,
-  ratingScale = '10'
+  ratingScale = '10',
+  density = 'comfortable'
 }: MediaCardProps): React.JSX.Element {
   const isTv = item.type === 'tv';
   const isBook = item.type === 'book';
@@ -166,15 +168,15 @@ export default function MediaCard({
       </div>
 
       {/* Content */}
-      <div className="p-3.5 flex flex-col flex-1 justify-between gap-2.5">
+      <div className={`${density === 'compact' ? 'p-2.5 gap-1.5' : 'p-3.5 gap-2.5'} flex flex-col flex-1 justify-between`}>
         <div>
-          <div className="flex items-start justify-between gap-2 mb-1">
-            <h3 className="font-semibold text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors line-clamp-1" title={item.title}>
+          <div className="flex items-start justify-between gap-1.5 mb-1">
+            <h3 className={`font-semibold ${density === 'compact' ? 'text-xs' : 'text-sm'} text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors line-clamp-1`} title={item.title}>
               {item.title}
             </h3>
             {formatRating(item.rating, ratingScale) ? (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-[11px] font-bold text-[#ffd60a] shrink-0" title={`Rating: ${formatRating(item.rating, ratingScale)} / ${ratingScale}`}>
-                <Star className="w-3 h-3 fill-[#ffd60a] text-[#ffd60a]" />
+              <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] ${density === 'compact' ? 'text-[10px]' : 'text-[11px]'} font-bold text-[#ffd60a] shrink-0`} title={`Rating: ${formatRating(item.rating, ratingScale)} / ${ratingScale}`}>
+                <Star className={`${density === 'compact' ? 'w-2.5 h-2.5' : 'w-3 h-3'} fill-[#ffd60a] text-[#ffd60a]`} />
                 <span>{formatRating(item.rating, ratingScale)}</span>
               </span>
             ) : null}
@@ -209,7 +211,7 @@ export default function MediaCard({
 
         {/* TV Progress Details (App Directory slim track) */}
         {isTv && (
-          <div className="pt-2 border-t border-[var(--border-light)]">
+          <div className={`${density === 'compact' ? 'pt-1.5' : 'pt-2'} border-t border-[var(--border-light)]`}>
             <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] mb-1.5 font-medium">
               <span>
                 {item.currentSeason ? `S${item.currentSeason} ` : ''}

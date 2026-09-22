@@ -9,6 +9,13 @@ export type MediaType = 'movie' | 'tv' | 'book';
 export type RatingScale = '10' | '5' | '100';
 
 /**
+ * View presentation mode and density (Issue #31).
+ */
+export type ViewMode = 'grid' | 'list';
+export type GridDensity = 'comfortable' | 'compact';
+export type GridColumns = 'auto' | '4' | '5' | '6';
+
+/**
  * Watch status lifecycle states.
  */
 export type MediaStatus =

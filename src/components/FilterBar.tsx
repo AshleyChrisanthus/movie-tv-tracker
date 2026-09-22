@@ -14,9 +14,11 @@ import {
   Folder,
   FolderPlus,
   BookOpen,
+  LayoutGrid,
+  List,
   type LucideIcon
 } from 'lucide-react';
-import type { CustomList } from '../types';
+import type { CustomList, ViewMode, GridDensity } from '../types';
 
 interface StatusTab {
   key: string;
@@ -48,6 +50,10 @@ export interface FilterBarProps {
   sortBy: string;
   onSortChange: (sortBy: string) => void;
   itemCounts?: Record<string, number>;
+  viewMode?: ViewMode;
+  onViewModeChange?: (mode: ViewMode) => void;
+  gridDensity?: GridDensity;
+  onGridDensityChange?: (density: GridDensity) => void;
 }
 
 export default function FilterBar({
@@ -63,7 +69,11 @@ export default function FilterBar({
   onLibrarySearchChange,
   sortBy,
   onSortChange,
-  itemCounts = {}
+  itemCounts = {},
+  viewMode = 'grid',
+  onViewModeChange,
+  gridDensity = 'comfortable',
+  onGridDensityChange
 }: FilterBarProps): React.JSX.Element {
   const isBookMode = typeFilter === 'book';
   const isTvMode = typeFilter === 'tv';
@@ -268,6 +278,66 @@ export default function FilterBar({
               <option value="progress" className="bg-[var(--card-bg)]">Watch Progress</option>
             </select>
           </div>
+
+          {/* Grid Density Toggle (Comfortable vs Compact) */}
+          {viewMode === 'grid' && onGridDensityChange && (
+            <div className="flex items-center bg-[var(--card-bg)] border border-[var(--border-light)] rounded-xl p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => onGridDensityChange('comfortable')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                  gridDensity === 'comfortable'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Comfortable spacious view"
+              >
+                Comfortable
+              </button>
+              <button
+                type="button"
+                onClick={() => onGridDensityChange('compact')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                  gridDensity === 'compact'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Compact dense view (fits 12+ cards)"
+              >
+                Compact
+              </button>
+            </div>
+          )}
+
+          {/* View Mode Switcher (Grid vs List) */}
+          {onViewModeChange && (
+            <div className="flex items-center bg-[var(--card-bg)] border border-[var(--border-light)] rounded-xl p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => onViewModeChange('grid')}
+                className={`p-1.5 rounded-lg transition-all ${
+                  viewMode === 'grid'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Grid View"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onViewModeChange('list')}
+                className={`p-1.5 rounded-lg transition-all ${
+                  viewMode === 'list'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Compact List View"
+              >
+                <List className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

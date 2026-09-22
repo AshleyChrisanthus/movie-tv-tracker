@@ -44,6 +44,19 @@ export default function SearchModal({
     }
   }, [isOpen]);
 
+  // Handle Escape key to exit search mode
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   // Debounced search with asynchronous streaming
   useEffect(() => {
     if (!query.trim()) {
@@ -147,7 +160,12 @@ export default function SearchModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 sm:pt-20 px-3 bg-black/65 backdrop-blur-md overflow-y-auto animate-fadeIn">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-start justify-center pt-10 sm:pt-20 px-3 bg-black/65 backdrop-blur-md overflow-y-auto animate-fadeIn"
+    >
       <div className="relative w-full max-w-2xl bg-[var(--card-bg)] border border-[var(--border-light)] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         
         {/* Search Header */}
@@ -173,9 +191,10 @@ export default function SearchModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            className="flex items-center justify-center px-2 py-1 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all text-xs font-mono border border-[var(--border-light)] cursor-pointer select-none"
+            title="Press ESC to exit"
           >
-            <X className="w-4 h-4" />
+            <kbd className="text-[10px] font-semibold tracking-wider uppercase">ESC</kbd>
           </button>
         </div>
 

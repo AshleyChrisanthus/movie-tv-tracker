@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Plus, Settings, Search, CheckCircle2, PlayCircle, RefreshCw, Palette, Sun, Moon } from 'lucide-react';
+import { Film, Plus, Settings, Search, RefreshCw, Palette, Sun, Moon } from 'lucide-react';
 import type { ThemeMode } from '../types';
 
 export interface NavbarProps {
@@ -75,18 +75,6 @@ export default function Navbar({
           >
             <Search className="w-4 h-4" />
           </button>
-
-          {/* Quick stats badges */}
-          <div className="hidden md:flex items-center gap-2 text-xs font-medium mr-1">
-            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--card-bg)] border border-[var(--border-light)] text-amber-400">
-              <PlayCircle className="w-3.5 h-3.5" />
-              <span>{stats?.watching || 0} Watching</span>
-            </span>
-            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--card-bg)] border border-[var(--border-light)] text-emerald-400">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>{stats?.completed || 0} Completed</span>
-            </span>
-          </div>
 
           {/* Add Custom / Manual Button */}
           <button

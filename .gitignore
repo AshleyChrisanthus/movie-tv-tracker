@@ -32,3 +32,4 @@ exports/*.json
 .env
 .env.*
 !.env.example
+.herenow/

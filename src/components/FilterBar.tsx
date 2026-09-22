@@ -16,9 +16,10 @@ import {
   BookOpen,
   LayoutGrid,
   List,
+  Calendar,
   type LucideIcon
 } from 'lucide-react';
-import type { CustomList, ViewMode, GridDensity } from '../types';
+import type { CustomList, ViewMode, GridDensity, UpcomingFilter } from '../types';
 
 interface StatusTab {
   key: string;
@@ -54,6 +55,9 @@ export interface FilterBarProps {
   onViewModeChange?: (mode: ViewMode) => void;
   gridDensity?: GridDensity;
   onGridDensityChange?: (density: GridDensity) => void;
+  upcomingFilter?: UpcomingFilter;
+  onUpcomingFilterChange?: (filter: UpcomingFilter) => void;
+  upcomingDays?: number;
 }
 
 export default function FilterBar({
@@ -73,7 +77,10 @@ export default function FilterBar({
   viewMode = 'grid',
   onViewModeChange,
   gridDensity = 'comfortable',
-  onGridDensityChange
+  onGridDensityChange,
+  upcomingFilter = 'show_all',
+  onUpcomingFilterChange,
+  upcomingDays = 7
 }: FilterBarProps): React.JSX.Element {
   const isBookMode = typeFilter === 'book';
   const isTvMode = typeFilter === 'tv';
@@ -278,6 +285,48 @@ export default function FilterBar({
               <option value="progress" className="bg-[var(--card-bg)]">Watch Progress</option>
             </select>
           </div>
+
+          {/* 3-Tier Upcoming Releases Filter (Issue #40) */}
+          {onUpcomingFilterChange && (
+            <div className="flex items-center bg-[var(--card-bg)] border border-[var(--border-light)] rounded-xl p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => onUpcomingFilterChange('show_all')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                  upcomingFilter === 'show_all'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Show all library items including future releases"
+              >
+                All Releases
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpcomingFilterChange('next_n_days')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                  upcomingFilter === 'next_n_days'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title={`Show upcoming items releasing in next ${upcomingDays} days`}
+              >
+                Next {upcomingDays}d
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpcomingFilterChange('hide_all')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                  upcomingFilter === 'hide_all'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Hide all unreleased and upcoming titles"
+              >
+                Hide Upcoming
+              </button>
+            </div>
+          )}
 
           {/* Grid Density Toggle (Comfortable vs Compact) */}
           {viewMode === 'grid' && onGridDensityChange && (

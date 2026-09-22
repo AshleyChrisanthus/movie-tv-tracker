@@ -16,6 +16,11 @@ export type GridDensity = 'comfortable' | 'compact';
 export type GridColumns = 'auto' | '4' | '5' | '6';
 
 /**
+ * Upcoming release filter tiers (Issue #40).
+ */
+export type UpcomingFilter = 'hide_all' | 'next_n_days' | 'show_all';
+
+/**
  * Watch status lifecycle states.
  */
 export type MediaStatus =

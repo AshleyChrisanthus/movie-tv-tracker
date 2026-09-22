@@ -99,6 +99,14 @@ export async function getTimezoneModule() {
   return await import('../../src/utils/timezone.js');
 }
 
+export async function getUpcomingModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/utils/upcoming.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/utils/upcoming.ts');
+  }
+  return await import('../../src/utils/upcoming.js');
+}
+
 // Reset database tables between tests
 export async function resetDatabase() {
   const { db } = await getDbModule();

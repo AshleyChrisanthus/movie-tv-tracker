@@ -13,17 +13,63 @@ import ListManagerModal from './components/ListManagerModal';
 import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, getCustomLists, updateBookProgress, getSetting } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
+import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
-import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity } from './types';
+import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, UpcomingFilter } from './types';
 
 export default function App(): React.JSX.Element {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [customLists, setCustomLists] = useState<CustomList[]>([]);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [listFilter, setListFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>(
+    () => localStorage.getItem('bingelog_status_filter') || 'all'
+  );
+  const [typeFilter, setTypeFilter] = useState<string>(
+    () => localStorage.getItem('bingelog_type_filter') || 'all'
+  );
+  const [listFilter, setListFilter] = useState<string>(
+    () => localStorage.getItem('bingelog_list_filter') || 'all'
+  );
   const [librarySearch, setLibrarySearch] = useState<string>('');
-  const [sortBy, setSortBy] = useState<string>('updated');
+  const [sortBy, setSortBy] = useState<string>(
+    () => localStorage.getItem('bingelog_sort_by') || 'updated'
+  );
+
+  const [upcomingFilter, setUpcomingFilter] = useState<UpcomingFilter>(
+    () => (localStorage.getItem('bingelog_upcoming_filter') as UpcomingFilter) || 'show_all'
+  );
+  const [upcomingDays, setUpcomingDays] = useState<number>(
+    () => parseInt(localStorage.getItem('bingelog_upcoming_days') || '7', 10) || 7
+  );
+
+  const handleStatusChange = (status: string) => {
+    setStatusFilter(status);
+    localStorage.setItem('bingelog_status_filter', status);
+  };
+
+  const handleTypeChange = (type: string) => {
+    setTypeFilter(type);
+    localStorage.setItem('bingelog_type_filter', type);
+  };
+
+  const handleListChange = (listName: string) => {
+    setListFilter(listName);
+    localStorage.setItem('bingelog_list_filter', listName);
+  };
+
+  const handleSortChange = (newSort: string) => {
+    setSortBy(newSort);
+    localStorage.setItem('bingelog_sort_by', newSort);
+  };
+
+  const handleUpcomingFilterChange = (filter: UpcomingFilter) => {
+    setUpcomingFilter(filter);
+    localStorage.setItem('bingelog_upcoming_filter', filter);
+  };
+
+  const handleUpcomingDaysChange = (days: number) => {
+    setUpcomingDays(days);
+    localStorage.setItem('bingelog_upcoming_days', String(days));
+  };
 
   // Modals
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
@@ -44,6 +90,12 @@ export default function App(): React.JSX.Element {
       if (s) {
         setRatingScale(s);
         localStorage.setItem('bingelog_rating_scale', s);
+      }
+    });
+    getSetting<number>('upcoming_window_days', 7).then(days => {
+      if (days !== undefined && days !== null) {
+        setUpcomingDays(Number(days));
+        localStorage.setItem('bingelog_upcoming_days', String(days));
       }
     });
   }, []);
@@ -181,13 +233,14 @@ export default function App(): React.JSX.Element {
     for (const item of mediaList) {
       if (typeFilter !== 'all' && item.type !== typeFilter) continue;
       if (listFilter !== 'all' && (!item.lists || !item.lists.includes(listFilter))) continue;
+      if (!shouldShowItemForUpcomingFilter(item, upcomingFilter, upcomingDays)) continue;
       counts.all++;
       if (counts[item.status] !== undefined) {
         counts[item.status]++;
       }
     }
     return counts;
-  }, [mediaList, typeFilter, listFilter]);
+  }, [mediaList, typeFilter, listFilter, upcomingFilter, upcomingDays]);
 
   // Compute overall stats for navbar
   const stats = useMemo(() => ({
@@ -203,6 +256,7 @@ export default function App(): React.JSX.Element {
         if (statusFilter !== 'all' && item.status !== statusFilter) return false;
         if (typeFilter !== 'all' && item.type !== typeFilter) return false;
         if (listFilter !== 'all' && (!item.lists || !item.lists.includes(listFilter))) return false;
+        if (!shouldShowItemForUpcomingFilter(item, upcomingFilter, upcomingDays)) return false;
         if (librarySearch.trim()) {
           const q = librarySearch.trim().toLowerCase();
           const matchTitle = item.title?.toLowerCase().includes(q);
@@ -280,7 +334,7 @@ export default function App(): React.JSX.Element {
         // default 'updated'
         return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
       });
-  }, [mediaList, statusFilter, typeFilter, listFilter, librarySearch, sortBy]);
+  }, [mediaList, statusFilter, typeFilter, listFilter, librarySearch, sortBy, upcomingFilter, upcomingDays]);
 
   // Quick Action: +1 episode directly from media card (or +10 pages for books)
   const handleQuickIncrement = async (item: MediaItem): Promise<void> => {
@@ -464,22 +518,25 @@ export default function App(): React.JSX.Element {
         {/* Filter and Search Bar */}
         <FilterBar
           statusFilter={statusFilter}
-          onStatusChange={setStatusFilter}
+          onStatusChange={handleStatusChange}
           typeFilter={typeFilter}
-          onTypeChange={setTypeFilter}
+          onTypeChange={handleTypeChange}
           listFilter={listFilter}
-          onListChange={setListFilter}
+          onListChange={handleListChange}
           customLists={customLists}
           onOpenListManager={() => setIsListManagerOpen(true)}
           librarySearch={librarySearch}
           onLibrarySearchChange={setLibrarySearch}
           sortBy={sortBy}
-          onSortChange={setSortBy}
+          onSortChange={handleSortChange}
           itemCounts={itemCounts}
           viewMode={viewMode}
           onViewModeChange={handleViewModeChange}
           gridDensity={gridDensity}
           onGridDensityChange={handleGridDensityChange}
+          upcomingFilter={upcomingFilter}
+          onUpcomingFilterChange={handleUpcomingFilterChange}
+          upcomingDays={upcomingDays}
         />
 
         {/* Media Content (Grid or List View) */}
@@ -634,6 +691,8 @@ export default function App(): React.JSX.Element {
         onDataRestored={refreshLibrary}
         ratingScale={ratingScale}
         onRatingScaleChange={setRatingScale}
+        upcomingDays={upcomingDays}
+        onUpcomingDaysChange={handleUpcomingDaysChange}
       />
 
       {/* Theme Customizer & Presets Modal */}

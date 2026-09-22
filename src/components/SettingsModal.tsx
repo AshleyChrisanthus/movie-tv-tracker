@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Key, Download, Upload, Folder, FolderCheck, CheckCircle, 
   AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
-  Zap, Archive, Sparkles, Globe, Clock, Star
+  Zap, Archive, Sparkles, Globe, Clock, Star, Calendar
 } from 'lucide-react';
 import { getSetting, setSetting } from '../db';
 import { 
@@ -23,6 +23,8 @@ export interface SettingsModalProps {
   onDataRestored?: () => void;
   ratingScale?: RatingScale;
   onRatingScaleChange?: (scale: RatingScale) => void;
+  upcomingDays?: number;
+  onUpcomingDaysChange?: (days: number) => void;
 }
 
 interface NoticeStatus {
@@ -35,7 +37,9 @@ export default function SettingsModal({
   onClose,
   onDataRestored,
   ratingScale: propRatingScale,
-  onRatingScaleChange
+  onRatingScaleChange,
+  upcomingDays: propUpcomingDays,
+  onUpcomingDaysChange
 }: SettingsModalProps): React.JSX.Element | null {
   const [apiKey, setApiKey] = useState<string>('');
   const [isTestingKey, setIsTestingKey] = useState<boolean>(false);
@@ -43,6 +47,9 @@ export default function SettingsModal({
 
   // User Rating Scale (Issue #29)
   const [ratingScale, setRatingScale] = useState<RatingScale>(propRatingScale || '10');
+
+  // Upcoming Releases Window Days (Issue #40)
+  const [upcomingDays, setUpcomingDays] = useState<number>(propUpcomingDays || 7);
 
   // Timezone & Locale State
   const [userTimezone, setUserTimezone] = useState<string>(getSystemTimeZone());
@@ -77,6 +84,11 @@ export default function SettingsModal({
       } else {
         getSetting<RatingScale>('rating_scale', '10').then(s => setRatingScale(s || '10'));
       }
+      if (propUpcomingDays) {
+        setUpcomingDays(propUpcomingDays);
+      } else {
+        getSetting<number>('upcoming_window_days', 7).then(d => setUpcomingDays(d || 7));
+      }
       getUserTimeZone().then(tz => setUserTimezone(tz));
       checkLinkedDirectory();
       loadExportsList();
@@ -86,13 +98,21 @@ export default function SettingsModal({
       setImportNotice(null);
       setTimezoneNotice(null);
     }
-  }, [isOpen, propRatingScale]);
+  }, [isOpen, propRatingScale, propUpcomingDays]);
 
   const handleRatingScaleChange = async (scale: RatingScale) => {
     setRatingScale(scale);
     await setSetting('rating_scale', scale);
     localStorage.setItem('bingelog_rating_scale', scale);
     if (onRatingScaleChange) onRatingScaleChange(scale);
+  };
+
+  const handleUpcomingDaysChange = async (days: number) => {
+    const val = Math.max(1, Math.min(365, days));
+    setUpcomingDays(val);
+    await setSetting('upcoming_window_days', val);
+    localStorage.setItem('bingelog_upcoming_days', String(val));
+    if (onUpcomingDaysChange) onUpcomingDaysChange(val);
   };
 
   const checkLinkedDirectory = async () => {
@@ -444,6 +464,52 @@ export default function SettingsModal({
                   </div>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* UPCOMING RELEASES WINDOW SECTION (Issue #40) */}
+          <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Upcoming Releases Window</h3>
+              </div>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
+                {upcomingDays} Days
+              </span>
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              When the library filter is set to "Coming Soon", only releases within this time window are displayed.
+            </p>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {[7, 14, 30, 60].map(days => (
+                <button
+                  key={days}
+                  type="button"
+                  onClick={() => handleUpcomingDaysChange(days)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                    upcomingDays === days
+                      ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-sm'
+                      : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-light)]'
+                  }`}
+                >
+                  {days} Days
+                </button>
+              ))}
+              <div className="flex items-center gap-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-[var(--text-secondary)]">Custom:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={upcomingDays}
+                  onChange={(e) => handleUpcomingDaysChange(parseInt(e.target.value, 10) || 7)}
+                  className="w-12 bg-transparent text-xs text-[var(--text-primary)] font-bold focus:outline-none"
+                />
+                <span className="text-[var(--text-secondary)]">days</span>
+              </div>
             </div>
           </div>
 

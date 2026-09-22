@@ -7,13 +7,15 @@ import {
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes, 
   deleteMediaItem, getMediaById, markEpisodesUpToWatched,
-  getCustomLists, toggleMediaList, saveCustomList, updateBookProgress
+  getCustomLists, toggleMediaList, saveCustomList, updateBookProgress,
+  setSetting
 } from '../db';
 import { syncMediaEpisodes } from '../services/api';
 import { 
   getUserTimeZone, formatEpisodeAirDate, getEpisodeCountdown, isEpisodeAired 
 } from '../utils/timezone';
-import type { MediaItem, EpisodeItem, MediaStatus, CustomList } from '../types';
+import { normalizeRating, denormalizeRating, RATING_SCALE_CONFIG } from '../utils/rating';
+import type { MediaItem, EpisodeItem, MediaStatus, CustomList, RatingScale } from '../types';
 
 export interface MediaDetailModalProps {
   media: MediaItem | null;
@@ -23,6 +25,8 @@ export interface MediaDetailModalProps {
   onUpdate?: (updated: MediaItem) => void;
   onDelete?: (id: string) => void;
   onEditCustom?: (media: MediaItem) => void;
+  ratingScale?: RatingScale;
+  onRatingScaleChange?: (scale: RatingScale) => void;
 }
 
 interface NoticeStatus {
@@ -37,17 +41,58 @@ export default function MediaDetailModal({
   onUpdated,
   onUpdate,
   onDelete,
-  onEditCustom
+  onEditCustom,
+  ratingScale = '10',
+  onRatingScaleChange
 }: MediaDetailModalProps): React.JSX.Element | null {
   const [episodes, setEpisodes] = useState<EpisodeItem[]>([]);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [status, setStatus] = useState<MediaStatus>(media?.status || 'plan_to_watch');
   const [rating, setRating] = useState<number>(media?.rating || 0);
+  const [activeScale, setActiveScale] = useState<RatingScale>(ratingScale || '10');
+  const [ratingInput, setRatingInput] = useState<string>(() => {
+    const denorm = denormalizeRating(media?.rating, ratingScale || '10');
+    return denorm !== null ? String(denorm) : '';
+  });
   const [notes, setNotes] = useState<string>(media?.notes || '');
   const [isSavingNotes, setIsSavingNotes] = useState<boolean>(false);
   const [notesSavedNotice, setNotesSavedNotice] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncNotice, setSyncNotice] = useState<NoticeStatus | null>(null);
+
+  useEffect(() => {
+    if (ratingScale) {
+      setActiveScale(ratingScale);
+    }
+  }, [ratingScale]);
+
+  useEffect(() => {
+    const denorm = denormalizeRating(media?.rating, activeScale);
+    setRatingInput(denorm !== null ? String(denorm) : '');
+    setRating(media?.rating || 0);
+  }, [media?.rating, activeScale]);
+
+  const handleScaleChange = async (newScale: RatingScale) => {
+    setActiveScale(newScale);
+    await setSetting('rating_scale', newScale);
+    localStorage.setItem('bingelog_rating_scale', newScale);
+    const denorm = denormalizeRating(rating, newScale);
+    setRatingInput(denorm !== null ? String(denorm) : '');
+    if (onRatingScaleChange) onRatingScaleChange(newScale);
+  };
+
+  const handleRatingCommit = async (valStr: string) => {
+    const normalized = normalizeRating(valStr, activeScale);
+    const finalVal = normalized !== null ? normalized : 0;
+    setRating(finalVal);
+    if (!media) return;
+    await updateMediaRatingAndNotes(media.id, finalVal, notes);
+    if (onUpdated) onUpdated();
+    if (onUpdate) {
+      const u = await getMediaById(media.id);
+      if (u) onUpdate(u);
+    }
+  };
 
   // Precise Season/Episode input state
   const [inputSeason, setInputSeason] = useState<number | string>(media?.currentSeason || 1);
@@ -249,7 +294,10 @@ export default function MediaDetailModal({
   // Handle rating & notes save
   const handleSaveNotes = async () => {
     setIsSavingNotes(true);
-    await updateMediaRatingAndNotes(media.id, rating, notes);
+    const normalized = normalizeRating(ratingInput, activeScale);
+    const finalRating = normalized !== null ? normalized : 0;
+    setRating(finalRating);
+    await updateMediaRatingAndNotes(media.id, finalRating, notes);
     setIsSavingNotes(false);
     setNotesSavedNotice(true);
     setTimeout(() => setNotesSavedNotice(false), 2000);
@@ -455,30 +503,40 @@ export default function MediaDetailModal({
               </select>
             </div>
 
-            {/* Quick Rating (1 to 10) */}
+            {/* Quick Rating with Direct Decimal Input & Scale Selector */}
             <div className="flex items-center gap-2">
               <span className="text-xs text-[var(--text-secondary)] font-medium flex items-center gap-1">
                 <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                 <span>My Rating:</span>
               </span>
-              <select
-                value={rating}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setRating(val);
-                  updateMediaRatingAndNotes(media.id, val, notes);
-                  if (onUpdated) onUpdated();
-                  if (onUpdate) {
-                    getMediaById(media.id).then(u => { if (u) onUpdate(u); });
-                  }
-                }}
-                className="px-2 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-lg text-xs font-semibold text-amber-300 focus:outline-none focus:border-[var(--accent)] cursor-pointer"
-              >
-                <option value="0">Unrated</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                  <option key={n} value={n}>{n} / 10</option>
-                ))}
-              </select>
+              <div className="flex items-center bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-lg px-2 py-1 focus-within:border-[var(--accent)] transition-all">
+                <input
+                  type="number"
+                  min="0"
+                  max={RATING_SCALE_CONFIG[activeScale].max}
+                  step={RATING_SCALE_CONFIG[activeScale].step}
+                  placeholder="Unrated"
+                  value={ratingInput}
+                  onChange={(e) => setRatingInput(e.target.value)}
+                  onBlur={() => handleRatingCommit(ratingInput)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  className="w-16 bg-transparent text-xs font-semibold text-amber-300 placeholder-[var(--text-secondary)] focus:outline-none"
+                />
+                <select
+                  value={activeScale}
+                  onChange={(e) => handleScaleChange(e.target.value as RatingScale)}
+                  className="bg-transparent text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus:outline-none cursor-pointer border-l border-[var(--border-light)] pl-1.5"
+                  title="Switch rating scale"
+                >
+                  <option value="10" className="bg-[var(--card-bg)] text-[var(--text-primary)]">/ 10</option>
+                  <option value="5" className="bg-[var(--card-bg)] text-[var(--text-primary)]">/ 5</option>
+                  <option value="100" className="bg-[var(--card-bg)] text-[var(--text-primary)]">/ 100</option>
+                </select>
+              </div>
             </div>
 
             {/* Action buttons (Sync / Edit Custom / Delete) */}

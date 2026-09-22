@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Key, Download, Upload, Folder, FolderCheck, CheckCircle, 
   AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
-  Zap, Archive, Sparkles, Globe, Clock
+  Zap, Archive, Sparkles, Globe, Clock, Star
 } from 'lucide-react';
 import { getSetting, setSetting } from '../db';
 import { 
@@ -15,12 +15,14 @@ import {
   getUserTimeZone, setUserTimeZone, getSystemTimeZone, 
   COMMON_TIMEZONES, type TimeZoneOption 
 } from '../utils/timezone';
-import type { BackupMode, ExportFileInfo } from '../types';
+import type { BackupMode, ExportFileInfo, RatingScale } from '../types';
 
 export interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDataRestored?: () => void;
+  ratingScale?: RatingScale;
+  onRatingScaleChange?: (scale: RatingScale) => void;
 }
 
 interface NoticeStatus {
@@ -31,11 +33,16 @@ interface NoticeStatus {
 export default function SettingsModal({
   isOpen,
   onClose,
-  onDataRestored
+  onDataRestored,
+  ratingScale: propRatingScale,
+  onRatingScaleChange
 }: SettingsModalProps): React.JSX.Element | null {
   const [apiKey, setApiKey] = useState<string>('');
   const [isTestingKey, setIsTestingKey] = useState<boolean>(false);
   const [keyStatus, setKeyStatus] = useState<NoticeStatus | null>(null);
+
+  // User Rating Scale (Issue #29)
+  const [ratingScale, setRatingScale] = useState<RatingScale>(propRatingScale || '10');
 
   // Timezone & Locale State
   const [userTimezone, setUserTimezone] = useState<string>(getSystemTimeZone());
@@ -65,6 +72,11 @@ export default function SettingsModal({
       setFsSupported(isFileSystemAccessSupported());
       getSetting<string>('tmdb_api_key', '').then(k => setApiKey(k || ''));
       getSetting<BackupMode>('backup_mode', 'compact').then(m => setBackupMode(m || 'compact'));
+      if (propRatingScale) {
+        setRatingScale(propRatingScale);
+      } else {
+        getSetting<RatingScale>('rating_scale', '10').then(s => setRatingScale(s || '10'));
+      }
       getUserTimeZone().then(tz => setUserTimezone(tz));
       checkLinkedDirectory();
       loadExportsList();
@@ -74,7 +86,14 @@ export default function SettingsModal({
       setImportNotice(null);
       setTimezoneNotice(null);
     }
-  }, [isOpen]);
+  }, [isOpen, propRatingScale]);
+
+  const handleRatingScaleChange = async (scale: RatingScale) => {
+    setRatingScale(scale);
+    await setSetting('rating_scale', scale);
+    localStorage.setItem('bingelog_rating_scale', scale);
+    if (onRatingScaleChange) onRatingScaleChange(scale);
+  };
 
   const checkLinkedDirectory = async () => {
     const handle = await getLinkedDirectoryHandle();
@@ -385,6 +404,47 @@ export default function SettingsModal({
                 <span>{timezoneNotice.message}</span>
               </div>
             )}
+          </div>
+
+          {/* USER RATINGS & SCALE SECTION (Issue #29) */}
+          <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">User Rating Scale</h3>
+              </div>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 font-medium">
+                Active: /{ratingScale}
+              </span>
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              Choose your preferred rating scale. Ratings are normalized internally, preserving fidelity when switching scales.
+            </p>
+
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { scale: '10' as const, label: '10-Point Scale', sub: 'e.g. 8.4 / 10' },
+                { scale: '5' as const, label: '5-Point Scale', sub: 'e.g. 4.2 / 5' },
+                { scale: '100' as const, label: '100-Point Scale', sub: 'e.g. 84 / 100' },
+              ].map(({ scale, label, sub }) => (
+                <button
+                  key={scale}
+                  type="button"
+                  onClick={() => handleRatingScaleChange(scale)}
+                  className={`p-2.5 rounded-xl border text-left transition-all ${
+                    ratingScale === scale
+                      ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-sm'
+                      : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-light)]'
+                  }`}
+                >
+                  <div className="text-xs font-bold">{label}</div>
+                  <div className={`text-[10px] mt-0.5 ${ratingScale === scale ? 'text-white/80' : 'text-[var(--text-secondary)] font-mono'}`}>
+                    {sub}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* BACKUP & DIRECTORY LINKING SECTION */}

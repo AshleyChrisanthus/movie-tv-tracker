@@ -1,7 +1,8 @@
 import React from 'react';
 import { Film, Tv, Star, Plus, Check, Clock, BookOpen } from 'lucide-react';
-import type { MediaItem, MediaStatus } from '../types';
+import type { MediaItem, MediaStatus, RatingScale } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
+import { formatRating } from '../utils/rating';
 
 interface StatusStyle {
   label: string;
@@ -31,13 +32,15 @@ export interface MediaCardProps {
   onClick: (item: MediaItem) => void;
   onQuickIncrement?: (item: MediaItem) => void;
   onQuickToggleMovie?: (item: MediaItem) => void;
+  ratingScale?: RatingScale;
 }
 
 export default function MediaCard({
   item,
   onClick,
   onQuickIncrement,
-  onQuickToggleMovie
+  onQuickToggleMovie,
+  ratingScale = '10'
 }: MediaCardProps): React.JSX.Element {
   const isTv = item.type === 'tv';
   const isBook = item.type === 'book';
@@ -169,10 +172,10 @@ export default function MediaCard({
             <h3 className="font-semibold text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors line-clamp-1" title={item.title}>
               {item.title}
             </h3>
-            {item.rating ? (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-[11px] font-bold text-[#ffd60a] shrink-0">
+            {formatRating(item.rating, ratingScale) ? (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-[11px] font-bold text-[#ffd60a] shrink-0" title={`Rating: ${formatRating(item.rating, ratingScale)} / ${ratingScale}`}>
                 <Star className="w-3 h-3 fill-[#ffd60a] text-[#ffd60a]" />
-                <span>{item.rating}</span>
+                <span>{formatRating(item.rating, ratingScale)}</span>
               </span>
             ) : null}
           </div>

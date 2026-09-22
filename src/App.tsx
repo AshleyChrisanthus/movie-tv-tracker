@@ -9,11 +9,11 @@ import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
 import ThemeModal from './components/ThemeModal';
 import ListManagerModal from './components/ListManagerModal';
-import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, getCustomLists, updateBookProgress } from './db';
+import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, getCustomLists, updateBookProgress, getSetting } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
-import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList } from './types';
+import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale } from './types';
 
 export default function App(): React.JSX.Element {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
@@ -34,6 +34,18 @@ export default function App(): React.JSX.Element {
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [syncAlerts, setSyncAlerts] = useState<SyncAlert[]>([]);
+  const [ratingScale, setRatingScale] = useState<RatingScale>(
+    () => (localStorage.getItem('bingelog_rating_scale') as RatingScale) || '10'
+  );
+
+  useEffect(() => {
+    getSetting<RatingScale>('rating_scale', '10').then(s => {
+      if (s) {
+        setRatingScale(s);
+        localStorage.setItem('bingelog_rating_scale', s);
+      }
+    });
+  }, []);
 
   // Live Sync Progress State
   const [syncState, setSyncState] = useState<SyncState>({
@@ -457,6 +469,7 @@ export default function App(): React.JSX.Element {
                 onClick={(clicked) => setSelectedMedia(clicked)}
                 onQuickIncrement={handleQuickIncrement}
                 onQuickToggleMovie={handleQuickToggleMovie}
+                ratingScale={ratingScale}
               />
             ))}
           </div>
@@ -553,6 +566,8 @@ export default function App(): React.JSX.Element {
             refreshLibrary();
           }}
           onEditCustom={handleOpenEdit}
+          ratingScale={ratingScale}
+          onRatingScaleChange={setRatingScale}
         />
       )}
 
@@ -561,6 +576,7 @@ export default function App(): React.JSX.Element {
         isOpen={isManualOpen}
         initialItem={manualEditItem}
         initialData={manualEditItem}
+        ratingScale={ratingScale}
         onClose={() => {
           setIsManualOpen(false);
           setManualEditItem(null);
@@ -578,6 +594,8 @@ export default function App(): React.JSX.Element {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onDataRestored={refreshLibrary}
+        ratingScale={ratingScale}
+        onRatingScaleChange={setRatingScale}
       />
 
       {/* Theme Customizer & Presets Modal */}

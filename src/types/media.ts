@@ -4,6 +4,11 @@
 export type MediaType = 'movie' | 'tv' | 'book';
 
 /**
+ * User rating scale options (Issue #29).
+ */
+export type RatingScale = '10' | '5' | '100';
+
+/**
  * Watch status lifecycle states.
  */
 export type MediaStatus =

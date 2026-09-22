@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Film, Tv, Save, AlertCircle, Eye, BookOpen } from 'lucide-react';
 import { saveMediaItem, getAllMedia, type EpisodeInput } from '../db';
-import type { MediaItem, MediaType, MediaStatus } from '../types';
+import type { MediaItem, MediaType, MediaStatus, RatingScale } from '../types';
+import { normalizeRating, denormalizeRating, RATING_SCALE_CONFIG } from '../utils/rating';
 
 export interface ManualMediaModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ export interface ManualMediaModalProps {
   onSelectExisting?: (item: MediaItem) => void;
   initialItem?: MediaItem | null;
   initialData?: MediaItem | null;
+  ratingScale?: RatingScale;
 }
 
 export default function ManualMediaModal({
@@ -18,7 +20,8 @@ export default function ManualMediaModal({
   onSaved,
   onSelectExisting,
   initialItem = null,
-  initialData = null
+  initialData = null,
+  ratingScale = '10'
 }: ManualMediaModalProps): React.JSX.Element | null {
   const item = initialItem || initialData || null;
   const isEditing = !!item;
@@ -28,7 +31,11 @@ export default function ManualMediaModal({
   const [title, setTitle] = useState<string>(item?.title || '');
   const [year, setYear] = useState<string | number>(item?.year || new Date().getFullYear());
   const [status, setStatus] = useState<MediaStatus>(item?.status || 'plan_to_watch');
-  const [rating, setRating] = useState<number>(item?.rating || 0);
+  const [activeScale, setActiveScale] = useState<RatingScale>(ratingScale);
+  const [ratingInput, setRatingInput] = useState<string>(() => {
+    const denorm = denormalizeRating(item?.rating, ratingScale);
+    return denorm !== null ? String(denorm) : '';
+  });
   const [overview, setOverview] = useState<string>(item?.overview || '');
   const [posterUrl, setPosterUrl] = useState<string>(item?.posterUrl || '');
   const [author, setAuthor] = useState<string>(item?.author || '');
@@ -102,7 +109,7 @@ export default function ManualMediaModal({
         year: parseInt(String(year), 10) || new Date().getFullYear(),
         type,
         status,
-        rating: Number(rating) || 0,
+        rating: normalizeRating(ratingInput, activeScale) || 0,
         overview: overview.trim(),
         posterUrl: posterUrl.trim() || null,
         backdropUrl: posterUrl.trim() || null,
@@ -287,17 +294,37 @@ export default function ManualMediaModal({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Rating (1-10)</label>
-              <select
-                value={rating}
-                onChange={(e) => setRating(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-amber-300 focus:outline-none focus:border-[var(--input-focus)] cursor-pointer"
-              >
-                <option value="0" className="bg-[var(--card-bg)]">Unrated</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                  <option key={n} value={n} className="bg-[var(--card-bg)]">{n} / 10</option>
-                ))}
-              </select>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                Rating (/{activeScale})
+              </label>
+              <div className="flex items-center bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl px-2 py-1.5 focus-within:border-[var(--input-focus)] transition-all">
+                <input
+                  type="number"
+                  min="0"
+                  max={RATING_SCALE_CONFIG[activeScale].max}
+                  step={RATING_SCALE_CONFIG[activeScale].step}
+                  placeholder="Unrated"
+                  value={ratingInput}
+                  onChange={(e) => setRatingInput(e.target.value)}
+                  className="w-full bg-transparent text-xs text-amber-300 placeholder-[var(--text-secondary)] focus:outline-none"
+                />
+                <select
+                  value={activeScale}
+                  onChange={(e) => {
+                    const newScale = e.target.value as RatingScale;
+                    const norm = normalizeRating(ratingInput, activeScale);
+                    setActiveScale(newScale);
+                    const denorm = denormalizeRating(norm, newScale);
+                    setRatingInput(denorm !== null ? String(denorm) : '');
+                  }}
+                  className="bg-transparent text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus:outline-none cursor-pointer border-l border-[var(--border-light)] pl-1.5"
+                  title="Switch rating scale"
+                >
+                  <option value="10" className="bg-[var(--card-bg)] text-[var(--text-primary)]">/ 10</option>
+                  <option value="5" className="bg-[var(--card-bg)] text-[var(--text-primary)]">/ 5</option>
+                  <option value="100" className="bg-[var(--card-bg)] text-[var(--text-primary)]">/ 100</option>
+                </select>
+              </div>
             </div>
           </div>
 

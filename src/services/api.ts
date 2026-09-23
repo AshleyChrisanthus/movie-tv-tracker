@@ -690,8 +690,100 @@ export async function fetchTMDBCollection(collectionId: number | string): Promis
 }
 
 /**
+ * Discover official spinoff television series titles by parsing encyclopedic Wikipedia article sections
+ * (e.g. "Spin-off series", "Television series", "Sequels and spin-offs") for the given movie/franchise.
+ * Free, open, zero API key required, supported by browser CORS with origin=*.
+ */
+export async function fetchWikipediaSpinoffTitles(options: {
+  movieTitles?: string[];
+  franchiseName?: string;
+}): Promise<string[]> {
+  const { movieTitles = [], franchiseName = '' } = options;
+  const queriesToTry = [
+    ...movieTitles,
+    franchiseName.replace(/\s+(collection|franchise|series|trilogy|saga|universe|cinematic universe|world)$/i, '').trim()
+  ].filter(Boolean);
+
+  if (queriesToTry.length === 0) return [];
+
+  const headers = {
+    'Api-User-Agent': 'BingeLog/1.0 (https://github.com/AshleyChrisanthus/movie-tv-tracker; contact@bingelog.app)'
+  };
+
+  const discoveredTitles = new Set<string>();
+
+  const processPage = async (pageTitle: string) => {
+    try {
+      const secUrl = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&prop=sections&format=json&origin=*`;
+      const secRes = await fetch(secUrl, { headers });
+      if (!secRes.ok) return;
+      const secData = await secRes.json();
+      const sections = secData.parse?.sections || [];
+
+      // Identify spinoff / television / sequel / future sections
+      const targetSecs = sections.filter((s: { line: string; index: string }) =>
+        /spin-?off|television|tv series|prequel|future|expanded universe|sequels and spin-offs/i.test(s.line)
+      );
+
+      for (const sec of targetSecs) {
+        const linkUrl = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&section=${sec.index}&prop=links|wikitext&format=json&origin=*`;
+        const linkRes = await fetch(linkUrl, { headers });
+        if (!linkRes.ok) continue;
+        const linkData = await linkRes.json();
+
+        // 1. Structured links
+        for (const l of (linkData.parse?.links || [])) {
+          const text = l['*'] || '';
+          if (/\(TV series\)|\(miniseries\)|\(series\)|\(television series\)/i.test(text)) {
+            const clean = text.replace(/\s*\((TV series|miniseries|series|television series)\)/i, '').trim();
+            if (clean && !clean.toLowerCase().includes('list of')) {
+              discoveredTitles.add(clean);
+            }
+          }
+        }
+
+        // 2. Wikitext italicized links
+        const wikitext = linkData.parse?.wikitext?.['*'] || '';
+        const regex = /''\[\[([^\]|]+)(?:\|([^\]]+))?\]\]''/g;
+        let match;
+        while ((match = regex.exec(wikitext)) !== null) {
+          const raw = match[1].trim();
+          if (!/^(category:|file:|template:|help:|wikipedia:)/i.test(raw)) {
+            const clean = raw.replace(/\s*\((TV series|miniseries|series|franchise|film)\)/i, '').trim();
+            if (clean && !clean.toLowerCase().includes('list of')) {
+              discoveredTitles.add(clean);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Wikipedia page parsing error for', pageTitle, err);
+    }
+  };
+
+  for (const q of queriesToTry.slice(0, 2)) {
+    try {
+      const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q + ' film')}&format=json&origin=*`;
+      const searchRes = await fetch(searchUrl, { headers });
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const hits = (searchData.query?.search || []).slice(0, 2);
+        for (const hit of hits) {
+          await processPage(hit.title);
+        }
+      }
+    } catch (err) {
+      console.warn('Wikipedia search error for', q, err);
+    }
+  }
+
+  return Array.from(discoveredTitles);
+}
+
+/**
  * Discover connected TV shows, spinoffs, and television expansions for a given franchise
- * or movie collection using automated TMDB keywords discovery, TMDB discover TV, and TVMaze search.
+ * or movie collection using the Wikipedia article spinoff extraction method,
+ * automated TMDB keywords discovery, TMDB discover TV, and TVMaze search.
  * This runs dynamically across data sources without requiring hardcoded universe templates.
  */
 export async function discoverConnectedTVShows(
@@ -711,6 +803,80 @@ export async function discoverConnectedTVShows(
     return `title_${item.title.toLowerCase().trim().replace(/[^a-z0-9]/g, '')}`;
   };
 
+  // 1. Wikipedia Method: Discover official spinoff TV series directly from film/franchise article sections
+  try {
+    const wikiTitles = await fetchWikipediaSpinoffTitles({ movieTitles, franchiseName });
+    if (wikiTitles.length > 0) {
+      await Promise.all(
+        wikiTitles.map(async (wikiTitle) => {
+          // Look up in TMDB if API key available
+          if (apiKey) {
+            try {
+              const tmdbRes = await fetch(
+                `${TMDB_BASE_URL}/search/tv?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(wikiTitle)}&include_adult=false`
+              );
+              if (tmdbRes.ok) {
+                const tmdbData = await tmdbRes.json();
+                for (const show of (tmdbData.results || []).slice(0, 2)) {
+                  const showNameLower = show.name.toLowerCase().trim();
+                  const targetLower = wikiTitle.toLowerCase().trim();
+                  if (showNameLower === targetLower || showNameLower.includes(targetLower) || targetLower.includes(showNameLower)) {
+                    const year = show.first_air_date ? new Date(show.first_air_date).getFullYear() : 'N/A';
+                    const item: MediaSearchResult = {
+                      externalId: show.id,
+                      tmdbId: show.id,
+                      source: 'tmdb',
+                      type: 'tv',
+                      title: show.name,
+                      year,
+                      releaseDate: show.first_air_date || '',
+                      overview: show.overview || '',
+                      rating: null,
+                      communityRating: show.vote_average ? Number(show.vote_average.toFixed(1)) : null,
+                      communityRatingCount: show.vote_count ?? null,
+                      posterUrl: show.poster_path ? `${TMDB_IMAGE_BASE}/w500${show.poster_path}` : null,
+                      backdropUrl: show.backdrop_path ? `${TMDB_IMAGE_BASE}/original${show.backdrop_path}` : null,
+                      popularity: show.popularity
+                    };
+                    const key = getDedupeKey(item);
+                    resultsMap.set(key, { result: item, score: 50 + (show.popularity ? Math.min(show.popularity / 10, 10) : 0) });
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('TMDB lookup error for wiki spinoff:', wikiTitle, err);
+            }
+          }
+
+          // Also look up in TVMaze (Free, zero API key)
+          try {
+            const tvmazeResults = await searchTVMaze(wikiTitle);
+            for (const item of tvmazeResults) {
+              const titleLower = item.title.toLowerCase().trim();
+              const targetLower = wikiTitle.toLowerCase().trim();
+              if (titleLower === targetLower || titleLower.includes(targetLower) || targetLower.includes(titleLower)) {
+                const key = getDedupeKey(item);
+                const prev = resultsMap.get(key);
+                if (!prev) {
+                  resultsMap.set(key, { result: item, score: 50 });
+                } else {
+                  prev.score = Math.max(prev.score, 50);
+                  if (!prev.result.overview && item.overview) prev.result.overview = item.overview;
+                  if (!prev.result.posterUrl && item.posterUrl) prev.result.posterUrl = item.posterUrl;
+                  if (!prev.result.tvmazeId && item.tvmazeId) prev.result.tvmazeId = item.tvmazeId;
+                }
+              }
+            }
+          } catch (err) {
+            console.warn('TVMaze lookup error for wiki spinoff:', wikiTitle, err);
+          }
+        })
+      );
+    }
+  } catch (err) {
+    console.error('Wikipedia spinoff discovery error:', err);
+  }
+
   // Derive search keywords from franchise name and movie titles
   const rawBase = (franchiseName || movieTitles[0] || '').trim();
   const cleaned = rawBase
@@ -726,7 +892,7 @@ export async function discoverConnectedTVShows(
     if (cleanT) searchKeywords.add(cleanT);
   }
 
-  // 1. TMDB Keyword & TV Discover (if TMDB API key is available)
+  // 2. TMDB Keyword & TV Discover (if TMDB API key is available)
   if (apiKey) {
     try {
       const keywordIds: number[] = [];

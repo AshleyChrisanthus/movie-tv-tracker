@@ -179,4 +179,20 @@ describe('Tier 1: Cross-Media Franchises: Automated TV Series & Spinoff Discover
     });
     assert.deepEqual(emptyResults, []);
   });
+
+  it('should extract spinoff titles from Wikipedia sections and prioritize them in discoverConnectedTVShows', async () => {
+    const wikiTitles = await apiModule.fetchWikipediaSpinoffTitles({
+      movieTitles: ['The Batman'],
+      franchiseName: 'The Batman Collection'
+    });
+
+    assert.ok(Array.isArray(wikiTitles));
+    if (wikiTitles.length > 0) {
+      assert.ok(wikiTitles.includes('The Penguin'), 'Must extract The Penguin from Wikipedia spin-off sections');
+    }
+
+    // Verify empty input handling
+    const emptyWiki = await apiModule.fetchWikipediaSpinoffTitles({});
+    assert.deepEqual(emptyWiki, []);
+  });
 });

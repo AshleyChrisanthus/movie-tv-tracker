@@ -66,6 +66,7 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
   const [discoveredTVShows, setDiscoveredTVShows] = useState<MediaSearchResult[]>([]);
   const [selectedTVIds, setSelectedTVIds] = useState<Set<string | number>>(new Set());
   const [isDiscoveringTV, setIsDiscoveringTV] = useState(false);
+  const [showAllAdaptations, setShowAllAdaptations] = useState(false);
 
   // Tab 4: Group Phase
   const [groupLabel, setGroupLabel] = useState('');
@@ -133,33 +134,55 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
 
   if (!isOpen) return null;
 
+  const loadConnectedTV = async (detail: TMDBCollectionDetail, broad: boolean) => {
+    setIsDiscoveringTV(true);
+    try {
+      const tvList = await discoverConnectedTVShows({
+        franchiseName: detail.name,
+        movieTmdbIds: detail.parts.map(p => p.id),
+        movieTitles: detail.parts.map(p => p.title),
+        limit: 10,
+        strictCanonOnly: !broad
+      });
+      setDiscoveredTVShows(tvList);
+      // Pre-select direct canon spinoffs if present, else select all
+      const direct = tvList.filter(s => s.isDirectSpinoff);
+      if (direct.length > 0) {
+        setSelectedTVIds(new Set(direct.map(getTVKey)));
+      } else {
+        setSelectedTVIds(new Set(tvList.map(getTVKey)));
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsDiscoveringTV(false);
+    }
+  };
+
   const handleSelectCollection = async (col: TMDBCollectionSearchResult) => {
     setIsLoadingCollectionDetail(true);
-    setIsDiscoveringTV(true);
     setDiscoveredTVShows([]);
     setSelectedTVIds(new Set());
+    setShowAllAdaptations(false);
     try {
       const detail = await fetchTMDBCollection(col.id);
       setSelectedCollection(detail);
       setIsLoadingCollectionDetail(false);
 
       if (detail) {
-        // Trigger dynamic cross-media TV series & spinoff discovery
-        const tvList = await discoverConnectedTVShows({
-          franchiseName: detail.name,
-          movieTmdbIds: detail.parts.map(p => p.id),
-          movieTitles: detail.parts.map(p => p.title),
-          limit: 8
-        });
-        setDiscoveredTVShows(tvList);
-        // By default select discovered connected TV shows
-        setSelectedTVIds(new Set(tvList.map(getTVKey)));
+        await loadConnectedTV(detail, false);
       }
     } catch (err) {
       console.error(err);
     } finally {
       setIsLoadingCollectionDetail(false);
-      setIsDiscoveringTV(false);
+    }
+  };
+
+  const handleToggleAdaptations = async (broad: boolean) => {
+    setShowAllAdaptations(broad);
+    if (selectedCollection) {
+      await loadConnectedTV(selectedCollection, broad);
     }
   };
 
@@ -319,25 +342,34 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
                         <Tv className="w-3.5 h-3.5 text-indigo-400" />
                         <span>Connected TV Series & Spinoffs ({discoveredTVShows.length})</span>
                       </span>
-                      {discoveredTVShows.length > 0 && (
+                      <div className="flex items-center gap-3">
                         <button
                           type="button"
-                          onClick={toggleAllTV}
-                          className="text-[11px] font-semibold text-[var(--accent)] hover:underline flex items-center gap-1"
+                          onClick={() => handleToggleAdaptations(!showAllAdaptations)}
+                          className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
                         >
-                          {selectedTVIds.size === discoveredTVShows.length ? (
-                            <>
-                              <CheckSquare className="w-3 h-3" />
-                              <span>Deselect All</span>
-                            </>
-                          ) : (
-                            <>
-                              <Square className="w-3 h-3" />
-                              <span>Select All ({discoveredTVShows.length})</span>
-                            </>
-                          )}
+                          {showAllAdaptations ? 'Show Canon Only' : 'Include All Adaptations'}
                         </button>
-                      )}
+                        {discoveredTVShows.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={toggleAllTV}
+                            className="text-[11px] font-semibold text-[var(--accent)] hover:underline flex items-center gap-1"
+                          >
+                            {selectedTVIds.size === discoveredTVShows.length ? (
+                              <>
+                                <CheckSquare className="w-3 h-3" />
+                                <span>Deselect All</span>
+                              </>
+                            ) : (
+                              <>
+                                <Square className="w-3 h-3" />
+                                <span>Select All ({discoveredTVShows.length})</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {isDiscoveringTV ? (
@@ -379,9 +411,15 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
                                   <h4 className="font-bold text-[var(--text-primary)] truncate text-xs">
                                     {show.title}
                                   </h4>
-                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-400 shrink-0">
-                                    Spinoff Series
-                                  </span>
+                                  {show.isDirectSpinoff ? (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                                      Canon Spinoff
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-400 shrink-0">
+                                      Adaptation
+                                    </span>
+                                  )}
                                 </div>
                                 <span className="text-[10px] text-[var(--text-secondary)] block">
                                   {show.year || show.releaseDate || 'TV Series'}

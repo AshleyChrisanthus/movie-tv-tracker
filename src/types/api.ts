@@ -26,6 +26,7 @@ export interface MediaSearchResult {
   tmdbId?: string | number | null;
   tvmazeId?: string | number | null;
   thetvdbId?: string | number | null;
+  isDirectSpinoff?: boolean;
 }
 
 export interface OpenLibraryDoc {
@@ -259,4 +260,5 @@ export interface DiscoverConnectedTVOptions {
   movieTmdbIds?: (number | string)[];
   movieTitles?: string[];
   limit?: number;
+  strictCanonOnly?: boolean;
 }

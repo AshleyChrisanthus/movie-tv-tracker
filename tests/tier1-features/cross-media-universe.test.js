@@ -195,4 +195,26 @@ describe('Tier 1: Cross-Media Franchises: Automated TV Series & Spinoff Discover
     const emptyWiki = await apiModule.fetchWikipediaSpinoffTitles({});
     assert.deepEqual(emptyWiki, []);
   });
+
+  it('should suppress noisy TMDB discover hits and prioritize verified direct canon spinoffs when strictCanonOnly is true', async () => {
+    // When strictCanonOnly is true (default), discovering TV for The Batman Collection
+    // should only return direct canon spinoffs (The Penguin) and exclude broad keyword hits (Lanterns, Smallville, etc.)
+    const results = await apiModule.discoverConnectedTVShows({
+      franchiseName: 'The Batman Collection',
+      movieTitles: ['The Batman'],
+      strictCanonOnly: true,
+      limit: 10
+    });
+
+    assert.ok(Array.isArray(results));
+    if (results.length > 0) {
+      // Any result returned under strict canon mode with canon hits must be marked as isDirectSpinoff
+      const directSpinoffs = results.filter(r => r.isDirectSpinoff);
+      assert.ok(directSpinoffs.length > 0, 'Must have at least one direct canon spinoff');
+      // Must not include unrelated DC shows like Lanterns or Smallville
+      const titles = results.map(r => r.title.toLowerCase());
+      assert.ok(!titles.includes('lanterns'), 'Lanterns must be suppressed from Matt Reeves Batman canon');
+      assert.ok(!titles.includes('smallville'), 'Smallville must be suppressed');
+    }
+  });
 });

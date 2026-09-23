@@ -699,9 +699,13 @@ export async function fetchWikipediaSpinoffTitles(options: {
   franchiseName?: string;
 }): Promise<string[]> {
   const { movieTitles = [], franchiseName = '' } = options;
+  const cleanedFranchise = franchiseName
+    .replace(/\s+(collection|franchise|series|trilogy|saga|universe|cinematic universe|world)$/i, '')
+    .trim();
   const queriesToTry = [
     ...movieTitles,
-    franchiseName.replace(/\s+(collection|franchise|series|trilogy|saga|universe|cinematic universe|world)$/i, '').trim()
+    cleanedFranchise,
+    cleanedFranchise ? `${cleanedFranchise} (franchise)` : ''
   ].filter(Boolean);
 
   if (queriesToTry.length === 0) return [];
@@ -722,7 +726,7 @@ export async function fetchWikipediaSpinoffTitles(options: {
 
       // Identify spinoff / television / sequel / future sections
       const targetSecs = sections.filter((s: { line: string; index: string }) =>
-        /spin-?off|television|tv series|prequel|future|expanded universe|sequels and spin-offs/i.test(s.line)
+        /spin-?offs?|television|tv series|tv shows?|prequel|future|expanded universe|sequels and spin-offs?|expanded franchise|universe/i.test(s.line)
       );
 
       for (const sec of targetSecs) {
@@ -742,15 +746,15 @@ export async function fetchWikipediaSpinoffTitles(options: {
           }
         }
 
-        // 2. Wikitext italicized links
+        // 2. Wikitext italicized links & plain italicized titles
         const wikitext = linkData.parse?.wikitext?.['*'] || '';
-        const regex = /''\[\[([^\]|]+)(?:\|([^\]]+))?\]\]''/g;
+        const regex = /''(?:\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|([^'\[\]]+))''/g;
         let match;
         while ((match = regex.exec(wikitext)) !== null) {
-          const raw = match[1].trim();
-          if (!/^(category:|file:|template:|help:|wikipedia:)/i.test(raw)) {
-            const clean = raw.replace(/\s*\((TV series|miniseries|series|franchise|film)\)/i, '').trim();
-            if (clean && !clean.toLowerCase().includes('list of')) {
+          const raw = (match[1] || match[3] || '').trim();
+          if (raw && !/^(category:|file:|template:|help:|wikipedia:)/i.test(raw)) {
+            const clean = raw.replace(/\s*\((TV series|miniseries|series|franchise|film|television series)\)/i, '').trim();
+            if (clean && !clean.toLowerCase().includes('list of') && clean.length > 1) {
               discoveredTitles.add(clean);
             }
           }
@@ -761,7 +765,7 @@ export async function fetchWikipediaSpinoffTitles(options: {
     }
   };
 
-  for (const q of queriesToTry.slice(0, 2)) {
+  for (const q of queriesToTry.slice(0, 3)) {
     try {
       const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q + ' film')}&format=json&origin=*`;
       const searchRes = await fetch(searchUrl, { headers });
@@ -789,7 +793,7 @@ export async function fetchWikipediaSpinoffTitles(options: {
 export async function discoverConnectedTVShows(
   options: DiscoverConnectedTVOptions
 ): Promise<MediaSearchResult[]> {
-  const { franchiseName, movieTmdbIds = [], movieTitles = [], limit = 10 } = options;
+  const { franchiseName, movieTmdbIds = [], movieTitles = [], limit = 10, strictCanonOnly = true } = options;
   if (!franchiseName && movieTitles.length === 0 && movieTmdbIds.length === 0) return [];
 
   const apiKey = await getTmdbApiKey();
@@ -836,10 +840,11 @@ export async function discoverConnectedTVShows(
                       communityRatingCount: show.vote_count ?? null,
                       posterUrl: show.poster_path ? `${TMDB_IMAGE_BASE}/w500${show.poster_path}` : null,
                       backdropUrl: show.backdrop_path ? `${TMDB_IMAGE_BASE}/original${show.backdrop_path}` : null,
-                      popularity: show.popularity
+                      popularity: show.popularity,
+                      isDirectSpinoff: true
                     };
                     const key = getDedupeKey(item);
-                    resultsMap.set(key, { result: item, score: 50 + (show.popularity ? Math.min(show.popularity / 10, 10) : 0) });
+                    resultsMap.set(key, { result: item, score: 100 + (show.popularity ? Math.min(show.popularity / 10, 10) : 0) });
                   }
                 }
               }
@@ -855,12 +860,14 @@ export async function discoverConnectedTVShows(
               const titleLower = item.title.toLowerCase().trim();
               const targetLower = wikiTitle.toLowerCase().trim();
               if (titleLower === targetLower || titleLower.includes(targetLower) || targetLower.includes(titleLower)) {
+                item.isDirectSpinoff = true;
                 const key = getDedupeKey(item);
                 const prev = resultsMap.get(key);
                 if (!prev) {
-                  resultsMap.set(key, { result: item, score: 50 });
+                  resultsMap.set(key, { result: item, score: 100 });
                 } else {
-                  prev.score = Math.max(prev.score, 50);
+                  prev.score = Math.max(prev.score, 100);
+                  prev.result.isDirectSpinoff = true;
                   if (!prev.result.overview && item.overview) prev.result.overview = item.overview;
                   if (!prev.result.posterUrl && item.posterUrl) prev.result.posterUrl = item.posterUrl;
                   if (!prev.result.tvmazeId && item.tvmazeId) prev.result.tvmazeId = item.tvmazeId;
@@ -875,6 +882,24 @@ export async function discoverConnectedTVShows(
     }
   } catch (err) {
     console.error('Wikipedia spinoff discovery error:', err);
+  }
+
+  // If strictCanonOnly is active and we found verified canon spinoffs from Wikipedia,
+  // suppress noisy TMDB keyword searches and broad query searches so we don't bring in
+  // unrelated franchises (like Lanterns, Smallville, cartoons).
+  const directCanonSpinoffs = Array.from(resultsMap.values()).filter(v => v.result.isDirectSpinoff);
+  if (strictCanonOnly && directCanonSpinoffs.length > 0) {
+    return directCanonSpinoffs
+      .filter(({ result }) => result.type === 'tv')
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (a.result.releaseDate && b.result.releaseDate) {
+          return b.result.releaseDate.localeCompare(a.result.releaseDate);
+        }
+        return 0;
+      })
+      .slice(0, limit)
+      .map(({ result }) => result);
   }
 
   // Derive search keywords from franchise name and movie titles

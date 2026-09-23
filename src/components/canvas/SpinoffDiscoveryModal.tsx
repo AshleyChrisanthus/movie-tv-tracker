@@ -173,9 +173,15 @@ export const SpinoffDiscoveryModal: React.FC<SpinoffDiscoveryModalProps> = ({
                           <h4 className="font-bold text-[var(--text-primary)] truncate text-xs">
                             {item.title}
                           </h4>
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-500/15 text-indigo-400 shrink-0">
-                            {item.type === 'tv' ? 'Spinoff Series' : item.type}
-                          </span>
+                          {item.isDirectSpinoff ? (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                              Canon Spinoff
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-500/15 text-indigo-400 shrink-0">
+                              {item.type === 'tv' ? 'Spinoff Series' : item.type}
+                            </span>
+                          )}
                         </div>
                         <span className="text-[10px] text-[var(--text-secondary)] block">
                           {item.year || item.releaseDate || 'N/A'}

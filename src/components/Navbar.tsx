@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Plus, Settings, Search, RefreshCw, Palette, Sun, Moon } from 'lucide-react';
+import { Film, Plus, Settings, Search, RefreshCw, Palette, Sun, Moon, Network } from 'lucide-react';
 import type { ThemeMode } from '../types';
 
 export interface NavbarProps {
@@ -11,6 +11,8 @@ export interface NavbarProps {
   onOpenTheme: () => void;
   onToggleTheme: () => void;
   themeMode?: ThemeMode;
+  currentTab?: 'library' | 'canvas';
+  onSelectTab?: (tab: 'library' | 'canvas') => void;
   stats?: {
     watching?: number;
     completed?: number;
@@ -28,6 +30,8 @@ export default function Navbar({
   onOpenTheme,
   onToggleTheme,
   themeMode = 'dark',
+  currentTab = 'library',
+  onSelectTab,
   stats
 }: NavbarProps): React.JSX.Element {
   return (
@@ -35,7 +39,10 @@ export default function Navbar({
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
         
         {/* Brand */}
-        <div className="flex items-center gap-3 cursor-pointer select-none group">
+        <div
+          onClick={() => onSelectTab?.('library')}
+          className="flex items-center gap-3 cursor-pointer select-none group"
+        >
           <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center shadow-lg shadow-[var(--accent)]/25 group-hover:scale-105 transition-all">
             <Film className="w-5 h-5 text-white" />
           </div>
@@ -48,6 +55,37 @@ export default function Navbar({
             </span>
           </div>
         </div>
+
+        {/* Primary View Switcher: Library vs Franchise Canvas */}
+        {onSelectTab && (
+          <div className="flex items-center p-1 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-light)] shrink-0">
+            <button
+              type="button"
+              onClick={() => onSelectTab('library')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                currentTab === 'library'
+                  ? 'bg-[var(--accent)] text-white shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Film className="w-3.5 h-3.5" />
+              <span>Library</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectTab('canvas')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                currentTab === 'canvas'
+                  ? 'bg-[var(--accent)] text-white shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Network className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Franchise Canvas</span>
+              <span className="sm:hidden">Canvas</span>
+            </button>
+          </div>
+        )}
 
         {/* Global Search Bar trigger (App Directory Inset Style) */}
         <button

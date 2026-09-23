@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
-  CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen, Globe
+  CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen, Globe,
+  Network, Sparkles
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
@@ -25,6 +26,7 @@ export interface MediaDetailModalProps {
   onUpdate?: (updated: MediaItem) => void;
   onDelete?: (id: string) => void;
   onEditCustom?: (media: MediaItem) => void;
+  onOpenInCanvas?: (media: MediaItem) => void;
   ratingScale?: RatingScale;
   onRatingScaleChange?: (scale: RatingScale) => void;
 }
@@ -42,6 +44,7 @@ export default function MediaDetailModal({
   onUpdate,
   onDelete,
   onEditCustom,
+  onOpenInCanvas,
   ratingScale = '10',
   onRatingScaleChange
 }: MediaDetailModalProps): React.JSX.Element | null {
@@ -480,6 +483,39 @@ export default function MediaDetailModal({
 
         {/* Modal Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+
+          {/* Franchise / Series Collection Banner */}
+          {media.collectionName && (
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/25">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-xs font-bold text-purple-300 block truncate">
+                    Part of {media.collectionName}
+                  </span>
+                  <p className="text-[10px] text-zinc-400">
+                    Official TMDB Movie Series / Franchise Universe
+                  </p>
+                </div>
+              </div>
+
+              {onOpenInCanvas && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenInCanvas(media);
+                    onClose();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-all shadow-xs"
+                >
+                  <Network className="w-3.5 h-3.5" />
+                  <span>Open in Canvas</span>
+                </button>
+              )}
+            </div>
+          )}
           
           {/* Controls Bar: Status, Rating, and Quick Actions */}
           <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
@@ -548,8 +584,23 @@ export default function MediaDetailModal({
               </div>
             </div>
 
-            {/* Action buttons (Sync / Edit Custom / Delete) */}
+            {/* Action buttons (Sync / Canvas / Edit Custom / Delete) */}
             <div className="flex items-center gap-2 ml-auto">
+              {onOpenInCanvas && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenInCanvas(media);
+                    onClose();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent)]/15 hover:bg-[var(--accent)]/25 text-[var(--accent)] border border-[var(--accent)]/30 text-xs font-semibold transition-all shadow-xs"
+                  title="View in Franchise Canvas"
+                >
+                  <Network className="w-3.5 h-3.5" />
+                  <span>Franchise Canvas</span>
+                </button>
+              )}
+
               {isTv && media.externalId && (
                 <button
                   type="button"

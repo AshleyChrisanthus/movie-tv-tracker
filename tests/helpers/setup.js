@@ -114,6 +114,9 @@ export async function resetDatabase() {
     await db.media.clear();
     await db.episodes.clear();
     await db.settings.clear();
+    if (db.canvases) {
+      await db.canvases.clear();
+    }
   }
   localStorageStore.clear();
   domAttributes.clear();

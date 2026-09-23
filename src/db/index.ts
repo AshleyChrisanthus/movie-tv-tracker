@@ -13,13 +13,15 @@ import type {
   SeriesAirStatus,
   MediaType,
   CompactEpisodeItem,
-  CustomList
+  CustomList,
+  FranchiseCanvas
 } from '../types';
 
 export class BingeLogDatabase extends Dexie {
   media!: Table<MediaItem, string>;
   episodes!: Table<EpisodeItem, string>;
   settings!: Table<SettingItem, string>;
+  canvases!: Table<FranchiseCanvas, string>;
 
   constructor() {
     super('BingeLogDB');
@@ -27,6 +29,9 @@ export class BingeLogDatabase extends Dexie {
       media: 'id, type, status, title, updatedAt, createdAt',
       episodes: 'id, mediaId, seasonNumber, episodeNumber, [mediaId+seasonNumber], isWatched',
       settings: 'key'
+    });
+    this.version(2).stores({
+      canvases: 'id, name, updatedAt, createdAt'
     });
   }
 }
@@ -855,6 +860,7 @@ export async function exportAllData(options: { mode?: BackupMode } = {}): Promis
   const media = await db.media.toArray();
   const rawEpisodes = await db.episodes.toArray();
   const settings = await db.settings.toArray();
+  const canvases = await db.canvases.toArray();
 
   const customMediaIds = new Set(media.filter(m => m.source === 'custom').map(m => m.id));
 
@@ -884,7 +890,8 @@ export async function exportAllData(options: { mode?: BackupMode } = {}): Promis
       totalEpisodes: episodes.length,
       media,
       episodes,
-      settings
+      settings,
+      canvases
     };
   } else if (mode === 'compact') {
     episodes = rawEpisodes.map((ep): CompactEpisodeItem => ({
@@ -908,7 +915,8 @@ export async function exportAllData(options: { mode?: BackupMode } = {}): Promis
       totalEpisodes: episodes.length,
       media,
       episodes,
-      settings
+      settings,
+      canvases
     };
   }
 
@@ -921,7 +929,8 @@ export async function exportAllData(options: { mode?: BackupMode } = {}): Promis
     totalEpisodes: rawEpisodes.length,
     media,
     episodes: rawEpisodes,
-    settings
+    settings,
+    canvases
   };
 }
 
@@ -933,11 +942,12 @@ export async function importData(backupData: BackupFile, overwrite: boolean = fa
     throw new Error('Invalid backup file format: missing media list');
   }
 
-  return await db.transaction('rw', db.media, db.episodes, db.settings, async () => {
+  return await db.transaction('rw', db.media, db.episodes, db.settings, db.canvases, async () => {
     if (overwrite) {
       await db.media.clear();
       await db.episodes.clear();
       await db.settings.clear();
+      await db.canvases.clear();
     }
 
     if (backupData.media.length > 0) {
@@ -949,12 +959,62 @@ export async function importData(backupData: BackupFile, overwrite: boolean = fa
     if (Array.isArray(backupData.settings) && backupData.settings.length > 0) {
       await db.settings.bulkPut(backupData.settings);
     }
+    if (Array.isArray(backupData.canvases) && backupData.canvases.length > 0) {
+      await db.canvases.bulkPut(backupData.canvases);
+    }
 
     return {
       mediaCount: backupData.media.length,
       episodesCount: backupData.episodes ? backupData.episodes.length : 0
     };
   });
+}
+
+/**
+ * Retrieve all Franchise Canvases.
+ */
+export async function getCanvases(): Promise<FranchiseCanvas[]> {
+  return await db.canvases.orderBy('updatedAt').reverse().toArray();
+}
+
+/**
+ * Retrieve a specific canvas by ID.
+ */
+export async function getCanvasById(id: string): Promise<FranchiseCanvas | undefined> {
+  return await db.canvases.get(id);
+}
+
+/**
+ * Create or update a Franchise Canvas.
+ */
+export async function saveCanvas(
+  canvas: Partial<FranchiseCanvas> & { name: string }
+): Promise<FranchiseCanvas> {
+  const now = new Date().toISOString();
+  const id = canvas.id || `canvas_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const existing = await db.canvases.get(id);
+
+  const fullCanvas: FranchiseCanvas = {
+    id,
+    name: canvas.name.trim(),
+    description: canvas.description?.trim() || '',
+    coverImage: canvas.coverImage || existing?.coverImage,
+    nodes: Array.isArray(canvas.nodes) ? canvas.nodes : (existing?.nodes || []),
+    edges: Array.isArray(canvas.edges) ? canvas.edges : (existing?.edges || []),
+    viewport: canvas.viewport || existing?.viewport || { x: 0, y: 0, zoom: 1 },
+    createdAt: existing?.createdAt || canvas.createdAt || now,
+    updatedAt: now
+  };
+
+  await db.canvases.put(fullCanvas);
+  return fullCanvas;
+}
+
+/**
+ * Delete a Franchise Canvas by ID.
+ */
+export async function deleteCanvas(id: string): Promise<void> {
+  await db.canvases.delete(id);
 }
 
 /**

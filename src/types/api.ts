@@ -210,3 +210,43 @@ export interface ITunesSearchResponse {
   resultCount: number;
   results: ITunesResult[];
 }
+
+/**
+ * Raw TMDB Collection Search Result item.
+ */
+export interface TMDBCollectionSearchResult {
+  id: number;
+  name: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+}
+
+/**
+ * Movie part within a TMDB Collection.
+ */
+export interface TMDBCollectionPart {
+  id: number;
+  title: string;
+  overview?: string;
+  release_date?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  vote_average?: number;
+  vote_count?: number;
+  popularity?: number;
+  genre_ids?: number[];
+  media_type?: 'movie';
+}
+
+/**
+ * Complete TMDB Collection detail response.
+ */
+export interface TMDBCollectionDetail {
+  id: number;
+  name: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  parts: TMDBCollectionPart[];
+}

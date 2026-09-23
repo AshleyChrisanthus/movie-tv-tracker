@@ -10,6 +10,7 @@ import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
 import ThemeModal from './components/ThemeModal';
 import ListManagerModal from './components/ListManagerModal';
+import { FranchiseCanvasView } from './components/canvas/FranchiseCanvasView';
 import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, clearAllPersonalRatings, getCustomLists, updateBookProgress, getSetting, setSetting } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
 import { initTheme, toggleThemeMode } from './styles/theme';
@@ -20,6 +21,9 @@ import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomLis
 export default function App(): React.JSX.Element {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [customLists, setCustomLists] = useState<CustomList[]>([]);
+  const [mainTab, setMainTab] = useState<'library' | 'canvas'>(
+    () => (localStorage.getItem('bingelog_main_tab') as 'library' | 'canvas') || 'library'
+  );
   const [statusFilter, setStatusFilter] = useState<string>(
     () => localStorage.getItem('bingelog_status_filter') || 'all'
   );
@@ -40,6 +44,11 @@ export default function App(): React.JSX.Element {
   const [upcomingDays, setUpcomingDays] = useState<number>(
     () => parseInt(localStorage.getItem('bingelog_upcoming_days') || '7', 10) || 7
   );
+
+  const handleMainTabChange = (tab: 'library' | 'canvas') => {
+    setMainTab(tab);
+    localStorage.setItem('bingelog_main_tab', tab);
+  };
 
   const handleStatusChange = (status: string) => {
     setStatusFilter(status);
@@ -501,6 +510,8 @@ export default function App(): React.JSX.Element {
         onOpenTheme={() => setIsThemeOpen(true)}
         onToggleTheme={handleToggleTheme}
         themeMode={themeMode}
+        currentTab={mainTab}
+        onSelectTab={handleMainTabChange}
         onStartSyncAll={handleStartSyncAll}
         isSyncing={syncState.isActive}
         stats={stats}
@@ -533,149 +544,159 @@ export default function App(): React.JSX.Element {
         </div>
       )}
 
-      {/* Main Content Area */}
-      <main className={`flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-8 ${gridDensity === 'compact' ? 'py-3 sm:py-4' : 'py-6'}`}>
-        
-        {/* Live Progress Bar for Library Sync */}
-        <SyncProgressBar
-          syncState={syncState}
-          onCancel={handleCancelSync}
-          onDismiss={handleDismissSync}
+      {/* Main Content Area or Franchise Canvas View */}
+      {mainTab === 'canvas' ? (
+        <FranchiseCanvasView
+          libraryItems={mediaList}
+          onInspectMedia={(clicked) => setSelectedMedia(clicked)}
+          onRefreshLibrary={refreshLibrary}
         />
-
-        {/* Filter and Search Bar */}
-        <FilterBar
-          statusFilter={statusFilter}
-          onStatusChange={handleStatusChange}
-          typeFilter={typeFilter}
-          onTypeChange={handleTypeChange}
-          listFilter={listFilter}
-          onListChange={handleListChange}
-          customLists={customLists}
-          onOpenListManager={() => setIsListManagerOpen(true)}
-          librarySearch={librarySearch}
-          onLibrarySearchChange={setLibrarySearch}
-          sortBy={sortBy}
-          onSortChange={handleSortChange}
-          itemCounts={itemCounts}
-          viewMode={viewMode}
-          onViewModeChange={handleViewModeChange}
-          gridDensity={gridDensity}
-          onGridDensityChange={handleGridDensityChange}
-          gridColumns={gridColumns}
-          onGridColumnsChange={handleGridColumnsChange}
-          upcomingFilter={upcomingFilter}
-          onUpcomingFilterChange={handleUpcomingFilterChange}
-          upcomingDays={upcomingDays}
-        />
-
-        {/* Media Content (Grid or List View) */}
-        {filteredItems.length > 0 ? (
-          viewMode === 'list' ? (
-            <MediaListView
-              items={filteredItems}
-              onClick={(clicked) => setSelectedMedia(clicked)}
-              onQuickIncrement={handleQuickIncrement}
-              onQuickToggleMovie={handleQuickToggleMovie}
-              ratingScale={ratingScale}
+      ) : (
+        <>
+          <main className={`flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-8 ${gridDensity === 'compact' ? 'py-3 sm:py-4' : 'py-6'}`}>
+            
+            {/* Live Progress Bar for Library Sync */}
+            <SyncProgressBar
+              syncState={syncState}
+              onCancel={handleCancelSync}
+              onDismiss={handleDismissSync}
             />
-          ) : (
-            <div
-              data-cols={gridColumns}
-              className={`bingelog-media-grid ${
-                gridDensity === 'compact'
-                  ? 'gap-2 sm:gap-2.5'
-                  : 'gap-3.5 sm:gap-4 lg:gap-5'
-              } ${
-                gridColumns === 'auto'
-                  ? gridDensity === 'compact'
-                    ? 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8'
-                    : 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
-                  : ''
-              }`}
-            >
-              {filteredItems.map(item => (
-                <MediaCard
-                  key={item.id}
-                  item={item}
+
+            {/* Filter and Search Bar */}
+            <FilterBar
+              statusFilter={statusFilter}
+              onStatusChange={handleStatusChange}
+              typeFilter={typeFilter}
+              onTypeChange={handleTypeChange}
+              listFilter={listFilter}
+              onListChange={handleListChange}
+              customLists={customLists}
+              onOpenListManager={() => setIsListManagerOpen(true)}
+              librarySearch={librarySearch}
+              onLibrarySearchChange={setLibrarySearch}
+              sortBy={sortBy}
+              onSortChange={handleSortChange}
+              itemCounts={itemCounts}
+              viewMode={viewMode}
+              onViewModeChange={handleViewModeChange}
+              gridDensity={gridDensity}
+              onGridDensityChange={handleGridDensityChange}
+              gridColumns={gridColumns}
+              onGridColumnsChange={handleGridColumnsChange}
+              upcomingFilter={upcomingFilter}
+              onUpcomingFilterChange={handleUpcomingFilterChange}
+              upcomingDays={upcomingDays}
+            />
+
+            {/* Media Content (Grid or List View) */}
+            {filteredItems.length > 0 ? (
+              viewMode === 'list' ? (
+                <MediaListView
+                  items={filteredItems}
                   onClick={(clicked) => setSelectedMedia(clicked)}
                   onQuickIncrement={handleQuickIncrement}
                   onQuickToggleMovie={handleQuickToggleMovie}
                   ratingScale={ratingScale}
-                  density={gridDensity}
                 />
-              ))}
-            </div>
-          )
-        ) : (
-          /* Empty State */
-          <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-dashed border-[var(--border-light)] rounded-3xl bg-[var(--bg-secondary)]/40 my-8">
-            <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] mb-4">
-              <Film className="w-7 h-7" />
-            </div>
-
-            {mediaList.length === 0 ? (
-              <div className="max-w-md">
-                <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">
-                  Your Watch Library is Empty
-                </h2>
-                <p className="text-xs sm:text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
-                  Start tracking movies and TV shows! Type a name into the search bar to automatically fetch seasons, episode titles, and poster artwork.
-                </p>
-
-                <div className="flex flex-wrap items-center justify-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsSearchOpen(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs sm:text-sm font-bold shadow-lg shadow-[var(--accent)]/30 transition-all active:scale-95"
-                  >
-                    <Search className="w-4 h-4" />
-                    <span>Search Series & Movies</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManualEditItem(null);
-                      setIsManualOpen(true);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs sm:text-sm font-semibold transition-all border border-[var(--border-light)]"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add Custom Entry</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="max-w-sm">
-                <h3 className="text-base font-semibold text-[var(--text-primary)] mb-1">
-                  No matches found
-                </h3>
-                <p className="text-xs text-[var(--text-secondary)] mb-4">
-                  No items in your library match the current filters or search query.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStatusFilter('all');
-                    setTypeFilter('all');
-                    setLibrarySearch('');
-                  }}
-                  className="px-3.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium transition-all border border-[var(--border-light)]"
+              ) : (
+                <div
+                  data-cols={gridColumns}
+                  className={`bingelog-media-grid ${
+                    gridDensity === 'compact'
+                      ? 'gap-2 sm:gap-2.5'
+                      : 'gap-3.5 sm:gap-4 lg:gap-5'
+                  } ${
+                    gridColumns === 'auto'
+                      ? gridDensity === 'compact'
+                        ? 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8'
+                        : 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+                      : ''
+                  }`}
                 >
-                  Clear Filters
-                </button>
+                  {filteredItems.map(item => (
+                    <MediaCard
+                      key={item.id}
+                      item={item}
+                      onClick={(clicked) => setSelectedMedia(clicked)}
+                      onQuickIncrement={handleQuickIncrement}
+                      onQuickToggleMovie={handleQuickToggleMovie}
+                      ratingScale={ratingScale}
+                      density={gridDensity}
+                    />
+                  ))}
+                </div>
+              )
+            ) : (
+              /* Empty State */
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-dashed border-[var(--border-light)] rounded-3xl bg-[var(--bg-secondary)]/40 my-8">
+                <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] mb-4">
+                  <Film className="w-7 h-7" />
+                </div>
+
+                {mediaList.length === 0 ? (
+                  <div className="max-w-md">
+                    <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">
+                      Your Watch Library is Empty
+                    </h2>
+                    <p className="text-xs sm:text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
+                      Start tracking movies and TV shows! Type a name into the search bar to automatically fetch seasons, episode titles, and poster artwork.
+                    </p>
+
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setIsSearchOpen(true)}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs sm:text-sm font-bold shadow-lg shadow-[var(--accent)]/30 transition-all active:scale-95"
+                      >
+                        <Search className="w-4 h-4" />
+                        <span>Search Series & Movies</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualEditItem(null);
+                          setIsManualOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs sm:text-sm font-semibold transition-all border border-[var(--border-light)]"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Add Custom Entry</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="max-w-sm">
+                    <h3 className="text-base font-semibold text-[var(--text-primary)] mb-1">
+                      No matches found
+                    </h3>
+                    <p className="text-xs text-[var(--text-secondary)] mb-4">
+                      No items in your library match the current filters or search query.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter('all');
+                        setTypeFilter('all');
+                        setLibrarySearch('');
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium transition-all border border-[var(--border-light)]"
+                    >
+                      Clear Filters
+                    </button>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-      </main>
+          </main>
 
-      {/* Footer */}
-      <footer className="border-t border-[var(--border-light)] py-6 text-center text-xs text-[var(--text-tertiary)]">
-        <p>BingeLog • Unlimited IndexedDB Storage • Metadata via TMDB & TVMaze</p>
-      </footer>
+          {/* Footer */}
+          <footer className="border-t border-[var(--border-light)] py-6 text-center text-xs text-[var(--text-tertiary)]">
+            <p>BingeLog • Unlimited IndexedDB Storage • Metadata via TMDB & TVMaze</p>
+          </footer>
+        </>
+      )}
 
       {/* Search Modal */}
       <SearchModal
@@ -700,6 +721,7 @@ export default function App(): React.JSX.Element {
             refreshLibrary();
           }}
           onEditCustom={handleOpenEdit}
+          onOpenInCanvas={() => handleMainTabChange('canvas')}
           ratingScale={ratingScale}
           onRatingScaleChange={setRatingScale}
         />

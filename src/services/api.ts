@@ -22,6 +22,11 @@ import type {
   TMDBTV,
   TMDBSeasonDetail,
   TMDBMultiSearchResult,
+  TMDBCollectionSearchResult,
+  TMDBCollectionPart,
+  TMDBCollectionDetail,
+  CanvasNode,
+  CanvasEdge,
   TVMazeShow,
   TVMazeSearchResultItem,
   TVMazeEpisode,
@@ -567,6 +572,10 @@ async function fetchTMDBMovieDetails(
   const communityRating = data.vote_average ? Number(data.vote_average.toFixed(1)) : (fallbackItem.communityRating ?? null);
   const communityRatingCount = data.vote_count || fallbackItem.communityRatingCount || null;
 
+  const belongsToCollection = (data as { belongs_to_collection?: { id: number; name: string } | null })?.belongs_to_collection;
+  const collectionId = belongsToCollection?.id || fallbackItem.collectionId || null;
+  const collectionName = belongsToCollection?.name || fallbackItem.collectionName || null;
+
   const media: Partial<MediaItem> = {
     ...fallbackItem,
     rating: fallbackItem.rating ?? null,
@@ -582,6 +591,8 @@ async function fetchTMDBMovieDetails(
     source: 'tmdb',
     externalId: movieId,
     tmdbId: movieId,
+    collectionId,
+    collectionName,
     imdbId: (data as { external_ids?: { imdb_id?: string } })?.external_ids?.imdb_id || (data as { imdb_id?: string })?.imdb_id || fallbackItem.imdbId || null,
     totalSeasons: 0,
     totalEpisodes: 1,
@@ -590,6 +601,170 @@ async function fetchTMDBMovieDetails(
   };
 
   return { media, episodes: [] };
+}
+
+/**
+ * Search TMDB for movie series / franchise collections (e.g. "Star Wars Collection", "Avengers").
+ */
+export async function searchTMDBCollections(query: string): Promise<TMDBCollectionSearchResult[]> {
+  if (!query || !query.trim()) return [];
+  const apiKey = await getTmdbApiKey();
+  if (!apiKey) return [];
+
+  try {
+    const res = await fetch(
+      `${TMDB_BASE_URL}/search/collection?query=${encodeURIComponent(query.trim())}&api_key=${encodeURIComponent(apiKey)}`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).map((col: { id: number; name: string; overview?: string; poster_path?: string | null; backdrop_path?: string | null }): TMDBCollectionSearchResult => ({
+      id: col.id,
+      name: col.name,
+      overview: col.overview || '',
+      poster_path: col.poster_path ? `${TMDB_IMAGE_BASE}/w500${col.poster_path}` : null,
+      backdrop_path: col.backdrop_path ? `${TMDB_IMAGE_BASE}/original${col.backdrop_path}` : null
+    }));
+  } catch (err) {
+    console.error('searchTMDBCollections error:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetch complete movie series / collection details and all parts from TMDB.
+ */
+export async function fetchTMDBCollection(collectionId: number | string): Promise<TMDBCollectionDetail | null> {
+  const apiKey = await getTmdbApiKey();
+  if (!apiKey || !collectionId) return null;
+
+  try {
+    const res = await fetch(`${TMDB_BASE_URL}/collection/${collectionId}?api_key=${encodeURIComponent(apiKey)}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const parts: TMDBCollectionPart[] = (data.parts || []).map((part: {
+      id: number;
+      title: string;
+      overview?: string;
+      release_date?: string;
+      poster_path?: string | null;
+      backdrop_path?: string | null;
+      vote_average?: number;
+      vote_count?: number;
+      popularity?: number;
+      genre_ids?: number[];
+    }): TMDBCollectionPart => ({
+      id: part.id,
+      title: part.title,
+      overview: part.overview || '',
+      release_date: part.release_date || '',
+      poster_path: part.poster_path ? `${TMDB_IMAGE_BASE}/w500${part.poster_path}` : null,
+      backdrop_path: part.backdrop_path ? `${TMDB_IMAGE_BASE}/original${part.backdrop_path}` : null,
+      vote_average: part.vote_average,
+      vote_count: part.vote_count,
+      popularity: part.popularity,
+      genre_ids: part.genre_ids,
+      media_type: 'movie'
+    }));
+
+    // Sort parts chronologically by release_date
+    parts.sort((a, b) => {
+      if (!a.release_date) return 1;
+      if (!b.release_date) return -1;
+      return a.release_date.localeCompare(b.release_date);
+    });
+
+    return {
+      id: data.id,
+      name: data.name,
+      overview: data.overview || '',
+      poster_path: data.poster_path ? `${TMDB_IMAGE_BASE}/w500${data.poster_path}` : null,
+      backdrop_path: data.backdrop_path ? `${TMDB_IMAGE_BASE}/original${data.backdrop_path}` : null,
+      parts
+    };
+  } catch (err) {
+    console.error('fetchTMDBCollection error:', err);
+    return null;
+  }
+}
+
+/**
+ * Convert a TMDB Collection into connected Canvas nodes and sequential edges.
+ */
+export function collectionToCanvasGraph(
+  collection: TMDBCollectionDetail,
+  existingLibrary: MediaItem[] = [],
+  startPos: { x: number; y: number } = { x: 80, y: 120 }
+): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+  const nodes: CanvasNode[] = [];
+  const edges: CanvasEdge[] = [];
+
+  const parts = [...(collection.parts || [])].sort((a, b) => {
+    if (!a.release_date) return 1;
+    if (!b.release_date) return -1;
+    return a.release_date.localeCompare(b.release_date);
+  });
+
+  const nodeWidth = 240;
+  const nodeGapX = 100;
+  const nodeGapY = 140;
+
+  parts.forEach((part, index) => {
+    const nodeId = `node_${part.id}_${Date.now()}_${index}`;
+    // Check if this part matches an existing item in user library
+    const matched = existingLibrary.find(
+      m => (m.tmdbId && String(m.tmdbId) === String(part.id)) ||
+           (m.title && part.title && m.title.trim().toLowerCase() === part.title.trim().toLowerCase())
+    );
+
+    const year = part.release_date ? new Date(part.release_date).getFullYear() : 'N/A';
+    const posterUrl = part.poster_path || (matched?.posterUrl ? matched.posterUrl : null);
+    const backdropUrl = part.backdrop_path || (matched?.backdropUrl ? matched.backdropUrl : null);
+
+    const col = index % 4;
+    const row = Math.floor(index / 4);
+    const x = startPos.x + col * (nodeWidth + nodeGapX);
+    const y = startPos.y + row * (300 + nodeGapY);
+
+    nodes.push({
+      id: nodeId,
+      type: 'mediaNode',
+      position: { x, y },
+      data: {
+        mediaId: matched?.id,
+        title: part.title,
+        year,
+        releaseDate: part.release_date || '',
+        type: 'movie',
+        posterUrl,
+        backdropUrl,
+        status: matched?.status || 'plan_to_watch',
+        rating: matched?.rating ?? null,
+        communityRating: part.vote_average ? Number(part.vote_average.toFixed(1)) : (matched?.communityRating ?? null),
+        source: 'tmdb',
+        externalId: part.id,
+        totalEpisodes: 1,
+        watchedEpisodesCount: matched ? (matched.status === 'completed' ? 1 : 0) : 0,
+        overview: part.overview || '',
+        collectionId: collection.id,
+        collectionName: collection.name
+      }
+    });
+
+    // Create sequential sequel edge
+    if (index > 0) {
+      const prevNodeId = nodes[index - 1].id;
+      edges.push({
+        id: `edge_${prevNodeId}_to_${nodeId}`,
+        source: prevNodeId,
+        target: nodeId,
+        relationType: 'sequel',
+        label: 'Sequel',
+        animated: false
+      });
+    }
+  });
+
+  return { nodes, edges };
 }
 
 /**

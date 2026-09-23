@@ -98,6 +98,8 @@ export interface MediaItem {
   lastAiredDate?: string | null;            // ISO date or YYYY-MM-DD of most recent aired episode/release
   lists?: string[];                         // Custom lists / folders (Issue #20)
   runtime?: number | null;                  // Movie runtime in minutes
+  collectionId?: number | string | null;    // TMDB Collection / Franchise ID (e.g. 10 for Star Wars Collection)
+  collectionName?: string | null;           // TMDB Collection Name (e.g. 'Star Wars Collection')
   notes?: string;                           // Personal user review / notes
   lastSyncedAt?: string;                    // ISO timestamp of last successful sync
   createdAt: string;                        // ISO creation timestamp

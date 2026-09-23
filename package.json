@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@xyflow/react": "^12.11.6",
+    "dagre": "^0.8.5",
     "dexie": "^4.4.5",
     "lucide-react": "^1.43.0",
     "react": "^19.2.8",
@@ -21,6 +23,7 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@types/dagre": "^0.7.54",
     "@types/node": "^22.20.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

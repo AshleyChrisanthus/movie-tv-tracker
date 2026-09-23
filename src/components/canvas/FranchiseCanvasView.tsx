@@ -33,9 +33,11 @@ import { FranchiseMediaNode } from './FranchiseMediaNode';
 import { FranchiseGroupNode } from './FranchiseGroupNode';
 import { CanvasQuickAddModal } from './CanvasQuickAddModal';
 import { CanvasEdgeEditModal } from './CanvasEdgeEditModal';
+import { SpinoffDiscoveryModal } from './SpinoffDiscoveryModal';
 import { getCanvases, saveCanvas, deleteCanvas } from '../../db';
 import type {
   MediaItem,
+  MediaSearchResult,
   FranchiseCanvas,
   CanvasNode,
   CanvasEdge,
@@ -110,6 +112,8 @@ export const FranchiseCanvasView: React.FC<FranchiseCanvasViewProps> = ({
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [selectedEdge, setSelectedEdge] = useState<CanvasEdge | null>(null);
   const [isEdgeModalOpen, setIsEdgeModalOpen] = useState(false);
+  const [spinoffTarget, setSpinoffTarget] = useState<{ id: string; data: CanvasNodeData } | null>(null);
+  const [isSpinoffModalOpen, setIsSpinoffModalOpen] = useState(false);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -315,6 +319,80 @@ export const FranchiseCanvasView: React.FC<FranchiseCanvasViewProps> = ({
     [triggerAutoSave, setNodes, setEdges]
   );
 
+  // Open spinoff discovery modal from node action
+  const handleOpenFindSpinoffs = useCallback((nodeData: CanvasNodeData, nodeId: string) => {
+    setSpinoffTarget({ id: nodeId, data: nodeData });
+    setIsSpinoffModalOpen(true);
+  }, []);
+
+  // Add discovered spinoff connected to source node
+  const handleAddSpinoffFromModal = useCallback(
+    (sourceNodeId: string, tvShow: MediaSearchResult) => {
+      const sourceNode = nodes.find((n) => n.id === sourceNodeId);
+      const matched = libraryItems.find(
+        (m) =>
+          (tvShow.tmdbId && m.tmdbId && String(m.tmdbId) === String(tvShow.tmdbId)) ||
+          (tvShow.tvmazeId && m.tvmazeId && String(m.tvmazeId) === String(tvShow.tvmazeId)) ||
+          (m.title && tvShow.title && m.title.trim().toLowerCase() === tvShow.title.trim().toLowerCase())
+      );
+
+      const tvNodeId = `node_spinoff_${tvShow.externalId || tvShow.tvmazeId || tvShow.tmdbId || Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const sourceX = sourceNode?.position.x ?? 120;
+      const sourceY = sourceNode?.position.y ?? 120;
+
+      const newTvNode: Node = {
+        id: tvNodeId,
+        type: 'mediaNode',
+        position: {
+          x: sourceX + 40,
+          y: sourceY + 280
+        },
+        data: {
+          mediaId: matched?.id,
+          title: tvShow.title,
+          year: tvShow.year || (tvShow.releaseDate ? new Date(tvShow.releaseDate).getFullYear() : 'N/A'),
+          releaseDate: tvShow.releaseDate || '',
+          type: 'tv',
+          posterUrl: tvShow.posterUrl || (matched?.posterUrl ? matched.posterUrl : null),
+          backdropUrl: tvShow.backdropUrl || (matched?.backdropUrl ? matched.backdropUrl : null),
+          status: matched?.status || 'plan_to_watch',
+          rating: matched?.rating ?? null,
+          communityRating: tvShow.communityRating ?? (matched?.communityRating ?? null),
+          source: tvShow.source || 'tvmaze',
+          externalId: tvShow.externalId,
+          tmdbId: tvShow.tmdbId,
+          tvmazeId: tvShow.tvmazeId,
+          imdbId: tvShow.imdbId,
+          totalEpisodes: matched?.totalEpisodes || 8,
+          watchedEpisodesCount: matched ? (matched.status === 'completed' ? (matched.totalEpisodes || 8) : (matched.watchedEpisodesCount || 0)) : 0,
+          overview: tvShow.overview || '',
+          collectionId: (sourceNode?.data as CanvasNodeData)?.collectionId,
+          collectionName: (sourceNode?.data as CanvasNodeData)?.collectionName
+        }
+      };
+
+      const newEdge: CanvasEdge = {
+        id: `edge_spinoff_${sourceNodeId}_to_${tvNodeId}`,
+        source: sourceNodeId,
+        target: tvNodeId,
+        relationType: 'spinoff',
+        label: 'Spinoff Series',
+        animated: true
+      };
+
+      setNodes((nds) => {
+        const nextNodes = [...nds, newTvNode];
+        setEdges((eds) => {
+          const nextEdges = [...eds, newEdge as unknown as Edge];
+          triggerAutoSave(nextNodes, nextEdges);
+          return nextEdges;
+        });
+        return nextNodes;
+      });
+    },
+    [nodes, libraryItems, triggerAutoSave, setNodes, setEdges]
+  );
+
   // Custom node types with attached handlers
   const decoratedNodes = useMemo(() => {
     return nodes.map((n) => ({
@@ -322,10 +400,11 @@ export const FranchiseCanvasView: React.FC<FranchiseCanvasViewProps> = ({
       data: {
         ...n.data,
         onInspect: handleInspectNodeData,
-        onDelete: handleDeleteNode
+        onDelete: handleDeleteNode,
+        onFindSpinoffs: handleOpenFindSpinoffs
       }
     }));
-  }, [nodes, handleInspectNodeData, handleDeleteNode]);
+  }, [nodes, handleInspectNodeData, handleDeleteNode, handleOpenFindSpinoffs]);
 
   // Click on edge to edit relation
   const onEdgeClick = useCallback(
@@ -749,6 +828,17 @@ export const FranchiseCanvasView: React.FC<FranchiseCanvasViewProps> = ({
         }}
         onSave={handleSaveEdge}
         onDelete={handleDeleteEdge}
+      />
+
+      {/* Spinoff Discovery Modal */}
+      <SpinoffDiscoveryModal
+        isOpen={isSpinoffModalOpen}
+        targetNode={spinoffTarget}
+        onClose={() => {
+          setIsSpinoffModalOpen(false);
+          setSpinoffTarget(null);
+        }}
+        onAddSpinoff={handleAddSpinoffFromModal}
       />
     </div>
   );

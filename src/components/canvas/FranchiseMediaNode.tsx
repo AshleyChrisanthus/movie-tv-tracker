@@ -1,12 +1,13 @@
 import React, { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { Film, Tv, BookOpen, Star, Trash2, ExternalLink } from 'lucide-react';
+import { Film, Tv, BookOpen, Star, Trash2, ExternalLink, Sparkles } from 'lucide-react';
 import type { CanvasNodeData } from '../../types';
 
 export type FranchiseMediaNodeType = Node<
   CanvasNodeData & {
     onInspect?: (data: CanvasNodeData) => void;
     onDelete?: (nodeId: string) => void;
+    onFindSpinoffs?: (data: CanvasNodeData, nodeId: string) => void;
   },
   'mediaNode'
 >;
@@ -127,6 +128,19 @@ export const FranchiseMediaNode = memo(({ id, data, selected }: FranchiseMediaNo
             )}
 
             <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+              {data.onFindSpinoffs && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    data.onFindSpinoffs?.(data, id);
+                  }}
+                  className="p-1 rounded-md bg-[var(--bg-tertiary)] hover:bg-[var(--accent)] hover:text-white text-[var(--text-secondary)] transition-colors"
+                  title="Find Spinoffs & Connected TV Shows"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={(e) => {

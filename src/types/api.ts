@@ -250,3 +250,13 @@ export interface TMDBCollectionDetail {
   backdrop_path?: string | null;
   parts: TMDBCollectionPart[];
 }
+
+/**
+ * Options for automated TV series and spinoff discovery across media types.
+ */
+export interface DiscoverConnectedTVOptions {
+  franchiseName: string;
+  movieTmdbIds?: (number | string)[];
+  movieTitles?: string[];
+  limit?: number;
+}

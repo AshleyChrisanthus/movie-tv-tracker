@@ -25,8 +25,10 @@ import type {
   TMDBCollectionSearchResult,
   TMDBCollectionPart,
   TMDBCollectionDetail,
+  DiscoverConnectedTVOptions,
   CanvasNode,
   CanvasEdge,
+  CanvasEdgeType,
   TVMazeShow,
   TVMazeSearchResultItem,
   TVMazeEpisode,
@@ -688,10 +690,224 @@ export async function fetchTMDBCollection(collectionId: number | string): Promis
 }
 
 /**
+ * Discover connected TV shows, spinoffs, and television expansions for a given franchise
+ * or movie collection using automated TMDB keywords discovery, TMDB discover TV, and TVMaze search.
+ * This runs dynamically across data sources without requiring hardcoded universe templates.
+ */
+export async function discoverConnectedTVShows(
+  options: DiscoverConnectedTVOptions
+): Promise<MediaSearchResult[]> {
+  const { franchiseName, movieTmdbIds = [], movieTitles = [], limit = 10 } = options;
+  if (!franchiseName && movieTitles.length === 0 && movieTmdbIds.length === 0) return [];
+
+  const apiKey = await getTmdbApiKey();
+  const resultsMap = new Map<string, { result: MediaSearchResult; score: number }>();
+
+  // Deduplication key helper
+  const getDedupeKey = (item: { tmdbId?: string | number | null; tvmazeId?: string | number | null; imdbId?: string | null; title: string }) => {
+    if (item.tmdbId) return `tmdb_${item.tmdbId}`;
+    if (item.imdbId) return `imdb_${item.imdbId}`;
+    if (item.tvmazeId) return `tvmaze_${item.tvmazeId}`;
+    return `title_${item.title.toLowerCase().trim().replace(/[^a-z0-9]/g, '')}`;
+  };
+
+  // Derive search keywords from franchise name and movie titles
+  const rawBase = (franchiseName || movieTitles[0] || '').trim();
+  const cleaned = rawBase
+    .replace(/\s+(collection|franchise|series|trilogy|saga|universe|cinematic universe|world)$/i, '')
+    .trim();
+  const withoutThe = cleaned.replace(/^the\s+/i, '').trim();
+
+  const searchKeywords = new Set<string>();
+  if (cleaned) searchKeywords.add(cleaned);
+  if (withoutThe && withoutThe.length > 2) searchKeywords.add(withoutThe);
+  for (const t of movieTitles.slice(0, 3)) {
+    const cleanT = t.replace(/\s+(part|chapter)\s+[ivx\d]+/i, '').trim();
+    if (cleanT) searchKeywords.add(cleanT);
+  }
+
+  // 1. TMDB Keyword & TV Discover (if TMDB API key is available)
+  if (apiKey) {
+    try {
+      const keywordIds: number[] = [];
+      const targetIds = movieTmdbIds.slice(0, 2);
+      await Promise.all(
+        targetIds.map(async (mId) => {
+          try {
+            const kwRes = await fetch(`${TMDB_BASE_URL}/movie/${mId}/keywords?api_key=${encodeURIComponent(apiKey)}`);
+            if (kwRes.ok) {
+              const kwData = await kwRes.json();
+              if (Array.isArray(kwData.keywords)) {
+                for (const kw of kwData.keywords) {
+                  keywordIds.push(kw.id);
+                }
+              }
+            }
+          } catch {
+            // Ignore fetch error for single movie keywords
+          }
+        })
+      );
+
+      // If keywords found, discover TV shows sharing those universe keywords
+      if (keywordIds.length > 0) {
+        const kwParam = keywordIds.slice(0, 3).join('|');
+        const discRes = await fetch(
+          `${TMDB_BASE_URL}/discover/tv?api_key=${encodeURIComponent(apiKey)}&with_keywords=${encodeURIComponent(kwParam)}&sort_by=popularity.desc`
+        );
+        if (discRes.ok) {
+          const discData = await discRes.json();
+          if (Array.isArray(discData.results)) {
+            for (const show of discData.results) {
+              const year = show.first_air_date ? new Date(show.first_air_date).getFullYear() : 'N/A';
+              const item: MediaSearchResult = {
+                externalId: show.id,
+                tmdbId: show.id,
+                source: 'tmdb',
+                type: 'tv',
+                title: show.name,
+                year,
+                releaseDate: show.first_air_date || '',
+                overview: show.overview || '',
+                rating: null,
+                communityRating: show.vote_average ? Number(show.vote_average.toFixed(1)) : null,
+                communityRatingCount: show.vote_count ?? null,
+                posterUrl: show.poster_path ? `${TMDB_IMAGE_BASE}/w500${show.poster_path}` : null,
+                backdropUrl: show.backdrop_path ? `${TMDB_IMAGE_BASE}/original${show.backdrop_path}` : null,
+                popularity: show.popularity
+              };
+              const key = getDedupeKey(item);
+              resultsMap.set(key, { result: item, score: 12 + (show.popularity ? Math.min(show.popularity / 20, 5) : 0) });
+            }
+          }
+        }
+      }
+
+      // Also search TMDB TV directly with cleaned franchise name
+      if (cleaned) {
+        const tvSearchRes = await fetch(
+          `${TMDB_BASE_URL}/search/tv?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(cleaned)}&include_adult=false`
+        );
+        if (tvSearchRes.ok) {
+          const tvData = await tvSearchRes.json();
+          if (Array.isArray(tvData.results)) {
+            for (const show of tvData.results.slice(0, 8)) {
+              const year = show.first_air_date ? new Date(show.first_air_date).getFullYear() : 'N/A';
+              const item: MediaSearchResult = {
+                externalId: show.id,
+                tmdbId: show.id,
+                source: 'tmdb',
+                type: 'tv',
+                title: show.name,
+                year,
+                releaseDate: show.first_air_date || '',
+                overview: show.overview || '',
+                rating: null,
+                communityRating: show.vote_average ? Number(show.vote_average.toFixed(1)) : null,
+                communityRatingCount: show.vote_count ?? null,
+                posterUrl: show.poster_path ? `${TMDB_IMAGE_BASE}/w500${show.poster_path}` : null,
+                backdropUrl: show.backdrop_path ? `${TMDB_IMAGE_BASE}/original${show.backdrop_path}` : null,
+                popularity: show.popularity
+              };
+              const key = getDedupeKey(item);
+              const prev = resultsMap.get(key);
+              const score = 10 + (show.popularity ? Math.min(show.popularity / 20, 5) : 0);
+              if (!prev || score > prev.score) {
+                resultsMap.set(key, { result: item, score });
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('discoverConnectedTVShows TMDB error:', err);
+    }
+  }
+
+  // 2. TVMaze Search (Free, zero API key required fallback and cross-reference)
+  const queriesToRun = Array.from(searchKeywords).slice(0, 3);
+  await Promise.all(
+    queriesToRun.map(async (query) => {
+      try {
+        const tvmazeResults = await searchTVMaze(query);
+        for (const item of tvmazeResults) {
+          const key = getDedupeKey(item);
+          let score = 5;
+
+          const titleLower = item.title.toLowerCase();
+          const cleanLower = cleaned.toLowerCase();
+          const queryLower = query.toLowerCase();
+          const overviewLower = (item.overview || '').toLowerCase();
+
+          // Relevance scoring
+          if (titleLower === cleanLower || titleLower === queryLower) {
+            score += 10;
+          } else if (titleLower.includes(queryLower)) {
+            score += 7;
+          }
+
+          // Does overview mention the movie title or franchise?
+          // (e.g. The Penguin overview: "continues filmmaker Matt Reeves' The Batman epic crime saga")
+          if (overviewLower.includes(cleanLower) || (withoutThe && overviewLower.includes(withoutThe.toLowerCase()))) {
+            score += 9;
+          }
+
+          for (const mTitle of movieTitles) {
+            if (mTitle && overviewLower.includes(mTitle.toLowerCase())) {
+              score += 9;
+              break;
+            }
+          }
+
+          const existing = resultsMap.get(key);
+          if (!existing) {
+            resultsMap.set(key, { result: item, score });
+          } else {
+            existing.score = Math.max(existing.score, score) + 3;
+            if (!existing.result.overview && item.overview) existing.result.overview = item.overview;
+            if (!existing.result.posterUrl && item.posterUrl) existing.result.posterUrl = item.posterUrl;
+            if (!existing.result.tvmazeId && item.tvmazeId) existing.result.tvmazeId = item.tvmazeId;
+            if (!existing.result.imdbId && item.imdbId) existing.result.imdbId = item.imdbId;
+          }
+        }
+      } catch (err) {
+        console.error('discoverConnectedTVShows TVMaze error:', err);
+      }
+    })
+  );
+
+  // Filter TV results, sort by relevance score then release date
+  return Array.from(resultsMap.values())
+    .filter(({ result }) => result.type === 'tv')
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.result.releaseDate && b.result.releaseDate) {
+        return b.result.releaseDate.localeCompare(a.result.releaseDate);
+      }
+      return 0;
+    })
+    .slice(0, limit)
+    .map(({ result }) => result);
+}
+
+/**
  * Convert a TMDB Collection into connected Canvas nodes and sequential edges.
  */
 export function collectionToCanvasGraph(
   collection: TMDBCollectionDetail,
+  existingLibrary: MediaItem[] = [],
+  startPos: { x: number; y: number } = { x: 80, y: 120 }
+): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+  return crossMediaToCanvasGraph(collection, [], existingLibrary, startPos);
+}
+
+/**
+ * Convert a TMDB Movie Collection together with connected TV series / spinoffs into
+ * an interconnected cross-media canvas graph with chronological sequencing and spinoff branches.
+ */
+export function crossMediaToCanvasGraph(
+  collection: TMDBCollectionDetail,
+  connectedTVShows: MediaSearchResult[] = [],
   existingLibrary: MediaItem[] = [],
   startPos: { x: number; y: number } = { x: 80, y: 120 }
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
@@ -708,9 +924,10 @@ export function collectionToCanvasGraph(
   const nodeGapX = 100;
   const nodeGapY = 140;
 
+  // 1. Create Movie Nodes on the Main Franchise Axis
+  const movieNodes: CanvasNode[] = [];
   parts.forEach((part, index) => {
     const nodeId = `node_${part.id}_${Date.now()}_${index}`;
-    // Check if this part matches an existing item in user library
     const matched = existingLibrary.find(
       m => (m.tmdbId && String(m.tmdbId) === String(part.id)) ||
            (m.title && part.title && m.title.trim().toLowerCase() === part.title.trim().toLowerCase())
@@ -725,7 +942,7 @@ export function collectionToCanvasGraph(
     const x = startPos.x + col * (nodeWidth + nodeGapX);
     const y = startPos.y + row * (300 + nodeGapY);
 
-    nodes.push({
+    const node: CanvasNode = {
       id: nodeId,
       type: 'mediaNode',
       position: { x, y },
@@ -748,11 +965,14 @@ export function collectionToCanvasGraph(
         collectionId: collection.id,
         collectionName: collection.name
       }
-    });
+    };
 
-    // Create sequential sequel edge
+    movieNodes.push(node);
+    nodes.push(node);
+
+    // Sequential movie sequel edge
     if (index > 0) {
-      const prevNodeId = nodes[index - 1].id;
+      const prevNodeId = movieNodes[index - 1].id;
       edges.push({
         id: `edge_${prevNodeId}_to_${nodeId}`,
         source: prevNodeId,
@@ -760,6 +980,88 @@ export function collectionToCanvasGraph(
         relationType: 'sequel',
         label: 'Sequel',
         animated: false
+      });
+    }
+  });
+
+  // 2. Create TV Series Nodes on the Spinoff Axis
+  const sortedTV = [...connectedTVShows].sort((a, b) => {
+    if (!a.releaseDate) return 1;
+    if (!b.releaseDate) return -1;
+    return a.releaseDate.localeCompare(b.releaseDate);
+  });
+
+  sortedTV.forEach((tvShow, tvIndex) => {
+    const tvNodeId = `node_tv_${tvShow.externalId || tvShow.tvmazeId || tvShow.tmdbId || Date.now()}_${tvIndex}`;
+    const matched = existingLibrary.find(
+      m => (m.tmdbId && tvShow.tmdbId && String(m.tmdbId) === String(tvShow.tmdbId)) ||
+           (m.tvmazeId && tvShow.tvmazeId && String(m.tvmazeId) === String(tvShow.tvmazeId)) ||
+           (m.title && tvShow.title && m.title.trim().toLowerCase() === tvShow.title.trim().toLowerCase())
+    );
+
+    const year = tvShow.year || (tvShow.releaseDate ? new Date(tvShow.releaseDate).getFullYear() : 'N/A');
+    const posterUrl = tvShow.posterUrl || (matched?.posterUrl ? matched.posterUrl : null);
+    const backdropUrl = tvShow.backdropUrl || (matched?.backdropUrl ? matched.backdropUrl : null);
+
+    // Find closest preceding movie in release date
+    let sourceMovieIndex = 0;
+    if (movieNodes.length > 0) {
+      for (let i = 0; i < parts.length; i++) {
+        const mDate = parts[i].release_date;
+        if (mDate && tvShow.releaseDate && mDate <= tvShow.releaseDate) {
+          sourceMovieIndex = i;
+        }
+      }
+    }
+
+    const sourceMovieNode = movieNodes[sourceMovieIndex] || movieNodes[0];
+    const sourceX = sourceMovieNode ? sourceMovieNode.position.x : startPos.x;
+    const isPrequel = parts.length > 0 && parts[0].release_date && tvShow.releaseDate && tvShow.releaseDate < parts[0].release_date;
+    const relationType: CanvasEdgeType = isPrequel ? 'prequel' : 'spinoff';
+    const relationLabel = isPrequel ? 'Prequel Series' : 'Spinoff Series';
+
+    // Position TV nodes beneath or offset from corresponding movie
+    const x = sourceX + (tvIndex % 2 === 0 ? 0 : 40);
+    const y = startPos.y + 360 + tvIndex * 180;
+
+    const tvNode: CanvasNode = {
+      id: tvNodeId,
+      type: 'mediaNode',
+      position: { x, y },
+      data: {
+        mediaId: matched?.id,
+        title: tvShow.title,
+        year,
+        releaseDate: tvShow.releaseDate || '',
+        type: 'tv',
+        posterUrl,
+        backdropUrl,
+        status: matched?.status || 'plan_to_watch',
+        rating: matched?.rating ?? null,
+        communityRating: tvShow.communityRating ?? (matched?.communityRating ?? null),
+        source: tvShow.source || 'tvmaze',
+        externalId: tvShow.externalId,
+        tmdbId: tvShow.tmdbId,
+        tvmazeId: tvShow.tvmazeId,
+        imdbId: tvShow.imdbId,
+        totalEpisodes: matched?.totalEpisodes || 8,
+        watchedEpisodesCount: matched ? (matched.status === 'completed' ? (matched.totalEpisodes || 8) : (matched.watchedEpisodesCount || 0)) : 0,
+        overview: tvShow.overview || '',
+        collectionId: collection.id,
+        collectionName: collection.name
+      }
+    };
+
+    nodes.push(tvNode);
+
+    if (sourceMovieNode) {
+      edges.push({
+        id: `edge_${sourceMovieNode.id}_to_${tvNodeId}`,
+        source: sourceMovieNode.id,
+        target: tvNodeId,
+        relationType,
+        label: relationLabel,
+        animated: true
       });
     }
   });

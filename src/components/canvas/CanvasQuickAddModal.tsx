@@ -3,12 +3,22 @@ import {
   X,
   Search,
   Film,
+  Tv,
   Layers,
   Sparkles,
   Plus,
-  Loader2
+  Loader2,
+  CheckSquare,
+  Square
 } from 'lucide-react';
-import { searchMedia, searchTMDBCollections, fetchTMDBCollection, collectionToCanvasGraph } from '../../services/api';
+import {
+  searchMedia,
+  searchTMDBCollections,
+  fetchTMDBCollection,
+  collectionToCanvasGraph,
+  discoverConnectedTVShows,
+  crossMediaToCanvasGraph
+} from '../../services/api';
 import type {
   MediaItem,
   MediaSearchResult,
@@ -53,11 +63,33 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
   const [isSearchingCollections, setIsSearchingCollections] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<TMDBCollectionDetail | null>(null);
   const [_isLoadingCollectionDetail, setIsLoadingCollectionDetail] = useState(false);
+  const [discoveredTVShows, setDiscoveredTVShows] = useState<MediaSearchResult[]>([]);
+  const [selectedTVIds, setSelectedTVIds] = useState<Set<string | number>>(new Set());
+  const [isDiscoveringTV, setIsDiscoveringTV] = useState(false);
 
   // Tab 4: Group Phase
   const [groupLabel, setGroupLabel] = useState('');
   const [groupDesc, setGroupDesc] = useState('');
   const [groupColor, setGroupColor] = useState('#6366f1');
+
+  const getTVKey = (show: MediaSearchResult) => String(show.externalId || show.tvmazeId || show.tmdbId || show.title);
+
+  const toggleTVSelection = (key: string | number) => {
+    setSelectedTVIds(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAllTV = () => {
+    if (selectedTVIds.size === discoveredTVShows.length) {
+      setSelectedTVIds(new Set());
+    } else {
+      setSelectedTVIds(new Set(discoveredTVShows.map(getTVKey)));
+    }
+  };
 
   // Search Debounce for Provider Search
   useEffect(() => {
@@ -103,19 +135,38 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
 
   const handleSelectCollection = async (col: TMDBCollectionSearchResult) => {
     setIsLoadingCollectionDetail(true);
+    setIsDiscoveringTV(true);
+    setDiscoveredTVShows([]);
+    setSelectedTVIds(new Set());
     try {
       const detail = await fetchTMDBCollection(col.id);
       setSelectedCollection(detail);
+      setIsLoadingCollectionDetail(false);
+
+      if (detail) {
+        // Trigger dynamic cross-media TV series & spinoff discovery
+        const tvList = await discoverConnectedTVShows({
+          franchiseName: detail.name,
+          movieTmdbIds: detail.parts.map(p => p.id),
+          movieTitles: detail.parts.map(p => p.title),
+          limit: 8
+        });
+        setDiscoveredTVShows(tvList);
+        // By default select discovered connected TV shows
+        setSelectedTVIds(new Set(tvList.map(getTVKey)));
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setIsLoadingCollectionDetail(false);
+      setIsDiscoveringTV(false);
     }
   };
 
   const handleConfirmImportCollection = () => {
     if (!selectedCollection) return;
-    const { nodes, edges } = collectionToCanvasGraph(selectedCollection, libraryItems);
+    const tvToInclude = discoveredTVShows.filter(show => selectedTVIds.has(getTVKey(show)));
+    const { nodes, edges } = crossMediaToCanvasGraph(selectedCollection, tvToInclude, libraryItems);
     onImportCollection(nodes, edges);
     onClose();
   };
@@ -207,7 +258,7 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
                         {selectedCollection.name}
                       </h3>
                       <p className="text-xs text-[var(--text-secondary)]">
-                        {selectedCollection.parts.length} movies found • Ready to generate timeline graph
+                        {selectedCollection.parts.length} movies • {isDiscoveringTV ? 'Searching for connected TV series...' : `${discoveredTVShows.length} connected TV series found`}
                       </p>
                     </div>
                     <button
@@ -225,33 +276,134 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
                     </p>
                   )}
 
-                  <div className="space-y-2 mb-6 max-h-60 overflow-y-auto pr-1">
-                    {selectedCollection.parts.map((part, idx) => (
-                      <div
-                        key={part.id}
-                        className="flex items-center gap-3 p-2.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-xs"
-                      >
-                        <span className="w-5 h-5 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] flex items-center justify-center font-bold text-[10px] shrink-0">
-                          {idx + 1}
-                        </span>
-                        <div className="w-10 h-14 rounded bg-[var(--bg-primary)] overflow-hidden shrink-0">
-                          {part.poster_path ? (
-                            <img src={part.poster_path} alt={part.title} className="w-full h-full object-cover" />
-                          ) : (
-                            <Film className="w-4 h-4 m-auto text-[var(--text-tertiary)]" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-bold text-[var(--text-primary)] truncate">{part.title}</h4>
-                          <span className="text-[11px] text-[var(--text-secondary)]">
-                            {part.release_date || 'Unknown Date'}
+                  {/* Section 1: Movies in Collection */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+                        <Film className="w-3.5 h-3.5 text-[var(--accent)]" />
+                        <span>Movies in Franchise ({selectedCollection.parts.length})</span>
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                      {selectedCollection.parts.map((part, idx) => (
+                        <div
+                          key={part.id}
+                          className="flex items-center gap-3 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-xs"
+                        >
+                          <span className="w-5 h-5 rounded-full bg-[var(--accent)]/15 text-[var(--accent)] flex items-center justify-center font-bold text-[10px] shrink-0">
+                            {idx + 1}
                           </span>
+                          <div className="w-8 h-11 rounded bg-[var(--bg-primary)] overflow-hidden shrink-0">
+                            {part.poster_path ? (
+                              <img src={part.poster_path} alt={part.title} className="w-full h-full object-cover" />
+                            ) : (
+                              <Film className="w-4 h-4 m-auto text-[var(--text-tertiary)]" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-[var(--text-primary)] truncate text-xs">{part.title}</h4>
+                            <span className="text-[10px] text-[var(--text-secondary)]">
+                              {part.release_date || 'Unknown Date'}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="flex justify-end gap-3">
+                  {/* Section 2: Connected TV Series & Spinoffs */}
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+                        <Tv className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Connected TV Series & Spinoffs ({discoveredTVShows.length})</span>
+                      </span>
+                      {discoveredTVShows.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={toggleAllTV}
+                          className="text-[11px] font-semibold text-[var(--accent)] hover:underline flex items-center gap-1"
+                        >
+                          {selectedTVIds.size === discoveredTVShows.length ? (
+                            <>
+                              <CheckSquare className="w-3 h-3" />
+                              <span>Deselect All</span>
+                            </>
+                          ) : (
+                            <>
+                              <Square className="w-3 h-3" />
+                              <span>Select All ({discoveredTVShows.length})</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    {isDiscoveringTV ? (
+                      <div className="flex items-center gap-2 p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-xs text-[var(--text-secondary)]">
+                        <Loader2 className="w-4 h-4 animate-spin text-[var(--accent)]" />
+                        <span>Discovering connected TV series & spinoffs from TMDB keywords & TVMaze...</span>
+                      </div>
+                    ) : discoveredTVShows.length > 0 ? (
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                        {discoveredTVShows.map((show) => {
+                          const key = getTVKey(show);
+                          const isChecked = selectedTVIds.has(key);
+                          return (
+                            <div
+                              key={key}
+                              onClick={() => toggleTVSelection(key)}
+                              className={`flex items-center gap-3 p-2 rounded-xl border text-xs cursor-pointer transition-all ${
+                                isChecked
+                                  ? 'bg-[var(--accent)]/10 border-[var(--accent)]/50'
+                                  : 'bg-[var(--bg-tertiary)] border-[var(--border-light)] opacity-70 hover:opacity-100'
+                              }`}
+                            >
+                              <div className="text-[var(--accent)] shrink-0">
+                                {isChecked ? (
+                                  <CheckSquare className="w-4 h-4" />
+                                ) : (
+                                  <Square className="w-4 h-4 text-[var(--text-tertiary)]" />
+                                )}
+                              </div>
+                              <div className="w-8 h-11 rounded bg-[var(--bg-primary)] overflow-hidden shrink-0">
+                                {show.posterUrl ? (
+                                  <img src={show.posterUrl} alt={show.title} className="w-full h-full object-cover" />
+                                ) : (
+                                  <Tv className="w-4 h-4 m-auto text-[var(--text-tertiary)]" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-bold text-[var(--text-primary)] truncate text-xs">
+                                    {show.title}
+                                  </h4>
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-400 shrink-0">
+                                    Spinoff Series
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-[var(--text-secondary)] block">
+                                  {show.year || show.releaseDate || 'TV Series'}
+                                </span>
+                                {show.overview && (
+                                  <p className="text-[10px] text-[var(--text-tertiary)] line-clamp-1 mt-0.5">
+                                    {show.overview}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-xs text-[var(--text-secondary)] text-center">
+                        No connected TV series automatically discovered. You can search and link specific shows via the Search tab.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-2 border-t border-[var(--border-light)]">
                     <button
                       type="button"
                       onClick={() => setSelectedCollection(null)}
@@ -265,7 +417,11 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
                       className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold shadow-lg shadow-[var(--accent)]/30 transition-all active:scale-95"
                     >
                       <Sparkles className="w-4 h-4" />
-                      <span>Import {selectedCollection.parts.length} Movies & Connect Timeline</span>
+                      <span>
+                        {selectedTVIds.size > 0
+                          ? `Import Universe (${selectedCollection.parts.length} Movies + ${selectedTVIds.size} TV Series)`
+                          : `Import ${selectedCollection.parts.length} Movies & Connect Timeline`}
+                      </span>
                     </button>
                   </div>
                 </div>

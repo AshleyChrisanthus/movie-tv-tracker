@@ -2,16 +2,16 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
   CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen, Globe,
-  Network, Sparkles
+  Network, Sparkles, Percent
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes, 
   deleteMediaItem, getMediaById, markEpisodesUpToWatched,
   getCustomLists, toggleMediaList, saveCustomList, updateBookProgress,
-  setSetting, getAllMedia, saveMediaItem, db
+  changeBookEdition, setSetting, getAllMedia, saveMediaItem, db
 } from '../db';
-import { syncMediaEpisodes, fetchTMDBCollection, getTmdbApiKey } from '../services/api';
+import { syncMediaEpisodes, fetchTMDBCollection, getTmdbApiKey, fetchOpenLibraryEditions, enrichBookSynopsis } from '../services/api';
 import { 
   getNextFranchiseMovie, getFranchisePartsWithLibraryStatus, 
   createMediaItemFromCollectionPart, type NextFranchiseMovieInfo, type FranchisePartStatus 
@@ -20,7 +20,7 @@ import {
   getUserTimeZone, formatEpisodeAirDate, getEpisodeCountdown, isEpisodeAired 
 } from '../utils/timezone';
 import { normalizeRating, denormalizeRating, formatRating, RATING_SCALE_CONFIG } from '../utils/rating';
-import type { MediaItem, EpisodeItem, MediaStatus, CustomList, RatingScale, TMDBCollectionDetail, TMDBCollectionPart } from '../types';
+import type { MediaItem, EpisodeItem, MediaStatus, CustomList, RatingScale, TMDBCollectionDetail, TMDBCollectionPart, BookEdition } from '../types';
 
 export interface MediaDetailModalProps {
   media: MediaItem | null;
@@ -120,6 +120,14 @@ export default function MediaDetailModal({
   const [inputBookTotalPages, setInputBookTotalPages] = useState<number | string>(media?.totalPages || '');
   const [inputBookChapter, setInputBookChapter] = useState<number | string>(media?.currentChapter || 0);
   const [inputBookTotalChapters, setInputBookTotalChapters] = useState<number | string>(media?.totalChapters || '');
+  const [inputPercentage, setInputPercentage] = useState<string>('');
+
+  // Book Edition Switching & Synopsis Enrichment state (Issue #25)
+  const [showEditionSelector, setShowEditionSelector] = useState<boolean>(false);
+  const [availableEditions, setAvailableEditions] = useState<BookEdition[]>([]);
+  const [isLoadingEditions, setIsLoadingEditions] = useState<boolean>(false);
+  const [isChangingEdition, setIsChangingEdition] = useState<boolean>(false);
+  const [isEnrichingSynopsis, setIsEnrichingSynopsis] = useState<boolean>(false);
 
   // Localized User Timezone
   const [userTz, setUserTz] = useState<string>('');
@@ -133,6 +141,16 @@ export default function MediaDetailModal({
   const isTv = media?.type === 'tv';
   const isBook = media?.type === 'book';
 
+  const bookCurrentTotal = bookProgressMode === 'chapters'
+    ? (Number(media?.totalChapters) || Number(inputBookTotalChapters) || 0)
+    : (Number(media?.totalPages) || Number(inputBookTotalPages) || 0);
+  const bookCurrentProgress = bookProgressMode === 'chapters'
+    ? (Number(media?.currentChapter) || 0)
+    : (Number(media?.currentPage) || 0);
+  const currentPercentage = bookCurrentTotal > 0
+    ? Math.min(100, Math.max(0, Math.round((bookCurrentProgress / bookCurrentTotal) * 100)))
+    : 0;
+
   useEffect(() => {
     if (media) {
       getCustomLists().then(setAllLists);
@@ -142,6 +160,7 @@ export default function MediaDetailModal({
       setInputBookTotalPages(media.totalPages || '');
       setInputBookChapter(media.currentChapter || 0);
       setInputBookTotalChapters(media.totalChapters || '');
+      setInputPercentage('');
     }
   }, [media?.id, media?.currentPage, media?.totalPages, media?.currentChapter, media?.totalChapters, media?.progressMode]);
 
@@ -151,6 +170,7 @@ export default function MediaDetailModal({
     currentChapter?: number;
     totalChapters?: number;
     progressMode?: 'pages' | 'chapters';
+    percentage?: number;
   }) => {
     if (!media) return;
     const updated = await updateBookProgress(media.id, options);
@@ -160,9 +180,98 @@ export default function MediaDetailModal({
       setInputBookTotalPages(updated.totalPages || '');
       setInputBookChapter(updated.currentChapter || 0);
       setInputBookTotalChapters(updated.totalChapters || '');
+      setInputPercentage('');
       setStatus(updated.status);
       if (onUpdated) onUpdated();
       if (onUpdate) onUpdate(updated);
+    }
+  };
+
+  const handleApplyPercentage = async (pct: number) => {
+    if (!media) return;
+    const clamped = Math.max(0, Math.min(100, pct));
+    if (clamped >= 100) {
+      await handleFinishBook();
+      return;
+    }
+    await handleApplyBookProgress({
+      percentage: clamped,
+      progressMode: bookProgressMode
+    });
+  };
+
+  const handleOpenEditionSelector = async () => {
+    if (!media) return;
+    setShowEditionSelector(true);
+    const workId = media.workId || (media.source === 'openlibrary' && media.externalId ? String(media.externalId) : null);
+    if (workId) {
+      setIsLoadingEditions(true);
+      try {
+        const editions = await fetchOpenLibraryEditions(workId, 35);
+        setAvailableEditions(editions);
+      } catch (err) {
+        console.error('Failed to load editions:', err);
+      } finally {
+        setIsLoadingEditions(false);
+      }
+    }
+  };
+
+  const handleSelectEdition = async (edition: BookEdition) => {
+    if (!media) return;
+    setIsChangingEdition(true);
+    try {
+      const updated = await changeBookEdition(media.id, {
+        totalPages: edition.totalPages,
+        isbn: edition.isbn,
+        publisher: edition.publishers?.[0],
+        year: edition.year,
+        bookFormat: edition.physicalFormat,
+        posterUrl: edition.coverUrl,
+        editionId: edition.id
+      });
+      if (updated) {
+        setInputBookTotalPages(updated.totalPages || '');
+        setInputBookPage(updated.currentPage || 0);
+        if (onUpdated) onUpdated();
+        if (onUpdate) onUpdate(updated);
+        setShowEditionSelector(false);
+      }
+    } finally {
+      setIsChangingEdition(false);
+    }
+  };
+
+  const handleEnrichSynopsis = async () => {
+    if (!media) return;
+    setIsEnrichingSynopsis(true);
+    try {
+      const workId = media.workId || (media.source === 'openlibrary' && media.externalId ? String(media.externalId) : undefined);
+      const enriched = await enrichBookSynopsis({
+        isbn: media.isbn,
+        title: media.title,
+        author: media.author,
+        workId
+      });
+      if (enriched) {
+        const updates: Partial<MediaItem> = {
+          updatedAt: new Date().toISOString()
+        };
+        if (enriched.overview) updates.overview = enriched.overview;
+        if (enriched.genres && (!media.genres || media.genres.length === 0)) updates.genres = enriched.genres;
+        if (media.communityRating == null && enriched.communityRating != null) {
+          updates.communityRating = enriched.communityRating;
+          updates.communityRatingCount = enriched.communityRatingCount;
+        }
+        await db.media.update(media.id, updates);
+        const fresh = await db.media.get(media.id);
+        if (fresh) {
+          if (onUpdated) onUpdated();
+          if (onUpdate) onUpdate(fresh);
+        }
+      }
+    } finally {
+      setIsEnrichingSynopsis(false);
     }
   };
 
@@ -1414,6 +1523,71 @@ export default function MediaDetailModal({
                     </div>
                   </>
                 )}
+
+                {/* Percentage Progress Stepper / Direct Input (Issue #26) */}
+                <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-[var(--border-light)]/40 mt-1">
+                  <div className="flex items-center gap-1.5 bg-[var(--bg-primary)] px-3 py-1.5 rounded-lg border border-[var(--border-light)]">
+                    <Percent className="w-3.5 h-3.5 text-[var(--accent)]" />
+                    <span className="text-xs text-[var(--text-secondary)] font-medium">Percent:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={inputPercentage !== '' ? inputPercentage : (bookCurrentTotal > 0 ? currentPercentage : '')}
+                      onChange={(e) => setInputPercentage(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = parseFloat(inputPercentage !== '' ? inputPercentage : String(currentPercentage));
+                          if (!isNaN(val)) handleApplyPercentage(val);
+                        }
+                      }}
+                      placeholder={bookCurrentTotal > 0 ? String(currentPercentage) : '0'}
+                      className="w-14 bg-[var(--card-bg)] px-2 py-1 rounded text-xs text-center font-bold text-[var(--accent)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                    />
+                    <span className="text-xs text-[var(--text-secondary)] font-mono">%</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={bookCurrentTotal <= 0}
+                    onClick={() => {
+                      const val = parseFloat(inputPercentage !== '' ? inputPercentage : String(currentPercentage));
+                      if (!isNaN(val)) handleApplyPercentage(val);
+                    }}
+                    className="px-3 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95 disabled:opacity-50 cursor-pointer"
+                    title={bookCurrentTotal <= 0 ? "Set total pages or chapters first" : "Set percentage progress"}
+                  >
+                    Set %
+                  </button>
+
+                  {/* Quick percentage chips */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {[25, 50, 75, 100].map(pct => (
+                      <button
+                        key={pct}
+                        type="button"
+                        disabled={bookCurrentTotal <= 0}
+                        onClick={() => {
+                          setInputPercentage(String(pct));
+                          handleApplyPercentage(pct);
+                        }}
+                        className={`px-2 py-1 rounded-md text-xs font-semibold border transition-all active:scale-95 disabled:opacity-50 cursor-pointer ${
+                          currentPercentage === pct && bookCurrentTotal > 0
+                            ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                            : 'bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-light)]'
+                        }`}
+                        title={`Jump to ${pct}%`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
+                  {bookCurrentTotal <= 0 && (
+                    <span className="text-[11px] text-amber-400">
+                      Set total {bookProgressMode === 'chapters' ? 'chapters' : 'pages'} above to enable percentage tracking.
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Book Metadata details */}
@@ -1443,6 +1617,116 @@ export default function MediaDetailModal({
                   </div>
                 )}
               </div>
+
+              {/* Edition Switching & Synopsis Enrichment Actions (Issue #25) */}
+              <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(media.workId || media.source === 'openlibrary' || media.isbn) && (
+                    <button
+                      type="button"
+                      onClick={handleOpenEditionSelector}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent)]/15 hover:bg-[var(--accent)] text-[var(--accent)] hover:text-white border border-[var(--accent)]/30 text-xs font-semibold transition-all active:scale-95 cursor-pointer shadow-xs"
+                      title="Browse alternative editions (paperback, hardcover, ebook) and adjust pages while keeping progress"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span>Change Edition</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={isEnrichingSynopsis}
+                    onClick={handleEnrichSynopsis}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] text-xs font-medium transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                    title="Enrich plot synopsis and genres from Google Books or Open Library"
+                  >
+                    {isEnrichingSynopsis ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-400" />}
+                    <span>{isEnrichingSynopsis ? 'Enriching...' : 'Enrich Blurb & Genres'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Edition Selector Modal (Issue #25) */}
+              {showEditionSelector && (
+                <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fadeIn">
+                  <div className="relative w-full max-w-lg bg-[var(--card-bg)] border border-[var(--border-light)] rounded-2xl shadow-2xl p-4 flex flex-col max-h-[80vh]">
+                    <div className="flex items-center justify-between pb-3 border-b border-[var(--border-light)]">
+                      <div className="flex items-center gap-2">
+                        <BookOpen className="w-4 h-4 text-[var(--accent)]" />
+                        <h4 className="font-bold text-sm text-[var(--text-primary)]">Select Book Edition</h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowEditionSelector(false)}
+                        className="p-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-[var(--text-secondary)] py-2">
+                      Switching editions updates your total page count and cover while automatically preserving your reading progress percentage.
+                    </p>
+
+                    <div className="flex-1 overflow-y-auto space-y-2 py-1 pr-1">
+                      {isLoadingEditions && (
+                        <div className="flex flex-col items-center justify-center py-10 gap-2 text-xs text-[var(--text-secondary)]">
+                          <RefreshCw className="w-5 h-5 animate-spin text-[var(--accent)]" />
+                          <span>Loading available editions from Open Library...</span>
+                        </div>
+                      )}
+
+                      {!isLoadingEditions && availableEditions.length === 0 && (
+                        <p className="text-xs text-center py-8 text-[var(--text-secondary)]">
+                          No other editions found for this book work.
+                        </p>
+                      )}
+
+                      {!isLoadingEditions && availableEditions.map(ed => (
+                        <div
+                          key={ed.id}
+                          className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-light)] hover:border-[var(--accent)] transition-all"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-9 aspect-[2/3] rounded bg-zinc-800 overflow-hidden shrink-0 border border-[var(--border-light)]">
+                              {ed.coverUrl ? (
+                                <img src={ed.coverUrl} alt={ed.title} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                                  <BookOpen className="w-4 h-4" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-xs text-[var(--text-primary)] truncate max-w-xs">{ed.title}</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--accent)]/15 text-[var(--accent)] capitalize">
+                                  {ed.physicalFormat || 'Edition'}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-[var(--text-secondary)] flex items-center gap-2 flex-wrap mt-0.5 font-mono">
+                                {ed.totalPages ? <span>{ed.totalPages} pages</span> : <span>Pages unlisted</span>}
+                                {ed.publishers?.[0] ? <span>• {ed.publishers[0]}</span> : null}
+                                {ed.year ? <span>({ed.year})</span> : null}
+                                {ed.isbn ? <span>ISBN: {ed.isbn}</span> : null}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={isChangingEdition}
+                            onClick={() => handleSelectEdition(ed)}
+                            className="px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-semibold shrink-0 transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-xs"
+                          >
+                            {isChangingEdition ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Switch'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

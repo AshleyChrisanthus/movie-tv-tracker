@@ -29,6 +29,7 @@ const testFiles = [
   'path:/tier1-features/canvas-crud.test.js',
   'path:/tier1-features/tmdb-collection.test.js',
   'path:/tier1-features/movie-franchises.test.js',
+  'path:/tier1-features/book-editions-percentage-search.test.js',
 
   // Tier 2: Boundary & Corner Cases
   'path:/tier2-boundary/empty-and-edge-items.test.js',

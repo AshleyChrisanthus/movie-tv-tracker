@@ -34,7 +34,12 @@ export type MediaStatus =
 /**
  * Origin source of metadata.
  */
-export type MediaSource = 'tmdb' | 'tvmaze' | 'itunes' | 'openlibrary' | 'custom';
+export type MediaSource = 'tmdb' | 'tvmaze' | 'itunes' | 'openlibrary' | 'googlebooks' | 'custom';
+
+/**
+ * Supported book search providers (Issue #27).
+ */
+export type BookSearchProvider = 'openlibrary' | 'googlebooks';
 
 /**
  * Series broadcast air status (e.g., 'Returning Series', 'Ended', 'Running', 'Canceled').
@@ -84,6 +89,8 @@ export interface MediaItem {
   totalChapters?: number;                   // Total chapters for book chapter tracking
   currentChapter?: number;                  // Current chapter reading progress
   isbn?: string;                            // ISBN-10 or ISBN-13
+  workId?: string;                          // Open Library Work ID (e.g. 'OL45804W') (Issue #25)
+  editionId?: string;                       // Open Library Edition ID (e.g. 'OL7353617M') (Issue #25)
   publisher?: string;                       // Book publisher
   bookFormat?: 'paperback' | 'hardcover' | 'ebook' | 'audiobook' | string;
   networkTimezone?: string;                 // e.g. 'America/New_York'

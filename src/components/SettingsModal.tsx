@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Key, Download, Upload, Folder, FolderCheck, CheckCircle, 
   AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
-  Zap, Archive, Sparkles, Globe, Clock, Star, Calendar
+  Zap, Archive, Sparkles, Globe, Clock, Star, Calendar, BookOpen
 } from 'lucide-react';
 import { getSetting, setSetting, clearAllPersonalRatings } from '../db';
 import { 
@@ -15,7 +15,7 @@ import {
   getUserTimeZone, setUserTimeZone, getSystemTimeZone, 
   COMMON_TIMEZONES, type TimeZoneOption 
 } from '../utils/timezone';
-import type { BackupMode, ExportFileInfo, RatingScale } from '../types';
+import type { BackupMode, ExportFileInfo, RatingScale, BookSearchProvider } from '../types';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -54,6 +54,11 @@ export default function SettingsModal({
   const [upcomingDays, setUpcomingDays] = useState<number>(propUpcomingDays || 7);
   const [customDaysInput, setCustomDaysInput] = useState<string>(String(propUpcomingDays || 7));
 
+  // Book Search Provider & Key (Issue #27)
+  const [defaultBookProvider, setDefaultBookProvider] = useState<BookSearchProvider>('openlibrary');
+  const [googleBooksApiKey, setGoogleBooksApiKey] = useState<string>('');
+  const [bookSettingNotice, setBookSettingNotice] = useState<NoticeStatus | null>(null);
+
   // Timezone & Locale State
   const [userTimezone, setUserTimezone] = useState<string>(getSystemTimeZone());
   const [timezoneNotice, setTimezoneNotice] = useState<NoticeStatus | null>(null);
@@ -82,6 +87,8 @@ export default function SettingsModal({
       setFsSupported(isFileSystemAccessSupported());
       getSetting<string>('tmdb_api_key', '').then(k => setApiKey(k || ''));
       getSetting<BackupMode>('backup_mode', 'compact').then(m => setBackupMode(m || 'compact'));
+      getSetting<BookSearchProvider>('default_book_provider', 'openlibrary').then(p => setDefaultBookProvider(p || 'openlibrary'));
+      getSetting<string>('google_books_api_key', '').then(k => setGoogleBooksApiKey(k || ''));
       if (propRatingScale) {
         setRatingScale(propRatingScale);
       } else {
@@ -101,6 +108,7 @@ export default function SettingsModal({
       setImportNotice(null);
       setTimezoneNotice(null);
       setRatingNotice(null);
+      setBookSettingNotice(null);
     }
   }, [isOpen, propRatingScale, propUpcomingDays]);
 
@@ -141,6 +149,19 @@ export default function SettingsModal({
     await setSetting('upcoming_window_days', val);
     localStorage.setItem('bingelog_upcoming_days', String(val));
     if (onUpcomingDaysChange) onUpcomingDaysChange(val);
+  };
+
+  const handleBookProviderChange = async (provider: BookSearchProvider) => {
+    setDefaultBookProvider(provider);
+    await setSetting('default_book_provider', provider);
+    setBookSettingNotice({ success: true, message: `Default book provider set to ${provider === 'googlebooks' ? 'Google Books' : 'Open Library'}.` });
+    setTimeout(() => setBookSettingNotice(null), 3000);
+  };
+
+  const handleSaveGoogleBooksApiKey = async () => {
+    await setSetting('google_books_api_key', googleBooksApiKey.trim());
+    setBookSettingNotice({ success: true, message: 'Google Books API Key saved.' });
+    setTimeout(() => setBookSettingNotice(null), 3000);
   };
 
   const checkLinkedDirectory = async () => {
@@ -518,6 +539,86 @@ export default function SettingsModal({
               }`}>
                 {ratingNotice.success ? <CheckCircle className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-rose-400" />}
                 <span>{ratingNotice.message}</span>
+              </div>
+            )}
+          </div>
+
+          {/* BOOK SEARCH PROVIDER SECTION (Issue #27) */}
+          <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-[var(--accent)]" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Book Search Provider</h3>
+              </div>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/30 font-medium capitalize">
+                {defaultBookProvider === 'googlebooks' ? 'Google Books' : 'Open Library'}
+              </span>
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              Select your default search provider for books. Open Library provides structured Works and Editions hierarchy. Google Books offers broader catalog availability.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleBookProviderChange('openlibrary')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  defaultBookProvider === 'openlibrary'
+                    ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-sm'
+                    : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-light)]'
+                }`}
+              >
+                <div className="text-xs font-bold">Open Library (Default)</div>
+                <div className={`text-[10px] mt-0.5 ${defaultBookProvider === 'openlibrary' ? 'text-white/80' : 'text-[var(--text-secondary)]'}`}>
+                  Work-level clustering & multi-edition browser
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleBookProviderChange('googlebooks')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  defaultBookProvider === 'googlebooks'
+                    ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-sm'
+                    : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-light)]'
+                }`}
+              >
+                <div className="text-xs font-bold">Google Books</div>
+                <div className={`text-[10px] mt-0.5 ${defaultBookProvider === 'googlebooks' ? 'text-white/80' : 'text-[var(--text-secondary)]'}`}>
+                  Alternative catalog with rich descriptions
+                </div>
+              </button>
+            </div>
+
+            {/* Optional Google Books API Key */}
+            <div className="pt-2 border-t border-[var(--border-light)] space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-primary)]">
+                <span>Google Books API Key (Optional)</span>
+                <span className="text-[10px] text-[var(--text-secondary)]">Useful if hitting quota limits</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={googleBooksApiKey}
+                  onChange={(e) => setGoogleBooksApiKey(e.target.value)}
+                  placeholder="Leave empty for public zero-key access"
+                  className="flex-1 bg-[var(--card-bg)] px-3 py-1.5 rounded-lg text-xs text-[var(--text-primary)] placeholder-[var(--text-secondary)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveGoogleBooksApiKey}
+                  className="px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white text-xs font-semibold hover:brightness-110 active:scale-95 transition-all shadow-xs cursor-pointer"
+                >
+                  Save Key
+                </button>
+              </div>
+            </div>
+
+            {bookSettingNotice && (
+              <div className="p-2.5 rounded-lg text-xs flex items-center gap-2 bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                <span>{bookSettingNotice.message}</span>
               </div>
             )}
           </div>

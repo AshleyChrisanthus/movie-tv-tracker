@@ -21,11 +21,36 @@ export interface MediaSearchResult {
   status?: string;
   author?: string;
   totalPages?: number;
+  totalChapters?: number;
   isbn?: string;
+  workId?: string;
+  editionId?: string;
+  editionCount?: number;
+  bookFormat?: string;
+  publisher?: string;
   imdbId?: string | null;
   tmdbId?: string | number | null;
   tvmazeId?: string | number | null;
   thetvdbId?: string | number | null;
+}
+
+/**
+ * Normalized Book Edition model (Issue #25).
+ */
+export interface BookEdition {
+  id: string;                               // Open Library Edition ID (e.g. 'OL7353617M')
+  key: string;                              // Full key (e.g. '/books/OL7353617M')
+  title: string;
+  publishers?: string[];
+  publishDate?: string;
+  year?: string;
+  totalPages?: number;
+  isbn10?: string;
+  isbn13?: string;
+  isbn?: string;
+  physicalFormat?: string;                  // 'Paperback' | 'Hardcover' | 'E-book' | etc.
+  coverUrl?: string | null;
+  language?: string;
 }
 
 export interface OpenLibraryDoc {

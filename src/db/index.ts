@@ -1272,6 +1272,7 @@ export async function updateBookProgress(
     currentChapter?: number;
     totalChapters?: number;
     progressMode?: 'pages' | 'chapters';
+    percentage?: number;
   } | number
 ): Promise<MediaItem | null> {
   const media = await db.media.get(mediaId);
@@ -1284,9 +1285,28 @@ export async function updateBookProgress(
   const totalChapters = options.totalChapters !== undefined ? options.totalChapters : (media.totalChapters || 0);
 
   let newPage = options.currentPage !== undefined ? options.currentPage : (media.currentPage || 0);
-  newPage = Math.max(0, totalPages > 0 ? Math.min(newPage, totalPages) : newPage);
-
   let newChapter = options.currentChapter !== undefined ? options.currentChapter : (media.currentChapter || 0);
+
+  // Direct percentage progress input (Issue #26)
+  if (options.percentage !== undefined) {
+    const rawPct = Math.max(0, Math.min(100, Number(options.percentage) || 0));
+    if (rawPct >= 100) {
+      if (totalPages > 0) newPage = totalPages;
+      if (totalChapters > 0) newChapter = totalChapters;
+    } else {
+      if (mode === 'chapters') {
+        if (totalChapters > 0) {
+          newChapter = Math.round(totalChapters * (rawPct / 100));
+        }
+      } else {
+        if (totalPages > 0) {
+          newPage = Math.round(totalPages * (rawPct / 100));
+        }
+      }
+    }
+  }
+
+  newPage = Math.max(0, totalPages > 0 ? Math.min(newPage, totalPages) : newPage);
   newChapter = Math.max(0, totalChapters > 0 ? Math.min(newChapter, totalChapters) : newChapter);
 
   // Check if either mode has reached its total (or if finishing via options)
@@ -1300,7 +1320,7 @@ export async function updateBookProgress(
     if (totalChapters > 0) newChapter = totalChapters;
   } else if (media.status === 'completed') {
     // If book was already marked completed and user enters a new total without specifying a lesser progress
-    if (options.currentPage === undefined && options.currentChapter === undefined) {
+    if (options.currentPage === undefined && options.currentChapter === undefined && options.percentage === undefined) {
       if (totalPages > 0) newPage = totalPages;
       if (totalChapters > 0) newChapter = totalChapters;
     }
@@ -1334,6 +1354,58 @@ export async function updateBookProgress(
     updatedAt: now
   });
 
-  return await db.media.get(mediaId) || null;
+  return (await db.media.get(mediaId)) || null;
+}
+
+/**
+ * Switch a book to a different edition, adjusting totalPages while preserving reading progress percentage (Issue #25).
+ */
+export async function changeBookEdition(
+  mediaId: string,
+  edition: {
+    totalPages?: number;
+    isbn?: string;
+    publisher?: string;
+    year?: string | number;
+    bookFormat?: string;
+    posterUrl?: string | null;
+    editionId?: string;
+  }
+): Promise<MediaItem | null> {
+  const media = await db.media.get(mediaId);
+  if (!media || media.type !== 'book') return null;
+
+  const oldTotalPages = Number(media.totalPages) || 0;
+  const oldCurrentPage = Number(media.currentPage) || 0;
+  const newTotalPages = edition.totalPages !== undefined ? Number(edition.totalPages) || 0 : oldTotalPages;
+
+  let newCurrentPage = oldCurrentPage;
+  if (oldTotalPages > 0 && newTotalPages > 0 && oldCurrentPage > 0) {
+    const progressRatio = Math.min(1, oldCurrentPage / oldTotalPages);
+    newCurrentPage = Math.round(newTotalPages * progressRatio);
+  }
+
+  const updates: Partial<MediaItem> = {
+    updatedAt: new Date().toISOString()
+  };
+
+  if (newTotalPages > 0) {
+    updates.totalPages = newTotalPages;
+    updates.currentPage = newCurrentPage;
+    if (media.progressMode === 'pages' || !media.progressMode) {
+      updates.totalEpisodes = newTotalPages;
+      updates.watchedEpisodesCount = newCurrentPage;
+    }
+  }
+
+  if (edition.isbn) updates.isbn = edition.isbn;
+  if (edition.publisher) updates.publisher = edition.publisher;
+  if (edition.year) updates.year = edition.year;
+  if (edition.bookFormat) updates.bookFormat = edition.bookFormat;
+  if (edition.posterUrl) updates.posterUrl = edition.posterUrl;
+  if (edition.editionId) updates.editionId = edition.editionId;
+
+  await db.media.update(mediaId, updates);
+  return (await db.media.get(mediaId)) || null;
 }
 

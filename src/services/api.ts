@@ -32,7 +32,9 @@ import type {
   TVMazeEpisode,
   ITunesResult,
   ITunesSearchResponse,
-  OpenLibrarySearchResponse
+  OpenLibrarySearchResponse,
+  BookEdition,
+  BookSearchProvider
 } from '../types';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
@@ -50,10 +52,11 @@ export async function getTmdbApiKey(): Promise<string> {
 
 /**
  * Search movies, TV shows, and books.
- * Intelligently queries TMDB + Open Library (if key exists) or TVMaze + iTunes + Open Library (if no key).
+ * Intelligently queries TMDB + Open Library (default) / Google Books or TVMaze + iTunes + Open Library / Google Books.
  */
 export interface SearchMediaOptions {
   typeFilter?: 'all' | 'movie' | 'tv' | 'book';
+  bookProvider?: BookSearchProvider;
   onPartialResults?: (results: MediaSearchResult[]) => void;
 }
 
@@ -64,10 +67,14 @@ export async function searchMedia(
   if (!query || query.trim().length === 0) return [];
   const trimmed = query.trim();
   const typeFilter = options.typeFilter || 'all';
+  const bookProvider = options.bookProvider || 'openlibrary';
   const apiKey = await getTmdbApiKey();
 
-  // If user explicitly chose 'book', query Open Library exclusively
+  // If user explicitly chose 'book', query selected book provider (Open Library is default)
   if (typeFilter === 'book') {
+    if (bookProvider === 'googlebooks') {
+      return await searchGoogleBooks(trimmed, 7000);
+    }
     return await searchOpenLibraryBooks(trimmed, 7000);
   }
 
@@ -114,7 +121,10 @@ export async function searchMedia(
     return [...tv, ...movies];
   })();
 
-  const bookSearchPromise = searchOpenLibraryBooks(trimmed, 7000).catch(() => []);
+  const bookSearchPromise = (bookProvider === 'googlebooks'
+    ? searchGoogleBooks(trimmed, 7000)
+    : searchOpenLibraryBooks(trimmed, 7000)
+  ).catch(() => []);
 
   // Dispatch video results as soon as available if streaming callback provided
   if (options.onPartialResults) {
@@ -276,7 +286,7 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const fields = 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,first_sentence,ratings_average,ratings_count';
+    const fields = 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,first_sentence,ratings_average,ratings_count,edition_count';
     const res = await fetch(`${OPENLIBRARY_BASE_URL}/search.json?q=${encodeURIComponent(query)}&limit=8&fields=${fields}`, {
       signal: controller.signal
     });
@@ -305,9 +315,12 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
         ? Math.round((doc.ratings_average * 2) * 10) / 10
         : null;
       const communityRatingCount = typeof doc.ratings_count === 'number' ? doc.ratings_count : null;
+      const workId = doc.key.replace('/works/', '');
 
       return {
-        externalId: doc.key.replace('/works/', ''),
+        externalId: workId,
+        workId,
+        editionCount: (doc as any).edition_count || undefined,
         source: 'openlibrary',
         type: 'book',
         title: doc.title || 'Untitled Book',
@@ -321,7 +334,9 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
         backdropUrl: posterUrl,
         author,
         totalPages,
-        isbn
+        isbn,
+        publisher,
+        genres: Array.isArray(doc.subject) ? doc.subject.slice(0, 5) : []
       };
     });
   } catch (err) {
@@ -332,6 +347,253 @@ export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 
 }
 
 /**
+ * Strip HTML tags from a text blurb.
+ */
+function stripHtml(html?: string): string {
+  if (!html) return '';
+  return html.replace(/<[^>]*>?/gm, '').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').trim();
+}
+
+/**
+ * Search books via Google Books API (Issue #27).
+ * Fallback provider and alternative search option.
+ */
+export async function searchGoogleBooks(
+  query: string,
+  timeoutMs: number = 7000
+): Promise<MediaSearchResult[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const apiKey = await getSetting<string>('google_books_api_key', '');
+    const keyParam = apiKey ? `&key=${encodeURIComponent(apiKey)}` : '';
+    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=12${keyParam}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+
+    return items.map((item: any): MediaSearchResult => {
+      const vi = item.volumeInfo || {};
+      const author = Array.isArray(vi.authors) && vi.authors.length > 0
+        ? vi.authors.join(', ')
+        : 'Unknown Author';
+      const year = vi.publishedDate ? vi.publishedDate.slice(0, 4) : 'N/A';
+      const totalPages = typeof vi.pageCount === 'number' ? vi.pageCount : 0;
+      const rawCover = vi.imageLinks?.thumbnail || vi.imageLinks?.smallThumbnail || null;
+      const posterUrl = rawCover ? String(rawCover).replace('http://', 'https://') : null;
+      
+      let isbn: string | undefined;
+      if (Array.isArray(vi.industryIdentifiers)) {
+        const isbn13 = vi.industryIdentifiers.find((i: any) => i.type === 'ISBN_13')?.identifier;
+        const isbn10 = vi.industryIdentifiers.find((i: any) => i.type === 'ISBN_10')?.identifier;
+        isbn = isbn13 || isbn10;
+      }
+
+      const description = stripHtml(vi.description);
+      const overview = description || `By ${author}${totalPages ? ` • ${totalPages} pages` : ''}${vi.publisher ? ` • Published by ${vi.publisher}` : ''}`;
+      
+      const communityRating = typeof vi.averageRating === 'number'
+        ? Math.round(vi.averageRating * 2 * 10) / 10
+        : null;
+      const communityRatingCount = typeof vi.ratingsCount === 'number' ? vi.ratingsCount : null;
+
+      return {
+        externalId: item.id || `gb_${Math.random().toString(36).slice(2, 9)}`,
+        source: 'googlebooks',
+        type: 'book',
+        title: vi.title || 'Untitled Book',
+        year,
+        releaseDate: vi.publishedDate || '',
+        overview,
+        rating: null,
+        communityRating,
+        communityRatingCount,
+        posterUrl,
+        backdropUrl: posterUrl,
+        author,
+        totalPages,
+        isbn,
+        publisher: vi.publisher,
+        genres: Array.isArray(vi.categories) ? vi.categories : []
+      };
+    });
+  } catch {
+    clearTimeout(timer);
+    return [];
+  }
+}
+
+/**
+ * Fetch editions for an Open Library work (Issue #25).
+ */
+export async function fetchOpenLibraryEditions(
+  workKeyOrId: string,
+  limit: number = 30,
+  timeoutMs: number = 8000
+): Promise<BookEdition[]> {
+  const cleanId = String(workKeyOrId).replace(/^\/works\//, '').replace(/^works\//, '');
+  if (!cleanId) return [];
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(`${OPENLIBRARY_BASE_URL}/works/${encodeURIComponent(cleanId)}/editions.json?limit=${limit}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const entries = Array.isArray(data?.entries) ? data.entries : [];
+
+    const editions: BookEdition[] = entries.map((entry: any): BookEdition => {
+      const id = entry.key ? String(entry.key).replace('/books/', '') : '';
+      const coverId = Array.isArray(entry.covers) && entry.covers.length > 0 && entry.covers[0] > 0
+        ? entry.covers[0]
+        : null;
+      const coverUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : null;
+      const publishers = Array.isArray(entry.publishers) ? entry.publishers : [];
+      const isbn10 = Array.isArray(entry.isbn_10) && entry.isbn_10.length > 0 ? String(entry.isbn_10[0]) : undefined;
+      const isbn13 = Array.isArray(entry.isbn_13) && entry.isbn_13.length > 0 ? String(entry.isbn_13[0]) : undefined;
+      const isbn = isbn13 || isbn10;
+      const physicalFormat = entry.physical_format || (entry.number_of_pages ? 'Print' : 'Edition');
+      let year = '';
+      if (entry.publish_date) {
+        const yearMatch = String(entry.publish_date).match(/\b(19\d\d|20\d\d)\b/);
+        if (yearMatch) year = yearMatch[1];
+      }
+
+      return {
+        id,
+        key: entry.key || `/books/${id}`,
+        title: entry.title || 'Untitled Edition',
+        publishers,
+        publishDate: entry.publish_date,
+        year,
+        totalPages: typeof entry.number_of_pages === 'number' ? entry.number_of_pages : undefined,
+        isbn10,
+        isbn13,
+        isbn,
+        physicalFormat,
+        coverUrl,
+        language: Array.isArray(entry.languages) && entry.languages[0]?.key
+          ? String(entry.languages[0].key).replace('/languages/', '')
+          : undefined
+      };
+    });
+
+    // Sort to prioritize editions that have both covers and known page counts
+    return editions.sort((a, b) => {
+      const scoreA = (a.coverUrl ? 2 : 0) + (a.totalPages ? 1 : 0);
+      const scoreB = (b.coverUrl ? 2 : 0) + (b.totalPages ? 1 : 0);
+      return scoreB - scoreA;
+    });
+  } catch {
+    clearTimeout(timer);
+    return [];
+  }
+}
+
+/**
+ * Enrich book synopsis and categories via Google Books or Open Library Works API (Issue #25).
+ */
+export async function enrichBookSynopsis(params: {
+  isbn?: string;
+  title?: string;
+  author?: string;
+  workId?: string;
+}): Promise<{
+  overview?: string;
+  genres?: string[];
+  communityRating?: number | null;
+  communityRatingCount?: number | null;
+} | null> {
+  const { isbn, title, author, workId } = params;
+
+  // 1. Try Google Books by ISBN or title + author
+  try {
+    const apiKey = await getSetting<string>('google_books_api_key', '');
+    const keyParam = apiKey ? `&key=${encodeURIComponent(apiKey)}` : '';
+    let url = '';
+    if (isbn && isbn.trim()) {
+      url = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn.trim())}${keyParam}`;
+    } else if (title && title.trim()) {
+      url = `https://www.googleapis.com/books/v1/volumes?q=intitle:${encodeURIComponent(title.trim())}${author ? `+inauthor:${encodeURIComponent(author.trim())}` : ''}${keyParam}`;
+    }
+
+    if (url) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const data = await res.json();
+        const firstItem = data?.items?.[0]?.volumeInfo;
+        if (firstItem) {
+          const description = stripHtml(firstItem.description);
+          const genres = Array.isArray(firstItem.categories) ? firstItem.categories : [];
+          const communityRating = typeof firstItem.averageRating === 'number'
+            ? Math.round(firstItem.averageRating * 2 * 10) / 10
+            : null;
+          const communityRatingCount = typeof firstItem.ratingsCount === 'number' ? firstItem.ratingsCount : null;
+
+          if (description || genres.length > 0) {
+            return {
+              overview: description || undefined,
+              genres: genres.length > 0 ? genres : undefined,
+              communityRating,
+              communityRatingCount
+            };
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore Google Books failure and try Open Library work
+  }
+
+  // 2. Fallback to Open Library Work details if workId exists
+  if (workId) {
+    try {
+      const cleanWorkId = String(workId).replace(/^\/works\//, '').replace(/^works\//, '');
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${OPENLIBRARY_BASE_URL}/works/${encodeURIComponent(cleanWorkId)}.json`, {
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const data = await res.json();
+        let description = '';
+        if (typeof data.description === 'string') {
+          description = data.description;
+        } else if (data.description && typeof data.description.value === 'string') {
+          description = data.description.value;
+        }
+
+        const genres = Array.isArray(data.subjects) ? data.subjects.slice(0, 5) : [];
+        if (description || genres.length > 0) {
+          return {
+            overview: description ? stripHtml(description) : undefined,
+            genres: genres.length > 0 ? genres : undefined
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
+/**
  * Fetch complete media details along with full season and episode lists.
  */
 export async function fetchFullMediaDetails(
@@ -339,7 +601,7 @@ export async function fetchFullMediaDetails(
 ): Promise<FullMediaDetailsResponse> {
   const apiKey = await getTmdbApiKey();
 
-  if (item.source === 'openlibrary' || item.type === 'book') {
+  if (item.source === 'openlibrary' || item.source === 'googlebooks' || item.type === 'book') {
     const totalPages = item.totalPages || 0;
     const currentPage = item.currentPage || 0;
     const totalChapters = item.totalChapters || 0;
@@ -363,11 +625,38 @@ export async function fetchFullMediaDetails(
       }
     }
 
+    let finalOverview = item.overview;
+    let finalGenres = item.genres;
+    const workId = item.workId || (item.source === 'openlibrary' && item.externalId ? String(item.externalId) : undefined);
+
+    // Auto-enrich synopsis and categories if synopsis is short or placeholder (Issue #25)
+    if (!finalOverview || finalOverview.startsWith('By ') || finalOverview.length < 80) {
+      try {
+        const enriched = await enrichBookSynopsis({
+          isbn: item.isbn,
+          title: item.title,
+          author: item.author,
+          workId
+        });
+        if (enriched?.overview) finalOverview = enriched.overview;
+        if (enriched?.genres && (!finalGenres || finalGenres.length === 0)) finalGenres = enriched.genres;
+        if (communityRating == null && enriched?.communityRating != null) {
+          communityRating = enriched.communityRating;
+          communityRatingCount = enriched.communityRatingCount || null;
+        }
+      } catch {
+        // ignore enrichment error
+      }
+    }
+
     return {
       media: {
         ...item,
         type: 'book',
         source: item.source || 'openlibrary',
+        overview: finalOverview,
+        genres: finalGenres,
+        workId: workId || item.workId,
         progressMode,
         totalSeasons: 0,
         totalEpisodes: progressMode === 'chapters' ? (totalChapters || 1) : (totalPages || 1),

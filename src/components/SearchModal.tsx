@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen, Star, Globe, ChevronDown, ChevronUp } from 'lucide-react';
-import { searchMedia, fetchFullMediaDetails, getTmdbApiKey, fetchOpenLibraryEditions } from '../services/api';
+import { searchMedia, fetchFullMediaDetails, getTmdbApiKey, fetchOpenLibraryEditions, fetchBookEditionByIsbn } from '../services/api';
 import { saveMediaItem, computeAutoStatus, getAllMedia, getSetting, db } from '../db';
 import { isEpisodeAired } from '../utils/timezone';
 import { isMediaMatch } from '../utils/mediaMatch';
@@ -34,6 +34,9 @@ export default function SearchModal({
   const [expandedWorkId, setExpandedWorkId] = useState<string | null>(null);
   const [editionsCache, setEditionsCache] = useState<Record<string, BookEdition[]>>({});
   const [loadingEditionsWorkId, setLoadingEditionsWorkId] = useState<string | null>(null);
+  const [editionFilters, setEditionFilters] = useState<Record<string, string>>({});
+  const [isLookingUpIsbnWorkId, setIsLookingUpIsbnWorkId] = useState<string | null>(null);
+  const [isbnLookupNoticeWorkId, setIsbnLookupNoticeWorkId] = useState<Record<string, { type: 'success' | 'error'; text: string } | null>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Check TMDB key status, book provider setting, and load existing library on open
@@ -123,6 +126,70 @@ export default function SearchModal({
       } finally {
         setLoadingEditionsWorkId(null);
       }
+    }
+  };
+
+  // Lookup specific edition by ISBN for an Open Library book work (Issue #25)
+  const handleLookupIsbnForWork = async (item: MediaSearchResult) => {
+    const workId = item.workId || String(item.externalId);
+    const filterQuery = (editionFilters[workId] || '').trim();
+    if (!filterQuery) return;
+
+    const cleanDigits = filterQuery.replace(/[^0-9X]/gi, '').toUpperCase();
+    const isKey = /^OL\d+M$/i.test(filterQuery) || /^\/books\/OL\d+M$/i.test(filterQuery);
+    if (!isKey && cleanDigits.length !== 10 && cleanDigits.length !== 13) {
+      setIsbnLookupNoticeWorkId(prev => ({
+        ...prev,
+        [workId]: { type: 'error', text: 'Enter a valid 10 or 13-digit ISBN (or Open Library edition ID).' }
+      }));
+      return;
+    }
+
+    setIsLookingUpIsbnWorkId(workId);
+    setIsbnLookupNoticeWorkId(prev => ({ ...prev, [workId]: null }));
+
+    try {
+      const existingInCache = (editionsCache[workId] || []).find(ed =>
+        (ed.isbn && ed.isbn.replace(/[^0-9X]/gi, '').toUpperCase() === cleanDigits) ||
+        (ed.isbn10 && ed.isbn10.replace(/[^0-9X]/gi, '').toUpperCase() === cleanDigits) ||
+        (ed.isbn13 && ed.isbn13.replace(/[^0-9X]/gi, '').toUpperCase() === cleanDigits) ||
+        (ed.id && ed.id.toLowerCase() === filterQuery.toLowerCase())
+      );
+
+      if (existingInCache) {
+        setIsbnLookupNoticeWorkId(prev => ({
+          ...prev,
+          [workId]: { type: 'success', text: `Edition already in list: "${existingInCache.title}"` }
+        }));
+        return;
+      }
+
+      const fetched = await fetchBookEditionByIsbn(filterQuery);
+      if (fetched) {
+        setEditionsCache(prev => ({
+          ...prev,
+          [workId]: [fetched, ...(prev[workId] || []).filter(x => x.id !== fetched.id)]
+        }));
+        setIsbnLookupNoticeWorkId(prev => ({
+          ...prev,
+          [workId]: {
+            type: 'success',
+            text: `Found edition: "${fetched.title}" (${fetched.totalPages ? `${fetched.totalPages} pages` : 'pages unlisted'})`
+          }
+        }));
+      } else {
+        setIsbnLookupNoticeWorkId(prev => ({
+          ...prev,
+          [workId]: { type: 'error', text: `No edition found for "${filterQuery}" on Open Library or Google Books.` }
+        }));
+      }
+    } catch {
+      setIsbnLookupNoticeWorkId(prev => ({
+        ...prev,
+        [workId]: { type: 'error', text: 'Failed to lookup ISBN. Please check your connection.' }
+      }));
+    } finally {
+      setIsLookingUpIsbnWorkId(null);
     }
   };
 
@@ -397,6 +464,22 @@ export default function SearchModal({
             const isExpanded = expandedWorkId === workId;
             const currentEditions = editionsCache[workId] || [];
             const isLoadingEditions = loadingEditionsWorkId === workId;
+            const workFilter = (editionFilters[workId] || '').trim().toLowerCase();
+            const cleanFilter = workFilter.replace(/[^0-9x]/gi, '');
+            const filteredEditions = currentEditions.filter(ed => {
+              if (!workFilter) return true;
+              const matchTitle = ed.title?.toLowerCase().includes(workFilter);
+              const matchPublisher = ed.publishers?.some(p => p.toLowerCase().includes(workFilter));
+              const matchYear = ed.year?.includes(workFilter);
+              const matchFormat = ed.physicalFormat?.toLowerCase().includes(workFilter);
+              const matchIsbn = cleanFilter && (
+                (ed.isbn && ed.isbn.replace(/[^0-9x]/gi, '').toLowerCase().includes(cleanFilter)) ||
+                (ed.isbn10 && ed.isbn10.replace(/[^0-9x]/gi, '').toLowerCase().includes(cleanFilter)) ||
+                (ed.isbn13 && ed.isbn13.replace(/[^0-9x]/gi, '').toLowerCase().includes(cleanFilter))
+              );
+              const matchId = ed.id?.toLowerCase().includes(workFilter);
+              return matchTitle || matchPublisher || matchYear || matchFormat || matchIsbn || matchId;
+            });
 
             return (
               <div
@@ -528,6 +611,63 @@ export default function SearchModal({
 
                     {isExpanded && (
                       <div className="mt-2.5 space-y-2">
+                        {/* ISBN Search & Direct Lookup Bar */}
+                        <div className="space-y-1.5 pt-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className="relative flex-1">
+                              <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                              <input
+                                type="text"
+                                value={editionFilters[workId] || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditionFilters(prev => ({ ...prev, [workId]: val }));
+                                  setIsbnLookupNoticeWorkId(prev => ({ ...prev, [workId]: null }));
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleLookupIsbnForWork(item);
+                                  }
+                                }}
+                                placeholder="Filter editions or lookup ISBN (e.g. 9780441172719)..."
+                                className="w-full pl-7 pr-6 py-1 text-xs bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent)]"
+                              />
+                              {editionFilters[workId] && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditionFilters(prev => ({ ...prev, [workId]: '' }));
+                                    setIsbnLookupNoticeWorkId(prev => ({ ...prev, [workId]: null }));
+                                  }}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 text-xs cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleLookupIsbnForWork(item)}
+                              disabled={isLookingUpIsbnWorkId === workId || !(editionFilters[workId] || '').trim()}
+                              className="px-2.5 py-1 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-[10px] font-semibold transition-all disabled:opacity-40 flex items-center gap-1 shrink-0 cursor-pointer shadow-xs"
+                              title="Directly fetch edition by ISBN if not in initial list"
+                            >
+                              {isLookingUpIsbnWorkId === workId ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                              <span>Lookup ISBN</span>
+                            </button>
+                          </div>
+
+                          {isbnLookupNoticeWorkId[workId] && (
+                            <p className={`text-[10px] flex items-center gap-1 ${
+                              isbnLookupNoticeWorkId[workId]?.type === 'success' ? 'text-emerald-400' : 'text-amber-400'
+                            }`}>
+                              <span>{isbnLookupNoticeWorkId[workId]?.type === 'success' ? '✓' : '⚠'}</span>
+                              <span>{isbnLookupNoticeWorkId[workId]?.text}</span>
+                            </p>
+                          )}
+                        </div>
+
                         {isLoadingEditions && (
                           <div className="flex items-center gap-2 py-3 text-xs text-[var(--text-secondary)]">
                             <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--accent)]" />
@@ -535,15 +675,20 @@ export default function SearchModal({
                           </div>
                         )}
 
-                        {!isLoadingEditions && currentEditions.length === 0 && (
-                          <p className="text-xs text-[var(--text-secondary)] py-1">
-                            No alternate editions found. You can add the primary edition above.
-                          </p>
+                        {!isLoadingEditions && filteredEditions.length === 0 && (
+                          <div className="text-xs text-[var(--text-secondary)] py-1 space-y-0.5">
+                            <p>{workFilter ? 'No editions match your filter.' : 'No alternate editions found. You can add the primary edition above.'}</p>
+                            {workFilter && (
+                              <p className="text-[10px] text-zinc-400">
+                                Tip: Click "Lookup ISBN" above to fetch this specific edition directly from Open Library or Google Books.
+                              </p>
+                            )}
+                          </div>
                         )}
 
-                        {!isLoadingEditions && currentEditions.length > 0 && (
+                        {!isLoadingEditions && filteredEditions.length > 0 && (
                           <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                            {currentEditions.map(ed => (
+                            {filteredEditions.map(ed => (
                               <div
                                 key={ed.id}
                                 className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-light)] hover:border-[var(--accent)]/40 transition-all text-xs"

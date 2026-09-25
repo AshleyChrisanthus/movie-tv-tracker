@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
   CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen, Globe,
-  Network, Sparkles, Percent
+  Network, Sparkles, Percent, Search
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
@@ -11,7 +11,7 @@ import {
   getCustomLists, toggleMediaList, saveCustomList, updateBookProgress,
   changeBookEdition, setSetting, getAllMedia, saveMediaItem, db
 } from '../db';
-import { syncMediaEpisodes, fetchTMDBCollection, getTmdbApiKey, fetchOpenLibraryEditions, enrichBookSynopsis } from '../services/api';
+import { syncMediaEpisodes, fetchTMDBCollection, getTmdbApiKey, fetchOpenLibraryEditions, enrichBookSynopsis, fetchBookEditionByIsbn } from '../services/api';
 import { 
   getNextFranchiseMovie, getFranchisePartsWithLibraryStatus, 
   createMediaItemFromCollectionPart, type NextFranchiseMovieInfo, type FranchisePartStatus 
@@ -128,6 +128,9 @@ export default function MediaDetailModal({
   const [isLoadingEditions, setIsLoadingEditions] = useState<boolean>(false);
   const [isChangingEdition, setIsChangingEdition] = useState<boolean>(false);
   const [isEnrichingSynopsis, setIsEnrichingSynopsis] = useState<boolean>(false);
+  const [editionSearchQuery, setEditionSearchQuery] = useState<string>('');
+  const [isLookingUpIsbn, setIsLookingUpIsbn] = useState<boolean>(false);
+  const [isbnLookupMessage, setIsbnLookupMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   // Localized User Timezone
   const [userTz, setUserTz] = useState<string>('');
@@ -203,6 +206,8 @@ export default function MediaDetailModal({
   const handleOpenEditionSelector = async () => {
     if (!media) return;
     setShowEditionSelector(true);
+    setEditionSearchQuery('');
+    setIsbnLookupMessage(null);
     const workId = media.workId || (media.source === 'openlibrary' && media.externalId ? String(media.externalId) : null);
     if (workId) {
       setIsLoadingEditions(true);
@@ -216,6 +221,79 @@ export default function MediaDetailModal({
       }
     }
   };
+
+  const handleIsbnLookup = async () => {
+    const raw = editionSearchQuery.trim();
+    if (!raw) return;
+    const cleanDigits = raw.replace(/[^0-9X]/gi, '').toUpperCase();
+    const isKey = /^OL\d+M$/i.test(raw) || /^\/books\/OL\d+M$/i.test(raw);
+    if (!isKey && cleanDigits.length !== 10 && cleanDigits.length !== 13) {
+      setIsbnLookupMessage({
+        type: 'error',
+        text: 'Please enter a valid 10 or 13-digit ISBN (or Open Library edition ID).'
+      });
+      return;
+    }
+
+    setIsLookingUpIsbn(true);
+    setIsbnLookupMessage(null);
+    try {
+      const existing = availableEditions.find(ed => 
+        (ed.isbn && ed.isbn.replace(/[^0-9X]/gi, '').toUpperCase() === cleanDigits) ||
+        (ed.isbn10 && ed.isbn10.replace(/[^0-9X]/gi, '').toUpperCase() === cleanDigits) ||
+        (ed.isbn13 && ed.isbn13.replace(/[^0-9X]/gi, '').toUpperCase() === cleanDigits) ||
+        (ed.id && ed.id.toLowerCase() === raw.toLowerCase())
+      );
+
+      if (existing) {
+        setIsbnLookupMessage({
+          type: 'success',
+          text: `Found in edition list: "${existing.title}" (${existing.physicalFormat || 'Edition'})`
+        });
+        return;
+      }
+
+      const fetched = await fetchBookEditionByIsbn(raw);
+      if (fetched) {
+        setAvailableEditions(prev => [fetched, ...prev.filter(x => x.id !== fetched.id)]);
+        setIsbnLookupMessage({
+          type: 'success',
+          text: `Found edition: "${fetched.title}" (${fetched.totalPages ? `${fetched.totalPages} pages` : 'pages unlisted'})`
+        });
+      } else {
+        setIsbnLookupMessage({
+          type: 'error',
+          text: `No edition found for "${raw}" on Open Library or Google Books.`
+        });
+      }
+    } catch {
+      setIsbnLookupMessage({
+        type: 'error',
+        text: 'Failed to lookup ISBN. Please check your connection.'
+      });
+    } finally {
+      setIsLookingUpIsbn(false);
+    }
+  };
+
+  const filteredAvailableEditions = useMemo(() => {
+    const q = editionSearchQuery.trim().toLowerCase();
+    if (!q) return availableEditions;
+    const cleanQ = q.replace(/[^0-9x]/gi, '');
+    return availableEditions.filter(ed => {
+      const matchTitle = ed.title?.toLowerCase().includes(q);
+      const matchPublisher = ed.publishers?.some(p => p.toLowerCase().includes(q));
+      const matchYear = ed.year?.includes(q);
+      const matchFormat = ed.physicalFormat?.toLowerCase().includes(q);
+      const matchIsbn = cleanQ && (
+        (ed.isbn && ed.isbn.replace(/[^0-9x]/gi, '').toLowerCase().includes(cleanQ)) ||
+        (ed.isbn10 && ed.isbn10.replace(/[^0-9x]/gi, '').toLowerCase().includes(cleanQ)) ||
+        (ed.isbn13 && ed.isbn13.replace(/[^0-9x]/gi, '').toLowerCase().includes(cleanQ))
+      );
+      const matchId = ed.id?.toLowerCase().includes(q);
+      return matchTitle || matchPublisher || matchYear || matchFormat || matchIsbn || matchId;
+    });
+  }, [availableEditions, editionSearchQuery]);
 
   const handleSelectEdition = async (edition: BookEdition) => {
     if (!media) return;
@@ -1234,10 +1312,30 @@ export default function MediaDetailModal({
           )}
 
           {/* Overview / Synopsis */}
-          {media.overview && (
+          {(media.overview || isBook) && (
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">Overview</h3>
-              <p className="text-sm text-zinc-300 leading-relaxed">{media.overview}</p>
+              <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Overview</h3>
+                {isBook && (
+                  <button
+                    type="button"
+                    disabled={isEnrichingSynopsis}
+                    onClick={handleEnrichSynopsis}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--accent)] hover:brightness-110 border border-[var(--border-light)] text-[11px] font-semibold transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-xs"
+                    title="Enrich plot synopsis and genres from Google Books or Open Library"
+                  >
+                    {isEnrichingSynopsis ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-amber-400" />}
+                    <span>{isEnrichingSynopsis ? 'Enriching...' : (media.overview ? 'Enrich Blurb & Genres' : 'Fetch Blurb & Genres')}</span>
+                  </button>
+                )}
+              </div>
+              {media.overview ? (
+                <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-line">{media.overview}</p>
+              ) : (
+                <p className="text-xs italic text-zinc-500 py-1">
+                  No synopsis available yet. Click "Fetch Blurb & Genres" above to retrieve one.
+                </p>
+              )}
             </div>
           )}
 
@@ -1618,10 +1716,10 @@ export default function MediaDetailModal({
                 )}
               </div>
 
-              {/* Edition Switching & Synopsis Enrichment Actions (Issue #25) */}
+              {/* Edition Switching Action (Issue #25) */}
               <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  {(media.workId || media.source === 'openlibrary' || media.isbn) && (
+                  {(media.workId || media.source === 'openlibrary' || media.isbn || isBook) && (
                     <button
                       type="button"
                       onClick={handleOpenEditionSelector}
@@ -1632,21 +1730,10 @@ export default function MediaDetailModal({
                       <span>Change Edition</span>
                     </button>
                   )}
-
-                  <button
-                    type="button"
-                    disabled={isEnrichingSynopsis}
-                    onClick={handleEnrichSynopsis}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] text-xs font-medium transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-                    title="Enrich plot synopsis and genres from Google Books or Open Library"
-                  >
-                    {isEnrichingSynopsis ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-400" />}
-                    <span>{isEnrichingSynopsis ? 'Enriching...' : 'Enrich Blurb & Genres'}</span>
-                  </button>
                 </div>
               </div>
 
-              {/* Edition Selector Modal (Issue #25) */}
+              {/* Edition Selector Modal with ISBN Search & Direct Lookup (Issue #25) */}
               {showEditionSelector && (
                 <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fadeIn">
                   <div className="relative w-full max-w-lg bg-[var(--card-bg)] border border-[var(--border-light)] rounded-2xl shadow-2xl p-4 flex flex-col max-h-[80vh]">
@@ -1664,9 +1751,65 @@ export default function MediaDetailModal({
                       </button>
                     </div>
 
-                    <p className="text-xs text-[var(--text-secondary)] py-2">
+                    <p className="text-xs text-[var(--text-secondary)] py-1.5">
                       Switching editions updates your total page count and cover while automatically preserving your reading progress percentage.
                     </p>
+
+                    {/* ISBN Search & Direct Lookup Bar */}
+                    <div className="space-y-1.5 my-2">
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                          <input
+                            type="text"
+                            value={editionSearchQuery}
+                            onChange={(e) => {
+                              setEditionSearchQuery(e.target.value);
+                              setIsbnLookupMessage(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleIsbnLookup();
+                              }
+                            }}
+                            placeholder="Filter editions or lookup ISBN (e.g. 9780441172719)..."
+                            className="w-full pl-8 pr-7 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-light)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent)]"
+                          />
+                          {editionSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditionSearchQuery('');
+                                setIsbnLookupMessage(null);
+                              }}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 text-xs cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleIsbnLookup}
+                          disabled={isLookingUpIsbn || !editionSearchQuery.trim()}
+                          className="px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-semibold shrink-0 disabled:opacity-40 transition-all flex items-center gap-1 cursor-pointer shadow-xs"
+                          title="Directly fetch edition by ISBN (10 or 13 digits) or Open Library edition ID"
+                        >
+                          {isLookingUpIsbn ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                          <span>Lookup ISBN</span>
+                        </button>
+                      </div>
+
+                      {isbnLookupMessage && (
+                        <p className={`text-[11px] flex items-center gap-1 ${
+                          isbnLookupMessage.type === 'success' ? 'text-emerald-400' : 'text-amber-400'
+                        }`}>
+                          <span>{isbnLookupMessage.type === 'success' ? '✓' : '⚠'}</span>
+                          <span>{isbnLookupMessage.text}</span>
+                        </p>
+                      )}
+                    </div>
 
                     <div className="flex-1 overflow-y-auto space-y-2 py-1 pr-1">
                       {isLoadingEditions && (
@@ -1676,13 +1819,18 @@ export default function MediaDetailModal({
                         </div>
                       )}
 
-                      {!isLoadingEditions && availableEditions.length === 0 && (
-                        <p className="text-xs text-center py-8 text-[var(--text-secondary)]">
-                          No other editions found for this book work.
-                        </p>
+                      {!isLoadingEditions && filteredAvailableEditions.length === 0 && (
+                        <div className="text-center py-8 text-xs text-[var(--text-secondary)] space-y-1">
+                          <p>{editionSearchQuery ? 'No editions match your search filter.' : 'No other editions found for this book work.'}</p>
+                          {editionSearchQuery && (
+                            <p className="text-[11px] text-zinc-400">
+                              Tip: Click "Lookup ISBN" above to fetch this specific edition directly from Open Library or Google Books.
+                            </p>
+                          )}
+                        </div>
                       )}
 
-                      {!isLoadingEditions && availableEditions.map(ed => (
+                      {!isLoadingEditions && filteredAvailableEditions.map(ed => (
                         <div
                           key={ed.id}
                           className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-light)] hover:border-[var(--accent)] transition-all"

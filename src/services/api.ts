@@ -499,6 +499,137 @@ export async function fetchOpenLibraryEditions(
 }
 
 /**
+ * Directly lookup a specific book edition by ISBN (10 or 13 digits) or Open Library edition ID (Issue #25).
+ * Queries Open Library ISBN endpoint first, then falls back to Google Books.
+ */
+export async function fetchBookEditionByIsbn(
+  isbnOrIdRaw: string,
+  timeoutMs: number = 7000
+): Promise<BookEdition | null> {
+  const query = isbnOrIdRaw.trim();
+  if (!query) return null;
+
+  const cleanIsbn = query.replace(/[^0-9X]/gi, '').toUpperCase();
+  const isEditionKey = /^OL\d+M$/i.test(query) || /^\/books\/OL\d+M$/i.test(query);
+  const isValidIsbn = cleanIsbn.length === 10 || cleanIsbn.length === 13;
+
+  if (!isValidIsbn && !isEditionKey) {
+    return null;
+  }
+
+  // 1. Try Open Library endpoint (either /books/{id}.json or /isbn/{isbn}.json)
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const url = isEditionKey
+      ? `${OPENLIBRARY_BASE_URL}/books/${encodeURIComponent(query.replace('/books/', ''))}.json`
+      : `${OPENLIBRARY_BASE_URL}/isbn/${encodeURIComponent(cleanIsbn)}.json`;
+
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const entry = await res.json();
+      const id = entry.key ? String(entry.key).replace('/books/', '') : (isEditionKey ? query.replace('/books/', '') : `isbn_${cleanIsbn}`);
+      const coverId = Array.isArray(entry.covers) && entry.covers.length > 0 && entry.covers[0] > 0
+        ? entry.covers[0]
+        : null;
+      const coverUrl = coverId
+        ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg`
+        : (isValidIsbn ? `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-M.jpg` : null);
+      const publishers = Array.isArray(entry.publishers) ? entry.publishers : [];
+      const isbn10 = Array.isArray(entry.isbn_10) && entry.isbn_10.length > 0
+        ? String(entry.isbn_10[0])
+        : (cleanIsbn.length === 10 ? cleanIsbn : undefined);
+      const isbn13 = Array.isArray(entry.isbn_13) && entry.isbn_13.length > 0
+        ? String(entry.isbn_13[0])
+        : (cleanIsbn.length === 13 ? cleanIsbn : undefined);
+      const isbn = isbn13 || isbn10 || (isValidIsbn ? cleanIsbn : undefined);
+      const physicalFormat = entry.physical_format || (entry.number_of_pages ? 'Print' : 'Edition');
+      let year = '';
+      if (entry.publish_date) {
+        const yearMatch = String(entry.publish_date).match(/\b(19\d\d|20\d\d)\b/);
+        if (yearMatch) year = yearMatch[1];
+      }
+
+      return {
+        id,
+        key: entry.key || `/books/${id}`,
+        title: entry.title || 'Untitled Edition',
+        publishers,
+        publishDate: entry.publish_date,
+        year,
+        totalPages: typeof entry.number_of_pages === 'number' ? entry.number_of_pages : undefined,
+        isbn10,
+        isbn13,
+        isbn,
+        physicalFormat,
+        coverUrl,
+        language: Array.isArray(entry.languages) && entry.languages[0]?.key
+          ? String(entry.languages[0].key).replace('/languages/', '')
+          : undefined
+      };
+    }
+  } catch {
+    clearTimeout(timer);
+  }
+
+  // 2. Fallback to Google Books for ISBN lookup
+  if (isValidIsbn) {
+    try {
+      const apiKey = await getSetting<string>('google_books_api_key', '');
+      const keyParam = apiKey ? `&key=${encodeURIComponent(apiKey)}` : '';
+      const gbController = new AbortController();
+      const gbTimer = setTimeout(() => gbController.abort(), timeoutMs);
+
+      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(cleanIsbn)}${keyParam}`, {
+        signal: gbController.signal
+      });
+      clearTimeout(gbTimer);
+
+      if (res.ok) {
+        const data = await res.json();
+        const item = data?.items?.[0];
+        const volume = item?.volumeInfo;
+        if (volume) {
+          const id = item.id || `gb_${cleanIsbn}`;
+          const publishers = volume.publisher ? [volume.publisher] : [];
+          let year = '';
+          if (volume.publishedDate) {
+            const yearMatch = String(volume.publishedDate).match(/\b(19\d\d|20\d\d)\b/);
+            if (yearMatch) year = yearMatch[1];
+          }
+          let coverUrl: string | null = null;
+          if (volume.imageLinks?.thumbnail) {
+            coverUrl = volume.imageLinks.thumbnail.replace('http://', 'https://');
+          }
+
+          return {
+            id,
+            key: `/books/${id}`,
+            title: volume.title || 'Untitled Edition',
+            publishers,
+            publishDate: volume.publishedDate,
+            year,
+            totalPages: typeof volume.pageCount === 'number' ? volume.pageCount : undefined,
+            isbn: cleanIsbn,
+            isbn10: cleanIsbn.length === 10 ? cleanIsbn : undefined,
+            isbn13: cleanIsbn.length === 13 ? cleanIsbn : undefined,
+            physicalFormat: volume.printType === 'BOOK' ? 'Print' : volume.printType,
+            coverUrl
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
+/**
  * Enrich book synopsis and categories via Google Books or Open Library Works API (Issue #25).
  */
 export async function enrichBookSynopsis(params: {

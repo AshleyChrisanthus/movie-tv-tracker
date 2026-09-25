@@ -269,6 +269,43 @@ describe('Tier 1: Issues #25, #26, #27 - Book Editions, Percentage Progress & Mu
       assert.equal(enriched.communityRating, 9.2); // (4.6 * 2)
       assert.equal(enriched.communityRatingCount, 3500);
     });
+
+    it('should lookup specific book edition directly by ISBN via Open Library or Google Books fallback', async () => {
+      mockFetch(async (url) => {
+        if (url.includes('openlibrary.org/isbn/9780441172719.json')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              key: '/books/OL22597282M',
+              title: 'Dune (Special Ace Edition)',
+              publishers: ['Ace Books'],
+              publish_date: '1990',
+              number_of_pages: 535,
+              isbn_10: ['0441172717'],
+              isbn_13: ['9780441172719'],
+              physical_format: 'Paperback',
+              covers: [15166231]
+            })
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const edition = await apiModule.fetchBookEditionByIsbn('978-0441172719');
+      assert.ok(edition);
+      assert.equal(edition.id, 'OL22597282M');
+      assert.equal(edition.title, 'Dune (Special Ace Edition)');
+      assert.equal(edition.totalPages, 535);
+      assert.equal(edition.isbn, '9780441172719');
+      assert.equal(edition.physicalFormat, 'Paperback');
+      assert.equal(edition.publishers[0], 'Ace Books');
+      assert.equal(edition.coverUrl, 'https://covers.openlibrary.org/b/id/15166231-M.jpg');
+
+      // Test invalid ISBN format returns null without making network calls
+      const invalid = await apiModule.fetchBookEditionByIsbn('not-an-isbn');
+      assert.equal(invalid, null);
+    });
   });
 
   // =========================================================================

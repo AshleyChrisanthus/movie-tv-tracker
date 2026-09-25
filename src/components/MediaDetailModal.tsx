@@ -897,7 +897,7 @@ export default function MediaDetailModal({
                                 ) : (
                                   <Plus className="w-2.5 h-2.5" />
                                 )}
-                                <span>+ Add</span>
+                                <span>Add</span>
                               </button>
                               <button
                                 type="button"

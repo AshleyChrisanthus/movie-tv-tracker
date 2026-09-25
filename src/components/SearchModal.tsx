@@ -313,8 +313,16 @@ export default function SearchModal({
           {query && (
             <button
               type="button"
-              onClick={() => setQuery('')}
-              className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              onMouseDown={(e) => {
+                // Prevent button click from stealing focus away from input
+                e.preventDefault();
+              }}
+              onClick={() => {
+                setQuery('');
+                inputRef.current?.focus();
+              }}
+              className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+              title="Clear search"
             >
               <X className="w-4 h-4" />
             </button>

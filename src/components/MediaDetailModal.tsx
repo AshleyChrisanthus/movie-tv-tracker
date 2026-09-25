@@ -608,21 +608,40 @@ export default function MediaDetailModal({
                 {/* Quick Add or View action */}
                 <div className="flex items-center gap-2 shrink-0 self-end sm:self-center w-full sm:w-auto">
                   {nextFranchiseMovie.isAlreadyInLibrary && nextFranchiseMovie.libraryItem ? (
-                    <button
-                      type="button"
-                      onClick={() => handleSelectFranchiseMovie(nextFranchiseMovie.libraryItem!)}
-                      className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>View Movie ({nextFranchiseMovie.libraryStatus === 'completed' ? 'Completed' : nextFranchiseMovie.libraryStatus === 'watching' ? 'Watching' : 'Plan to Watch'})</span>
-                    </button>
+                    <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+                      {nextFranchiseMovie.libraryStatus !== 'completed' && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await updateMediaStatus(nextFranchiseMovie.libraryItem!.id, 'completed');
+                            setSyncNotice({ success: true, message: `🎉 Marked "${nextFranchiseMovie.part.title}" as Watched!` });
+                            if (onUpdated) onUpdated();
+                            const all = await getAllMedia();
+                            setLibraryMovies(all.filter(m => m.type === 'movie'));
+                          }}
+                          className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
+                          title="Mark as Watched"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Mark Watched</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleSelectFranchiseMovie(nextFranchiseMovie.libraryItem!)}
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View Movie ({nextFranchiseMovie.libraryStatus === 'completed' ? 'Completed' : nextFranchiseMovie.libraryStatus === 'watching' ? 'Watching' : 'Plan to Watch'})</span>
+                      </button>
+                    </div>
                   ) : (
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
                       <button
                         type="button"
                         disabled={isAddingFranchisePartId === nextFranchiseMovie.part.id}
                         onClick={() => handleAddFranchisePart(nextFranchiseMovie.part, 'plan_to_watch')}
-                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white font-semibold text-xs border border-zinc-700 transition-all shadow-md active:scale-95 cursor-pointer"
                         title="Add to Plan to Watch"
                       >
                         {isAddingFranchisePartId === nextFranchiseMovie.part.id ? (
@@ -630,17 +649,27 @@ export default function MediaDetailModal({
                         ) : (
                           <Plus className="w-3.5 h-3.5" />
                         )}
-                        <span>Quick Add to Watchlist</span>
+                        <span>Plan to Watch</span>
                       </button>
                       <button
                         type="button"
                         disabled={isAddingFranchisePartId === nextFranchiseMovie.part.id}
                         onClick={() => handleAddFranchisePart(nextFranchiseMovie.part, 'watching')}
-                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 disabled:opacity-50 text-white font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 disabled:opacity-50 text-white font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
                         title="Add to Library & Start Watching"
                       >
                         <PlayCircle className="w-3.5 h-3.5" />
-                        <span>Start Watching</span>
+                        <span>Watching</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isAddingFranchisePartId === nextFranchiseMovie.part.id}
+                        onClick={() => handleAddFranchisePart(nextFranchiseMovie.part, 'completed')}
+                        className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
+                        title="Add to Library and Mark as Watched"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Watched</span>
                       </button>
                     </div>
                   )}
@@ -769,8 +798,8 @@ export default function MediaDetailModal({
                               Viewing Now
                             </span>
                           ) : isInLibrary && libraryItem ? (
-                            <div className="flex items-center justify-between">
-                              <span className={`text-[9px] font-bold py-0.5 px-1.5 rounded border ${
+                            <div className="flex items-center justify-between gap-1">
+                              <span className={`text-[9px] font-bold py-0.5 px-1.5 rounded border truncate ${
                                 partStatus === 'completed'
                                   ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                                   : partStatus === 'watching'
@@ -779,26 +808,58 @@ export default function MediaDetailModal({
                               }`}>
                                 {partStatus === 'completed' ? 'Watched' : partStatus === 'watching' ? 'Watching' : 'Plan to Watch'}
                               </span>
-                              <Eye className="w-3 h-3 text-zinc-500 group-hover:text-white transition-colors" />
+                              {partStatus !== 'completed' ? (
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    await updateMediaStatus(libraryItem.id, 'completed');
+                                    setSyncNotice({ success: true, message: `🎉 Marked "${part.title}" as Watched!` });
+                                    if (onUpdated) onUpdated();
+                                    const all = await getAllMedia();
+                                    setLibraryMovies(all.filter(m => m.type === 'movie'));
+                                  }}
+                                  className="p-1 rounded bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 transition-all cursor-pointer shrink-0"
+                                  title="Mark as Watched"
+                                >
+                                  <Check className="w-2.5 h-2.5" />
+                                </button>
+                              ) : (
+                                <Eye className="w-3 h-3 text-zinc-500 group-hover:text-white transition-colors shrink-0" />
+                              )}
                             </div>
                           ) : (
-                            <button
-                              type="button"
-                              disabled={isAddingFranchisePartId === part.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAddFranchisePart(part, 'plan_to_watch');
-                              }}
-                              className="flex items-center justify-center gap-1 w-full py-1 px-1.5 rounded-lg bg-[var(--accent)]/20 hover:bg-[var(--accent)] text-[var(--accent)] hover:text-white border border-[var(--accent)]/30 text-[10px] font-bold transition-all shadow-xs cursor-pointer"
-                              title="Add to Plan to Watch"
-                            >
-                              {isAddingFranchisePartId === part.id ? (
-                                <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                              ) : (
-                                <Plus className="w-2.5 h-2.5" />
-                              )}
-                              <span>+ Add</span>
-                            </button>
+                            <div className="flex items-center gap-1 w-full">
+                              <button
+                                type="button"
+                                disabled={isAddingFranchisePartId === part.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddFranchisePart(part, 'plan_to_watch');
+                                }}
+                                className="flex items-center justify-center gap-1 flex-1 py-1 px-1 rounded-lg bg-[var(--accent)]/20 hover:bg-[var(--accent)] text-[var(--accent)] hover:text-white border border-[var(--accent)]/30 text-[10px] font-bold transition-all shadow-xs cursor-pointer"
+                                title="Add to Watchlist"
+                              >
+                                {isAddingFranchisePartId === part.id ? (
+                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                ) : (
+                                  <Plus className="w-2.5 h-2.5" />
+                                )}
+                                <span>+ Add</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isAddingFranchisePartId === part.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddFranchisePart(part, 'completed');
+                                }}
+                                className="flex items-center justify-center p-1 rounded-lg bg-emerald-600/25 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 text-[10px] font-bold transition-all shadow-xs cursor-pointer"
+                                title="Add and mark as Watched"
+                              >
+                                <Check className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>

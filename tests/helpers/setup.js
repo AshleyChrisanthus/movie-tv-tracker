@@ -107,6 +107,14 @@ export async function getUpcomingModule() {
   return await import('../../src/utils/upcoming.js');
 }
 
+export async function getFranchiseModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/utils/franchise.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/utils/franchise.ts');
+  }
+  return await import('../../src/utils/franchise.js');
+}
+
 // Reset database tables between tests
 export async function resetDatabase() {
   const { db } = await getDbModule();
@@ -116,6 +124,9 @@ export async function resetDatabase() {
     await db.settings.clear();
     if (db.canvases) {
       await db.canvases.clear();
+    }
+    if (db.collections) {
+      await db.collections.clear();
     }
   }
   localStorageStore.clear();

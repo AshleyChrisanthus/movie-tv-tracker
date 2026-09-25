@@ -100,6 +100,8 @@ export interface MediaItem {
   runtime?: number | null;                  // Movie runtime in minutes
   collectionId?: number | string | null;    // TMDB Collection / Franchise ID (e.g. 10 for Star Wars Collection)
   collectionName?: string | null;           // TMDB Collection Name (e.g. 'Star Wars Collection')
+  nextFranchiseMovieTitle?: string | null;  // Next sequel/prequel title in franchise
+  nextFranchiseMovieId?: number | string | null; // Next sequel/prequel externalId in franchise
   notes?: string;                           // Personal user review / notes
   lastSyncedAt?: string;                    // ISO timestamp of last successful sync
   createdAt: string;                        // ISO creation timestamp

@@ -250,3 +250,17 @@ export interface TMDBCollectionDetail {
   backdrop_path?: string | null;
   parts: TMDBCollectionPart[];
 }
+
+/**
+ * Offline-first Franchise Collection cache stored in IndexedDB.
+ */
+export interface FranchiseCollectionCache {
+  id: number;
+  name: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  parts: TMDBCollectionPart[];
+  updatedAt: string;
+}
+

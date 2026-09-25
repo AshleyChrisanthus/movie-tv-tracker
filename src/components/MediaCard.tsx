@@ -324,10 +324,18 @@ export default function MediaCard({
           </div>
         )}
 
-        {/* Movie status hint */}
+        {/* Movie status hint & Franchise info (Issue #34) */}
         {!isTv && !isBook && (
-          <div className={`${density === 'compact' ? 'pt-0.5 text-[10px]' : 'pt-1 text-[11px]'} text-[var(--text-secondary)]`}>
-            {item.status === 'completed' ? 'Watched' : 'In Watchlist'}
+          <div className={`${density === 'compact' ? 'pt-0.5 text-[10px]' : 'pt-1 text-[11px]'} text-[var(--text-secondary)] flex items-center justify-between gap-1`}>
+            <span>{item.status === 'completed' ? 'Watched' : 'In Watchlist'}</span>
+            {item.collectionName && (
+              <span
+                className="truncate text-[var(--accent)] font-medium text-[9px] sm:text-[10px] max-w-[130px]"
+                title={`Part of ${item.collectionName}`}
+              >
+                {item.nextFranchiseMovieTitle ? `Next: ${item.nextFranchiseMovieTitle}` : item.collectionName}
+              </span>
+            )}
           </div>
         )}
       </div>

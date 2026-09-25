@@ -1,5 +1,6 @@
 import type { MediaItem, EpisodeItem, CompactEpisodeItem } from './media';
 import type { FranchiseCanvas } from './canvas';
+import type { FranchiseCollectionCache } from './api';
 
 export type BackupMode = 'minimal' | 'compact' | 'full';
 
@@ -19,6 +20,7 @@ export interface BaseBackupFile {
   media: MediaItem[];
   settings: SettingItem[];
   canvases?: FranchiseCanvas[];
+  collections?: FranchiseCollectionCache[];
 }
 
 export interface MinimalBackupFile extends BaseBackupFile {

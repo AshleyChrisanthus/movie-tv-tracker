@@ -12,7 +12,8 @@ import ThemeModal from './components/ThemeModal';
 import ListManagerModal from './components/ListManagerModal';
 import { FranchiseCanvasView } from './components/canvas/FranchiseCanvasView';
 import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, clearAllPersonalRatings, getCustomLists, updateBookProgress, getSetting, setSetting } from './db';
-import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync } from './services/api';
+import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync, fetchTMDBCollection } from './services/api';
+import { getNextFranchiseMovie } from './utils/franchise';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
@@ -404,6 +405,31 @@ export default function App(): React.JSX.Element {
     const newStatus: MediaStatus = item.status === 'completed' ? 'plan_to_watch' : 'completed';
     await updateMediaStatus(item.id, newStatus);
     await refreshLibrary();
+
+    if (newStatus === 'completed' && item.collectionId) {
+      try {
+        const col = await fetchTMDBCollection(item.collectionId);
+        if (col && col.parts) {
+          const all = await getAllMedia();
+          const next = getNextFranchiseMovie(item, col.parts, all);
+          if (next) {
+            const nextYear = next.part.release_date ? ` (${next.part.release_date.slice(0, 4)})` : '';
+            setSyncAlerts(prev => [
+              ...prev,
+              {
+                id: `next_franchise_${item.id}_${Date.now()}`,
+                title: col.name,
+                message: next.isAlreadyInLibrary
+                  ? `🎉 Finished "${item.title}"! Next in series: "${next.part.title}"${nextYear} is in your library.`
+                  : `🎉 Finished "${item.title}"! Next in series: "${next.part.title}"${nextYear}. Click to open details and add!`
+              }
+            ]);
+          }
+        }
+      } catch (err) {
+        console.warn('Franchise prompt error:', err);
+      }
+    }
   };
 
   // Open Edit Modal for an item

@@ -151,6 +151,12 @@ export default function MediaListView({
                     📁 {item.lists[0]}{item.lists.length > 1 ? ` +${item.lists.length - 1}` : ''}
                   </span>
                 )}
+
+                {item.collectionName && (
+                  <span className="text-[10px] text-purple-400 font-medium truncate hidden lg:inline" title={`Part of ${item.collectionName}`}>
+                    ✨ {item.nextFranchiseMovieTitle ? `Next: ${item.nextFranchiseMovieTitle}` : item.collectionName}
+                  </span>
+                )}
               </div>
             </div>
 

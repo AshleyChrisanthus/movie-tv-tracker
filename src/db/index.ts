@@ -14,7 +14,9 @@ import type {
   MediaType,
   CompactEpisodeItem,
   CustomList,
-  FranchiseCanvas
+  FranchiseCanvas,
+  FranchiseCollectionCache,
+  TMDBCollectionDetail
 } from '../types';
 
 export class BingeLogDatabase extends Dexie {
@@ -22,6 +24,7 @@ export class BingeLogDatabase extends Dexie {
   episodes!: Table<EpisodeItem, string>;
   settings!: Table<SettingItem, string>;
   canvases!: Table<FranchiseCanvas, string>;
+  collections!: Table<FranchiseCollectionCache, number>;
 
   constructor() {
     super('BingeLogDB');
@@ -32,6 +35,9 @@ export class BingeLogDatabase extends Dexie {
     });
     this.version(2).stores({
       canvases: 'id, name, updatedAt, createdAt'
+    });
+    this.version(3).stores({
+      collections: 'id, name, updatedAt'
     });
   }
 }
@@ -861,6 +867,7 @@ export async function exportAllData(options: { mode?: BackupMode } = {}): Promis
   const rawEpisodes = await db.episodes.toArray();
   const settings = await db.settings.toArray();
   const canvases = await db.canvases.toArray();
+  const collections = await db.collections.toArray();
 
   const customMediaIds = new Set(media.filter(m => m.source === 'custom').map(m => m.id));
 
@@ -891,7 +898,8 @@ export async function exportAllData(options: { mode?: BackupMode } = {}): Promis
       media,
       episodes,
       settings,
-      canvases
+      canvases,
+      collections
     };
   } else if (mode === 'compact') {
     episodes = rawEpisodes.map((ep): CompactEpisodeItem => ({
@@ -916,7 +924,8 @@ export async function exportAllData(options: { mode?: BackupMode } = {}): Promis
       media,
       episodes,
       settings,
-      canvases
+      canvases,
+      collections
     };
   }
 
@@ -930,7 +939,8 @@ export async function exportAllData(options: { mode?: BackupMode } = {}): Promis
     media,
     episodes: rawEpisodes,
     settings,
-    canvases
+    canvases,
+    collections
   };
 }
 
@@ -942,12 +952,13 @@ export async function importData(backupData: BackupFile, overwrite: boolean = fa
     throw new Error('Invalid backup file format: missing media list');
   }
 
-  return await db.transaction('rw', db.media, db.episodes, db.settings, db.canvases, async () => {
+  return await db.transaction('rw', db.media, db.episodes, db.settings, db.canvases, db.collections, async () => {
     if (overwrite) {
       await db.media.clear();
       await db.episodes.clear();
       await db.settings.clear();
       await db.canvases.clear();
+      await db.collections.clear();
     }
 
     if (backupData.media.length > 0) {
@@ -962,12 +973,63 @@ export async function importData(backupData: BackupFile, overwrite: boolean = fa
     if (Array.isArray(backupData.canvases) && backupData.canvases.length > 0) {
       await db.canvases.bulkPut(backupData.canvases);
     }
+    if (Array.isArray(backupData.collections) && backupData.collections.length > 0) {
+      await db.collections.bulkPut(backupData.collections);
+    }
 
     return {
       mediaCount: backupData.media.length,
       episodesCount: backupData.episodes ? backupData.episodes.length : 0
     };
   });
+}
+
+/**
+ * Retrieve a cached Franchise Collection from IndexedDB by TMDB collection ID.
+ */
+export async function getFranchiseCollection(collectionId: number | string): Promise<FranchiseCollectionCache | undefined> {
+  if (!collectionId) return undefined;
+  const numId = typeof collectionId === 'string' ? parseInt(collectionId, 10) : collectionId;
+  if (isNaN(numId)) return undefined;
+  return await db.collections.get(numId);
+}
+
+/**
+ * Save or update a Franchise Collection in IndexedDB cache.
+ */
+export async function saveFranchiseCollection(
+  collection: TMDBCollectionDetail | FranchiseCollectionCache
+): Promise<FranchiseCollectionCache> {
+  const now = new Date().toISOString();
+  const numId = typeof collection.id === 'string' ? parseInt(String(collection.id), 10) : collection.id;
+  const cached: FranchiseCollectionCache = {
+    id: numId,
+    name: collection.name.trim(),
+    overview: collection.overview || '',
+    poster_path: collection.poster_path || null,
+    backdrop_path: collection.backdrop_path || null,
+    parts: Array.isArray(collection.parts) ? collection.parts : [],
+    updatedAt: now
+  };
+  await db.collections.put(cached);
+  return cached;
+}
+
+/**
+ * Retrieve all cached Franchise Collections from IndexedDB.
+ */
+export async function getAllFranchiseCollections(): Promise<FranchiseCollectionCache[]> {
+  return await db.collections.orderBy('updatedAt').reverse().toArray();
+}
+
+/**
+ * Delete a cached Franchise Collection from IndexedDB.
+ */
+export async function deleteFranchiseCollection(collectionId: number | string): Promise<void> {
+  const numId = typeof collectionId === 'string' ? parseInt(String(collectionId), 10) : collectionId;
+  if (!isNaN(numId)) {
+    await db.collections.delete(numId);
+  }
 }
 
 /**

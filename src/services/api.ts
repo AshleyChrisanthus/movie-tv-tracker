@@ -6,7 +6,7 @@
  * 3. iTunes Search API (Free fallback for movie search when no TMDB key is set)
  */
 
-import { getSetting, getEpisodesForMedia, saveMediaItem, touchMediaSyncedAt } from '../db/index';
+import { getSetting, getEpisodesForMedia, saveMediaItem, touchMediaSyncedAt, getFranchiseCollection, saveFranchiseCollection } from '../db/index';
 import type {
   MediaItem,
   EpisodeItem,
@@ -576,6 +576,11 @@ async function fetchTMDBMovieDetails(
   const collectionId = belongsToCollection?.id || fallbackItem.collectionId || null;
   const collectionName = belongsToCollection?.name || fallbackItem.collectionName || null;
 
+  // Background cache collection info if movie belongs to a franchise
+  if (belongsToCollection?.id) {
+    fetchTMDBCollection(belongsToCollection.id).catch(() => {});
+  }
+
   const media: Partial<MediaItem> = {
     ...fallbackItem,
     rating: fallbackItem.rating ?? null,
@@ -631,15 +636,43 @@ export async function searchTMDBCollections(query: string): Promise<TMDBCollecti
 }
 
 /**
- * Fetch complete movie series / collection details and all parts from TMDB.
+ * Fetch complete movie series / collection details and all parts from TMDB (with IndexedDB offline cache).
  */
 export async function fetchTMDBCollection(collectionId: number | string): Promise<TMDBCollectionDetail | null> {
+  if (!collectionId) return null;
+  const cached = await getFranchiseCollection(collectionId);
   const apiKey = await getTmdbApiKey();
-  if (!apiKey || !collectionId) return null;
+
+  // If no apiKey configured, return cached if present
+  if (!apiKey) {
+    if (cached) {
+      return {
+        id: cached.id,
+        name: cached.name,
+        overview: cached.overview || '',
+        poster_path: cached.poster_path || null,
+        backdrop_path: cached.backdrop_path || null,
+        parts: cached.parts || []
+      };
+    }
+    return null;
+  }
 
   try {
     const res = await fetch(`${TMDB_BASE_URL}/collection/${collectionId}?api_key=${encodeURIComponent(apiKey)}`);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (cached) {
+        return {
+          id: cached.id,
+          name: cached.name,
+          overview: cached.overview || '',
+          poster_path: cached.poster_path || null,
+          backdrop_path: cached.backdrop_path || null,
+          parts: cached.parts || []
+        };
+      }
+      return null;
+    }
     const data = await res.json();
     const parts: TMDBCollectionPart[] = (data.parts || []).map((part: {
       id: number;
@@ -673,7 +706,7 @@ export async function fetchTMDBCollection(collectionId: number | string): Promis
       return a.release_date.localeCompare(b.release_date);
     });
 
-    return {
+    const detail: TMDBCollectionDetail = {
       id: data.id,
       name: data.name,
       overview: data.overview || '',
@@ -681,7 +714,22 @@ export async function fetchTMDBCollection(collectionId: number | string): Promis
       backdrop_path: data.backdrop_path ? `${TMDB_IMAGE_BASE}/original${data.backdrop_path}` : null,
       parts
     };
+
+    // Save to IndexedDB cache
+    await saveFranchiseCollection(detail);
+
+    return detail;
   } catch (err) {
+    if (cached) {
+      return {
+        id: cached.id,
+        name: cached.name,
+        overview: cached.overview || '',
+        poster_path: cached.poster_path || null,
+        backdrop_path: cached.backdrop_path || null,
+        parts: cached.parts || []
+      };
+    }
     console.error('fetchTMDBCollection error:', err);
     return null;
   }

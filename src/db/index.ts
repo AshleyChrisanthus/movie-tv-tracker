@@ -745,12 +745,21 @@ export async function backfillCommunityRatings(): Promise<number> {
           const res = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${encodeURIComponent(tmdbApiKey)}`).catch(() => null);
           if (res && res.ok) {
             const data = await res.json();
+            const collectionId = data.belongs_to_collection?.id || item.collectionId || null;
+            const collectionName = data.belongs_to_collection?.name || item.collectionName || null;
+            const updates: Partial<MediaItem> = {
+              updatedAt: new Date().toISOString()
+            };
             if (data?.vote_average) {
-              await db.media.update(item.id, {
-                communityRating: Number(data.vote_average.toFixed(1)),
-                communityRatingCount: data.vote_count || null,
-                updatedAt: new Date().toISOString()
-              });
+              updates.communityRating = Number(data.vote_average.toFixed(1));
+              updates.communityRatingCount = data.vote_count || null;
+            }
+            if (collectionId && !item.collectionId) {
+              updates.collectionId = collectionId;
+              updates.collectionName = collectionName;
+            }
+            if (updates.communityRating || updates.collectionId) {
+              await db.media.update(item.id, updates);
               updatedCount++;
             }
           }
@@ -758,6 +767,62 @@ export async function backfillCommunityRatings(): Promise<number> {
       }
     } catch (err) {
       console.warn('Failed to backfill community rating for', item.title, err);
+    }
+  }
+
+  return updatedCount;
+}
+
+/**
+ * Backfill missing franchise collection metadata (collectionId, collectionName) for existing movies (Issue #34).
+ */
+export async function backfillMovieFranchiseCollections(): Promise<number> {
+  const movies = await db.media.where('type').equals('movie').toArray();
+  const tmdbApiKey = await getSetting<string>('tmdb_api_key', '');
+  if (!tmdbApiKey) return 0;
+
+  let updatedCount = 0;
+  for (const movie of movies) {
+    if (movie.collectionId) continue;
+
+    try {
+      let tmdbId = movie.tmdbId || (movie.source === 'tmdb' ? movie.externalId : null);
+
+      if (!tmdbId && movie.title) {
+        const yearParam = movie.year && movie.year !== 'N/A' ? `&year=${movie.year}` : '';
+        const searchRes = await fetch(
+          `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(movie.title)}&api_key=${encodeURIComponent(tmdbApiKey)}${yearParam}`
+        ).catch(() => null);
+        if (searchRes && searchRes.ok) {
+          const searchData = await searchRes.json();
+          const match = searchData.results?.[0];
+          if (match?.id) {
+            tmdbId = match.id;
+            await db.media.update(movie.id, {
+              tmdbId: match.id
+            });
+          }
+        }
+      }
+
+      if (tmdbId) {
+        const res = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${encodeURIComponent(tmdbApiKey)}`).catch(() => null);
+        if (res && res.ok) {
+          const data = await res.json();
+          const col = data.belongs_to_collection;
+          if (col && col.id) {
+            await db.media.update(movie.id, {
+              collectionId: col.id,
+              collectionName: col.name,
+              tmdbId: movie.tmdbId || tmdbId,
+              updatedAt: new Date().toISOString()
+            });
+            updatedCount++;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to backfill franchise collection for movie', movie.title, err);
     }
   }
 

@@ -268,6 +268,48 @@ describe('Tier 1: Issue #34 Movie Franchises & Collections Tracking', () => {
     assert.equal(retrieved.communityRating, 8.5);
   });
 
+  it('should backfill franchise collections for legacy movies in library missing collectionId', async () => {
+    await dbModule.setSetting('tmdb_api_key', 'test_key');
+
+    // Save legacy movie in library without collectionId or collectionName
+    const legacyMovie = await dbModule.saveMediaItem({
+      title: 'The Lord of the Rings: The Fellowship of the Ring',
+      type: 'movie',
+      status: 'completed',
+      source: 'tmdb',
+      externalId: 120,
+      tmdbId: 120
+    });
+
+    assert.equal(legacyMovie.collectionId, undefined);
+
+    // Mock TMDB /movie/120 endpoint returning belongs_to_collection
+    mockFetch((url) => {
+      if (url.includes('/movie/120')) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 120,
+            title: 'The Lord of the Rings: The Fellowship of the Ring',
+            belongs_to_collection: {
+              id: 119,
+              name: 'The Lord of the Rings Collection'
+            }
+          })
+        };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const healedCount = await dbModule.backfillMovieFranchiseCollections();
+    assert.equal(healedCount, 1);
+
+    const healedMovie = await dbModule.getMediaById(legacyMovie.id);
+    assert.ok(healedMovie);
+    assert.equal(healedMovie.collectionId, 119);
+    assert.equal(healedMovie.collectionName, 'The Lord of the Rings Collection');
+  });
+
   it('should include collections in backup export and restore them on import', async () => {
     await dbModule.saveFranchiseCollection(mockLOTRCollection);
 

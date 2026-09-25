@@ -9,9 +9,9 @@ import {
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes, 
   deleteMediaItem, getMediaById, markEpisodesUpToWatched,
   getCustomLists, toggleMediaList, saveCustomList, updateBookProgress,
-  setSetting, getAllMedia, saveMediaItem
+  setSetting, getAllMedia, saveMediaItem, db
 } from '../db';
-import { syncMediaEpisodes, fetchTMDBCollection } from '../services/api';
+import { syncMediaEpisodes, fetchTMDBCollection, getTmdbApiKey } from '../services/api';
 import { 
   getNextFranchiseMovie, getFranchisePartsWithLibraryStatus, 
   createMediaItemFromCollectionPart, type NextFranchiseMovieInfo, type FranchisePartStatus 
@@ -289,19 +289,71 @@ export default function MediaDetailModal({
       handleSync(true);
     }
     // Load Franchise Collection and library movies for movies in a franchise (Issue #34)
-    if (media.type === 'movie' && media.collectionId) {
-      setIsLoadingCollection(true);
-      Promise.all([
-        fetchTMDBCollection(media.collectionId),
-        getAllMedia()
-      ]).then(([col, allMedia]) => {
-        setCollection(col);
-        setLibraryMovies(allMedia.filter(m => m.type === 'movie'));
-      }).catch(err => {
-        console.error('Failed to load franchise collection:', err);
-      }).finally(() => {
-        setIsLoadingCollection(false);
-      });
+    if (media.type === 'movie') {
+      const loadMovieFranchise = async () => {
+        setIsLoadingCollection(true);
+        try {
+          let colId = media.collectionId;
+          let colName = media.collectionName;
+
+          // If collectionId is not yet linked on this library item, check TMDB on-demand
+          if (!colId) {
+            const apiKey = await getTmdbApiKey();
+            let tmdbId = media.tmdbId || (media.source === 'tmdb' ? media.externalId : null);
+
+            if (!tmdbId && apiKey && media.title) {
+              const yearParam = media.year && media.year !== 'N/A' ? `&year=${media.year}` : '';
+              const searchRes = await fetch(
+                `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(media.title)}&api_key=${encodeURIComponent(apiKey)}${yearParam}`
+              ).catch(() => null);
+              if (searchRes && searchRes.ok) {
+                const sData = await searchRes.json();
+                if (sData.results?.[0]?.id) {
+                  tmdbId = sData.results[0].id;
+                }
+              }
+            }
+
+            if (tmdbId && apiKey) {
+              const res = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${encodeURIComponent(apiKey)}`).catch(() => null);
+              if (res && res.ok) {
+                const data = await res.json();
+                const col = data.belongs_to_collection;
+                if (col && col.id) {
+                  colId = col.id;
+                  colName = col.name;
+                  await db.media.update(media.id, {
+                    collectionId: col.id,
+                    collectionName: col.name,
+                    tmdbId: media.tmdbId || tmdbId,
+                    updatedAt: new Date().toISOString()
+                  });
+                  media.collectionId = col.id;
+                  media.collectionName = col.name;
+                  if (onUpdated) onUpdated();
+                }
+              }
+            }
+          }
+
+          if (colId) {
+            const [col, allMedia] = await Promise.all([
+              fetchTMDBCollection(colId),
+              getAllMedia()
+            ]);
+            setCollection(col);
+            setLibraryMovies(allMedia.filter(m => m.type === 'movie'));
+          } else {
+            setCollection(null);
+          }
+        } catch (err) {
+          console.error('Failed to load franchise collection:', err);
+        } finally {
+          setIsLoadingCollection(false);
+        }
+      };
+
+      loadMovieFranchise();
     } else {
       setCollection(null);
     }

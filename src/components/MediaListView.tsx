@@ -1,8 +1,9 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe } from 'lucide-react';
+import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones } from 'lucide-react';
 import type { MediaItem, MediaStatus, RatingScale } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
+import { isAudiobookItem, formatAudioDuration } from '../utils/audioDuration';
 
 interface StatusStyle {
   label: string;
@@ -27,6 +28,15 @@ const BOOK_STATUS_CONFIG: Record<MediaStatus, StatusStyle> = {
   dropped: { label: 'Did Not Finish', bg: 'bg-red-500/15 text-red-400 border-red-500/30' },
 };
 
+const AUDIOBOOK_STATUS_CONFIG: Record<MediaStatus, StatusStyle> = {
+  watching: { label: 'Listening', bg: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+  caught_up: { label: 'Caught Up', bg: 'bg-sky-500/15 text-sky-400 border-sky-500/30' },
+  completed: { label: 'Finished', bg: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  plan_to_watch: { label: 'Plan to Listen', bg: 'bg-[var(--accent-bg)] text-[var(--accent)] border-[var(--accent)]/30' },
+  on_hold: { label: 'On Hold', bg: 'bg-orange-500/15 text-orange-400 border-orange-500/30' },
+  dropped: { label: 'Did Not Finish', bg: 'bg-red-500/15 text-red-400 border-red-500/30' },
+};
+
 export interface MediaListViewProps {
   items: MediaItem[];
   onClick: (item: MediaItem) => void;
@@ -47,20 +57,28 @@ export default function MediaListView({
       {items.map(item => {
         const isTv = item.type === 'tv';
         const isBook = item.type === 'book';
-        const statusCfg = (isBook ? BOOK_STATUS_CONFIG[item.status] : STATUS_CONFIG[item.status]) || (isBook ? BOOK_STATUS_CONFIG.plan_to_watch : STATUS_CONFIG.plan_to_watch);
+        const isAudio = isAudiobookItem(item);
+        const statusCfg = isAudio
+          ? (AUDIOBOOK_STATUS_CONFIG[item.status] || AUDIOBOOK_STATUS_CONFIG.plan_to_watch)
+          : (isBook ? BOOK_STATUS_CONFIG[item.status] : STATUS_CONFIG[item.status]) || (isBook ? BOOK_STATUS_CONFIG.plan_to_watch : STATUS_CONFIG.plan_to_watch);
 
         const isChapters = isBook && item.progressMode === 'chapters';
+        const isTimeMode = isBook && (item.progressMode === 'time' || isAudio);
         const totalEps = item.totalEpisodes || 0;
         const watchedEps = item.watchedEpisodesCount || 0;
         const totalPages = item.totalPages || 0;
         const currentPage = item.currentPage || 0;
         const totalChapters = item.totalChapters || 0;
         const currentChapter = item.currentChapter || 0;
+        const totalDuration = item.totalDurationSeconds || 0;
+        const currentDuration = item.currentDurationSeconds || 0;
 
         const progressPercent = isTv
           ? (totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0)
           : isBook
-          ? isChapters
+          ? isTimeMode
+            ? (totalDuration > 0 ? Math.min(100, Math.round((currentDuration / totalDuration) * 100)) : 0)
+            : isChapters
             ? (totalChapters > 0 ? Math.min(100, Math.round((currentChapter / totalChapters) * 100)) : 0)
             : (totalPages > 0 ? Math.min(100, Math.round((currentPage / totalPages) * 100)) : 0)
           : 0;
@@ -68,7 +86,9 @@ export default function MediaListView({
         const isCompleted = isTv
           ? (totalEps > 0 && watchedEps >= totalEps)
           : isBook
-          ? isChapters
+          ? isTimeMode
+            ? (totalDuration > 0 && currentDuration >= totalDuration) || item.status === 'completed'
+            : isChapters
             ? (totalChapters > 0 && currentChapter >= totalChapters) || item.status === 'completed'
             : (totalPages > 0 && currentPage >= totalPages) || item.status === 'completed'
           : item.status === 'completed';
@@ -125,11 +145,12 @@ export default function MediaListView({
                 <span className="font-semibold text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors truncate">
                   {item.title}
                 </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shrink-0">
-                  {isTv ? 'TV' : isBook ? 'Book' : 'Movie'}
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] shrink-0 flex items-center gap-1">
+                  {isAudio ? <Headphones className="w-2.5 h-2.5 text-[var(--accent)]" /> : null}
+                  <span>{isAudio ? 'Audiobook' : isTv ? 'TV' : isBook ? 'Book' : 'Movie'}</span>
                 </span>
                 <span className="text-xs text-[var(--text-secondary)] font-mono shrink-0">
-                  ({isBook && item.author ? item.author : item.year || 'N/A'})
+                  ({isAudio && item.narrator ? `🎙️ ${item.narrator}` : (isBook && item.author ? item.author : item.year || 'N/A')})
                 </span>
               </div>
 
@@ -167,7 +188,15 @@ export default function MediaListView({
                   {isTv ? (
                     item.currentSeason ? `S${item.currentSeason}E${item.currentEpisode || 0}` : 'Not started'
                   ) : isBook ? (
-                    isChapters ? `Ch ${currentChapter}` : `${currentPage} p`
+                    isTimeMode ? (
+                      totalDuration > 0
+                        ? `${formatAudioDuration(currentDuration)}/${formatAudioDuration(totalDuration)}`
+                        : `${formatAudioDuration(currentDuration)}`
+                    ) : isChapters ? (
+                      `Ch ${currentChapter}`
+                    ) : (
+                      `${currentPage} p`
+                    )
                   ) : (
                     item.status === 'completed' ? 'Watched' : 'Watchlist'
                   )}
@@ -229,10 +258,10 @@ export default function MediaListView({
                   type="button"
                   onClick={handleQuickAction}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all active:scale-95"
-                  title={isChapters ? 'Quick read +1 chapter' : 'Quick read +10 pages'}
+                  title={isTimeMode ? 'Quick listen +15 mins' : (isChapters ? 'Quick read +1 chapter' : 'Quick read +10 pages')}
                 >
                   <Plus className="w-3 h-3" />
-                  <span className="hidden sm:inline">{isChapters ? '+1 Ch' : '+10 p'}</span>
+                  <span className="hidden sm:inline">{isTimeMode ? '+15m' : (isChapters ? '+1 Ch' : '+10 p')}</span>
                 </button>
               )}
 

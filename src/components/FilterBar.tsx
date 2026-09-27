@@ -14,12 +14,13 @@ import {
   Folder,
   FolderPlus,
   BookOpen,
+  Headphones,
   LayoutGrid,
   List,
   Calendar,
   type LucideIcon
 } from 'lucide-react';
-import type { CustomList, ViewMode, GridDensity, GridColumns, UpcomingFilter } from '../types';
+import type { CustomList, ViewMode, GridDensity, GridColumns, UpcomingFilter, BookFormatFilter } from '../types';
 
 interface StatusTab {
   key: string;
@@ -42,6 +43,9 @@ export interface FilterBarProps {
   onStatusChange: (status: string) => void;
   typeFilter: string;
   onTypeChange: (type: string) => void;
+  bookFormatFilter?: BookFormatFilter;
+  onBookFormatChange?: (format: BookFormatFilter) => void;
+  bookCounts?: { all: number; reading: number; audiobook: number };
   listFilter?: string;
   onListChange?: (listName: string) => void;
   customLists?: CustomList[];
@@ -67,6 +71,9 @@ export default function FilterBar({
   onStatusChange,
   typeFilter,
   onTypeChange,
+  bookFormatFilter = 'all',
+  onBookFormatChange,
+  bookCounts,
   listFilter = 'all',
   onListChange,
   customLists = [],
@@ -92,14 +99,34 @@ export default function FilterBar({
 
   let statusTabs: StatusTab[];
   if (isBookMode) {
-    statusTabs = [
-      { key: 'all', label: 'All Books', icon: null },
-      { key: 'watching', label: 'Reading', icon: BookOpen },
-      { key: 'plan_to_watch', label: 'Plan to Read', icon: Clock },
-      { key: 'completed', label: 'Read', icon: CheckCircle },
-      { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
-      { key: 'dropped', label: 'Did Not Finish', icon: XCircle },
-    ];
+    if (bookFormatFilter === 'audiobook') {
+      statusTabs = [
+        { key: 'all', label: 'All Audiobooks', icon: null },
+        { key: 'watching', label: 'Listening', icon: Headphones },
+        { key: 'plan_to_watch', label: 'Plan to Listen', icon: Clock },
+        { key: 'completed', label: 'Finished', icon: CheckCircle },
+        { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
+        { key: 'dropped', label: 'Did Not Finish', icon: XCircle },
+      ];
+    } else if (bookFormatFilter === 'reading') {
+      statusTabs = [
+        { key: 'all', label: 'All Print/E-Books', icon: null },
+        { key: 'watching', label: 'Reading', icon: BookOpen },
+        { key: 'plan_to_watch', label: 'Plan to Read', icon: Clock },
+        { key: 'completed', label: 'Read', icon: CheckCircle },
+        { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
+        { key: 'dropped', label: 'Did Not Finish', icon: XCircle },
+      ];
+    } else {
+      statusTabs = [
+        { key: 'all', label: 'All Books', icon: null },
+        { key: 'watching', label: 'Reading / Listening', icon: BookOpen },
+        { key: 'plan_to_watch', label: 'Plan to Read / Listen', icon: Clock },
+        { key: 'completed', label: 'Finished / Read', icon: CheckCircle },
+        { key: 'on_hold', label: 'On Hold', icon: PauseCircle },
+        { key: 'dropped', label: 'Did Not Finish', icon: XCircle },
+      ];
+    }
   } else if (isTvMode) {
     statusTabs = [
       { key: 'all', label: 'All TV', icon: null },
@@ -222,6 +249,68 @@ export default function FilterBar({
               <span>Books</span>
             </button>
           </div>
+
+          {/* Sub-format filter for Books: All Books / Reading / Audiobooks (Issue #38) */}
+          {isBookMode && onBookFormatChange && (
+            <div className="flex items-center p-1 bg-[var(--bg-tertiary)] border border-[var(--border-light)] rounded-xl w-fit">
+              <button
+                type="button"
+                onClick={() => onBookFormatChange('all')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  bookFormatFilter === 'all'
+                    ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <span>All Books</span>
+                {bookCounts?.all !== undefined && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    bookFormatFilter === 'all' ? 'bg-[var(--accent)]/15 text-[var(--accent)]' : 'bg-[var(--bg-primary)] text-[var(--text-tertiary)]'
+                  }`}>
+                    {bookCounts.all}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => onBookFormatChange('reading')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  bookFormatFilter === 'reading'
+                    ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>Reading</span>
+                {bookCounts?.reading !== undefined && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    bookFormatFilter === 'reading' ? 'bg-[var(--accent)]/15 text-[var(--accent)]' : 'bg-[var(--bg-primary)] text-[var(--text-tertiary)]'
+                  }`}>
+                    {bookCounts.reading}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => onBookFormatChange('audiobook')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  bookFormatFilter === 'audiobook'
+                    ? 'bg-[var(--card-bg)] text-[var(--accent)] shadow-xs'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <Headphones className="w-3.5 h-3.5" />
+                <span>Audiobooks</span>
+                {bookCounts?.audiobook !== undefined && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    bookFormatFilter === 'audiobook' ? 'bg-[var(--accent)]/15 text-[var(--accent)]' : 'bg-[var(--bg-primary)] text-[var(--text-tertiary)]'
+                  }`}>
+                    {bookCounts.audiobook}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
 
           {/* Folder / Custom List Filter */}
           {onListChange && (

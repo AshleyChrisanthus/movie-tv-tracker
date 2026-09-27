@@ -20,8 +20,11 @@ export interface MediaSearchResult {
   genres?: string[];
   status?: string;
   author?: string;
+  narrator?: string;
   totalPages?: number;
   totalChapters?: number;
+  totalDurationSeconds?: number;
+  audioPreviewUrl?: string;
   isbn?: string;
   workId?: string;
   editionId?: string;
@@ -35,7 +38,7 @@ export interface MediaSearchResult {
 }
 
 /**
- * Normalized Book Edition model (Issue #25).
+ * Normalized Book Edition model (Issue #25, #38).
  */
 export interface BookEdition {
   id: string;                               // Open Library Edition ID (e.g. 'OL7353617M')
@@ -45,10 +48,12 @@ export interface BookEdition {
   publishDate?: string;
   year?: string;
   totalPages?: number;
+  totalDurationSeconds?: number;            // Total audio duration in seconds if audiobook (Issue #38)
+  narrator?: string;                        // Narrator / reader name (Issue #38)
   isbn10?: string;
   isbn13?: string;
   isbn?: string;
-  physicalFormat?: string;                  // 'Paperback' | 'Hardcover' | 'E-book' | etc.
+  physicalFormat?: string;                  // 'Paperback' | 'Hardcover' | 'E-book' | 'Audiobook' | etc.
   coverUrl?: string | null;
   language?: string;
 }

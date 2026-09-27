@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
   CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen, Globe,
-  Network, Sparkles, Percent, Search
+  Network, Sparkles, Percent, Search, Headphones, Volume2, VolumeX, Play, Pause
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
@@ -20,6 +20,7 @@ import {
   getUserTimeZone, formatEpisodeAirDate, getEpisodeCountdown, isEpisodeAired 
 } from '../utils/timezone';
 import { normalizeRating, denormalizeRating, formatRating, RATING_SCALE_CONFIG } from '../utils/rating';
+import { parseAudioDuration, formatAudioDuration, formatAudioProgress, secondsToHoursMinutes, hoursMinutesToSeconds, isAudiobookItem } from '../utils/audioDuration';
 import type { MediaItem, EpisodeItem, MediaStatus, CustomList, RatingScale, TMDBCollectionDetail, TMDBCollectionPart, BookEdition } from '../types';
 
 export interface MediaDetailModalProps {
@@ -114,15 +115,22 @@ export default function MediaDetailModal({
   const [isCreatingList, setIsCreatingList] = useState<boolean>(false);
   const [newListName, setNewListName] = useState<string>('');
 
-  // Book Reading Progress state
-  const [bookProgressMode, setBookProgressMode] = useState<'pages' | 'chapters'>(media?.progressMode || 'pages');
+  // Book Reading & Audiobook Progress state (Issue #22, #38)
+  const isAudio = isAudiobookItem(media);
+  const [bookProgressMode, setBookProgressMode] = useState<'pages' | 'chapters' | 'time'>((media?.progressMode as any) || (isAudio ? 'time' : 'pages'));
   const [inputBookPage, setInputBookPage] = useState<number | string>(media?.currentPage || 0);
   const [inputBookTotalPages, setInputBookTotalPages] = useState<number | string>(media?.totalPages || '');
   const [inputBookChapter, setInputBookChapter] = useState<number | string>(media?.currentChapter || 0);
   const [inputBookTotalChapters, setInputBookTotalChapters] = useState<number | string>(media?.totalChapters || '');
+  const [inputAudioHours, setInputAudioHours] = useState<number | string>(0);
+  const [inputAudioMinutes, setInputAudioMinutes] = useState<number | string>(0);
+  const [inputAudioTotalHours, setInputAudioTotalHours] = useState<number | string>('');
+  const [inputAudioTotalMinutes, setInputAudioTotalMinutes] = useState<number | string>('');
   const [inputPercentage, setInputPercentage] = useState<string>('');
+  const [isPlayingSample, setIsPlayingSample] = useState<boolean>(false);
+  const audioSampleRef = useRef<HTMLAudioElement | null>(null);
 
-  // Book Edition Switching & Synopsis Enrichment state (Issue #25)
+  // Book Edition Switching & Synopsis Enrichment state (Issue #25, #38)
   const [showEditionSelector, setShowEditionSelector] = useState<boolean>(false);
   const [availableEditions, setAvailableEditions] = useState<BookEdition[]>([]);
   const [isLoadingEditions, setIsLoadingEditions] = useState<boolean>(false);
@@ -162,10 +170,16 @@ export default function MediaDetailModal({
 
   const bookCurrentTotal = bookProgressMode === 'chapters'
     ? (Number(media?.totalChapters) || Number(inputBookTotalChapters) || 0)
+    : bookProgressMode === 'time'
+    ? (Number(media?.totalDurationSeconds) || hoursMinutesToSeconds(Number(inputAudioTotalHours) || 0, Number(inputAudioTotalMinutes) || 0))
     : (Number(media?.totalPages) || Number(inputBookTotalPages) || 0);
+
   const bookCurrentProgress = bookProgressMode === 'chapters'
     ? (Number(media?.currentChapter) || 0)
+    : bookProgressMode === 'time'
+    ? (Number(media?.currentDurationSeconds) || hoursMinutesToSeconds(Number(inputAudioHours) || 0, Number(inputAudioMinutes) || 0))
     : (Number(media?.currentPage) || 0);
+
   const currentPercentage = bookCurrentTotal > 0
     ? Math.min(100, Math.max(0, Math.round((bookCurrentProgress / bookCurrentTotal) * 100)))
     : 0;
@@ -174,21 +188,42 @@ export default function MediaDetailModal({
     if (media) {
       getCustomLists().then(setAllLists);
       setMediaLists(media.lists || []);
-      setBookProgressMode(media.progressMode || 'pages');
+      const audio = isAudiobookItem(media);
+      setBookProgressMode(media.progressMode || (audio ? 'time' : 'pages'));
       setInputBookPage(media.currentPage || 0);
       setInputBookTotalPages(media.totalPages || '');
       setInputBookChapter(media.currentChapter || 0);
       setInputBookTotalChapters(media.totalChapters || '');
+      if (media.totalDurationSeconds) {
+        const { hours: th, minutes: tm } = secondsToHoursMinutes(media.totalDurationSeconds);
+        setInputAudioTotalHours(th);
+        setInputAudioTotalMinutes(tm);
+      } else {
+        setInputAudioTotalHours('');
+        setInputAudioTotalMinutes('');
+      }
+      if (media.currentDurationSeconds !== undefined) {
+        const { hours: ch, minutes: cm } = secondsToHoursMinutes(media.currentDurationSeconds);
+        setInputAudioHours(ch);
+        setInputAudioMinutes(cm);
+      } else {
+        setInputAudioHours(0);
+        setInputAudioMinutes(0);
+      }
       setInputPercentage('');
+      setIsPlayingSample(false);
     }
-  }, [media?.id, media?.currentPage, media?.totalPages, media?.currentChapter, media?.totalChapters, media?.progressMode]);
+  }, [media?.id, media?.currentPage, media?.totalPages, media?.currentChapter, media?.totalChapters, media?.currentDurationSeconds, media?.totalDurationSeconds, media?.progressMode]);
 
   const handleApplyBookProgress = async (options: {
     currentPage?: number;
     totalPages?: number;
     currentChapter?: number;
     totalChapters?: number;
-    progressMode?: 'pages' | 'chapters';
+    currentDurationSeconds?: number;
+    totalDurationSeconds?: number;
+    narrator?: string;
+    progressMode?: 'pages' | 'chapters' | 'time';
     percentage?: number;
   }) => {
     if (!media) return;
@@ -199,6 +234,16 @@ export default function MediaDetailModal({
       setInputBookTotalPages(updated.totalPages || '');
       setInputBookChapter(updated.currentChapter || 0);
       setInputBookTotalChapters(updated.totalChapters || '');
+      if (updated.totalDurationSeconds) {
+        const { hours: th, minutes: tm } = secondsToHoursMinutes(updated.totalDurationSeconds);
+        setInputAudioTotalHours(th);
+        setInputAudioTotalMinutes(tm);
+      }
+      if (updated.currentDurationSeconds !== undefined) {
+        const { hours: ch, minutes: cm } = secondsToHoursMinutes(updated.currentDurationSeconds);
+        setInputAudioHours(ch);
+        setInputAudioMinutes(cm);
+      }
       setInputPercentage('');
       setStatus(updated.status);
       if (onUpdated) onUpdated();
@@ -322,11 +367,24 @@ export default function MediaDetailModal({
         year: edition.year,
         bookFormat: edition.physicalFormat,
         posterUrl: edition.coverUrl,
-        editionId: edition.id
+        editionId: edition.id,
+        totalDurationSeconds: edition.totalDurationSeconds,
+        narrator: edition.narrator
       });
       if (updated) {
+        setBookProgressMode(updated.progressMode || 'pages');
         setInputBookTotalPages(updated.totalPages || '');
         setInputBookPage(updated.currentPage || 0);
+        if (updated.totalDurationSeconds) {
+          const { hours: th, minutes: tm } = secondsToHoursMinutes(updated.totalDurationSeconds);
+          setInputAudioTotalHours(th);
+          setInputAudioTotalMinutes(tm);
+        }
+        if (updated.currentDurationSeconds !== undefined) {
+          const { hours: ch, minutes: cm } = secondsToHoursMinutes(updated.currentDurationSeconds);
+          setInputAudioHours(ch);
+          setInputAudioMinutes(cm);
+        }
         if (onUpdated) onUpdated();
         if (onUpdate) onUpdate(updated);
         setShowEditionSelector(false);
@@ -334,6 +392,46 @@ export default function MediaDetailModal({
     } finally {
       setIsChangingEdition(false);
     }
+  };
+
+  const handleToggleSamplePlayback = () => {
+    if (!media?.audioPreviewUrl) return;
+    if (!audioSampleRef.current) {
+      audioSampleRef.current = new Audio(media.audioPreviewUrl);
+      audioSampleRef.current.onended = () => setIsPlayingSample(false);
+      audioSampleRef.current.onerror = () => setIsPlayingSample(false);
+    }
+    if (isPlayingSample) {
+      audioSampleRef.current.pause();
+      setIsPlayingSample(false);
+    } else {
+      audioSampleRef.current.play().catch(err => {
+        console.warn('Audio playback failed:', err);
+        setIsPlayingSample(false);
+      });
+      setIsPlayingSample(true);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (audioSampleRef.current) {
+        audioSampleRef.current.pause();
+        audioSampleRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleQuickAudioIncrement = async (secondsToAdd: number) => {
+    if (!media) return;
+    const current = media.currentDurationSeconds || hoursMinutesToSeconds(Number(inputAudioHours) || 0, Number(inputAudioMinutes) || 0);
+    const total = media.totalDurationSeconds || hoursMinutesToSeconds(Number(inputAudioTotalHours) || 0, Number(inputAudioTotalMinutes) || 0);
+    const newSec = Math.max(0, current + secondsToAdd);
+    await handleApplyBookProgress({
+      currentDurationSeconds: newSec,
+      totalDurationSeconds: total || undefined,
+      progressMode: 'time'
+    });
   };
 
   const handleEnrichSynopsis = async () => {
@@ -373,11 +471,14 @@ export default function MediaDetailModal({
     if (!media) return;
     const targetPage = Number(inputBookTotalPages) || media.totalPages || 0;
     const targetChapter = Number(inputBookTotalChapters) || media.totalChapters || 0;
+    const targetDuration = Number(media.totalDurationSeconds) || hoursMinutesToSeconds(Number(inputAudioTotalHours) || 0, Number(inputAudioTotalMinutes) || 0);
     await handleApplyBookProgress({
       currentPage: targetPage > 0 ? targetPage : undefined,
       currentChapter: targetChapter > 0 ? targetChapter : undefined,
       totalPages: targetPage > 0 ? targetPage : undefined,
       totalChapters: targetChapter > 0 ? targetChapter : undefined,
+      currentDurationSeconds: targetDuration > 0 ? targetDuration : undefined,
+      totalDurationSeconds: targetDuration > 0 ? targetDuration : undefined,
       progressMode: bookProgressMode
     });
   };
@@ -1366,11 +1467,23 @@ export default function MediaDetailModal({
               <div className="p-4 bg-[var(--accent-bg)] rounded-xl border border-[var(--accent)]/30 space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-[var(--accent)]" />
-                    <h3 className="text-sm font-bold text-[var(--text-primary)]">Reading Progress</h3>
+                    {bookProgressMode === 'time' ? (
+                      <Headphones className="w-4 h-4 text-[var(--accent)]" />
+                    ) : (
+                      <BookOpen className="w-4 h-4 text-[var(--accent)]" />
+                    )}
+                    <h3 className="text-sm font-bold text-[var(--text-primary)]">
+                      {bookProgressMode === 'time' ? 'Listening Progress' : 'Reading Progress'}
+                    </h3>
+                    {media.narrator && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-light)] text-[var(--text-secondary)] font-medium flex items-center gap-1">
+                        <Volume2 className="w-3 h-3 text-[var(--accent)]" />
+                        {media.narrator}
+                      </span>
+                    )}
                   </div>
 
-                  {/* Mode Selector Toggle: Pages vs Chapters */}
+                  {/* Mode Selector Toggle: Pages vs Chapters vs Listening Time */}
                   <div className="flex items-center bg-[var(--bg-primary)] p-0.5 rounded-lg border border-[var(--border-light)] text-xs">
                     <button
                       type="button"
@@ -1400,11 +1513,213 @@ export default function MediaDetailModal({
                     >
                       Chapters
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBookProgressMode('time');
+                        handleApplyBookProgress({ progressMode: 'time' });
+                      }}
+                      className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center gap-1 ${
+                        bookProgressMode === 'time'
+                          ? 'bg-[var(--accent)] text-white shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      <Headphones className="w-3 h-3" />
+                      <span>Time</span>
+                    </button>
                   </div>
                 </div>
 
                 {/* Progress Stats & Bar */}
-                {bookProgressMode === 'chapters' ? (
+                {bookProgressMode === 'time' ? (
+                  <>
+                    <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] font-mono flex-wrap gap-2">
+                      <span>
+                        {(Number(media.totalDurationSeconds) || 0) > 0
+                          ? `${formatAudioProgress(media.currentDurationSeconds || 0, media.totalDurationSeconds || 0)} (${Math.min(100, Math.round(((media.currentDurationSeconds || 0) / (media.totalDurationSeconds || 1)) * 100))}%)`
+                          : `${formatAudioDuration(media.currentDurationSeconds || 0)} listened (Total runtime not set)`}
+                      </span>
+                      {media.audioPreviewUrl && (
+                        <button
+                          type="button"
+                          onClick={handleToggleSamplePlayback}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                            isPlayingSample
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+                              : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-light)]'
+                          }`}
+                          title="Listen to 30s sample preview"
+                        >
+                          {isPlayingSample ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 fill-current" />}
+                          <span>{isPlayingSample ? 'Playing Sample...' : 'Sample Audio'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {(Number(media.totalDurationSeconds) || 0) > 0 ? (
+                      <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-300 rounded-full ${
+                            (media.currentDurationSeconds || 0) >= (media.totalDurationSeconds || 0)
+                              ? 'bg-emerald-500'
+                              : 'bg-gradient-to-r from-[var(--accent)] to-[#30d158]'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.round(((media.currentDurationSeconds || 0) / (media.totalDurationSeconds || 1)) * 100))}%` }}
+                        />
+                      </div>
+                    ) : null}
+
+                    {/* Listening Position and Total Inputs */}
+                    <div className="flex flex-wrap items-center gap-3 pt-1">
+                      <div className="flex items-center gap-2 bg-[var(--bg-primary)] px-3 py-1.5 rounded-lg border border-[var(--border-light)]">
+                        <span className="text-xs text-[var(--text-secondary)] font-medium">Position:</span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min="0"
+                            value={inputAudioHours}
+                            onChange={(e) => setInputAudioHours(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const curSec = hoursMinutesToSeconds(Number(inputAudioHours) || 0, Number(inputAudioMinutes) || 0);
+                                const totSec = hoursMinutesToSeconds(Number(inputAudioTotalHours) || 0, Number(inputAudioTotalMinutes) || 0);
+                                handleApplyBookProgress({
+                                  currentDurationSeconds: curSec,
+                                  totalDurationSeconds: totSec || undefined,
+                                  progressMode: 'time'
+                                });
+                              }
+                            }}
+                            className="w-12 bg-[var(--card-bg)] px-1.5 py-1 rounded text-xs text-center font-bold text-[var(--accent)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                            placeholder="0"
+                          />
+                          <span className="text-xs text-[var(--text-secondary)] font-medium">h</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="59"
+                            value={inputAudioMinutes}
+                            onChange={(e) => setInputAudioMinutes(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const curSec = hoursMinutesToSeconds(Number(inputAudioHours) || 0, Number(inputAudioMinutes) || 0);
+                                const totSec = hoursMinutesToSeconds(Number(inputAudioTotalHours) || 0, Number(inputAudioTotalMinutes) || 0);
+                                handleApplyBookProgress({
+                                  currentDurationSeconds: curSec,
+                                  totalDurationSeconds: totSec || undefined,
+                                  progressMode: 'time'
+                                });
+                              }
+                            }}
+                            className="w-12 bg-[var(--card-bg)] px-1.5 py-1 rounded text-xs text-center font-bold text-[var(--accent)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                            placeholder="0"
+                          />
+                          <span className="text-xs text-[var(--text-secondary)] font-medium">m</span>
+                        </div>
+                        <span className="text-xs text-[var(--text-secondary)] font-mono">/</span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min="0"
+                            value={inputAudioTotalHours}
+                            onChange={(e) => setInputAudioTotalHours(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const curSec = hoursMinutesToSeconds(Number(inputAudioHours) || 0, Number(inputAudioMinutes) || 0);
+                                const totSec = hoursMinutesToSeconds(Number(inputAudioTotalHours) || 0, Number(inputAudioTotalMinutes) || 0);
+                                handleApplyBookProgress({
+                                  currentDurationSeconds: curSec,
+                                  totalDurationSeconds: totSec || undefined,
+                                  progressMode: 'time'
+                                });
+                              }
+                            }}
+                            className="w-12 bg-[var(--card-bg)] px-1.5 py-1 rounded text-xs text-center font-semibold text-[var(--text-primary)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                            placeholder="Total"
+                            title="Total Hours"
+                          />
+                          <span className="text-xs text-[var(--text-secondary)] font-medium">h</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="59"
+                            value={inputAudioTotalMinutes}
+                            onChange={(e) => setInputAudioTotalMinutes(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const curSec = hoursMinutesToSeconds(Number(inputAudioHours) || 0, Number(inputAudioMinutes) || 0);
+                                const totSec = hoursMinutesToSeconds(Number(inputAudioTotalHours) || 0, Number(inputAudioTotalMinutes) || 0);
+                                handleApplyBookProgress({
+                                  currentDurationSeconds: curSec,
+                                  totalDurationSeconds: totSec || undefined,
+                                  progressMode: 'time'
+                                });
+                              }
+                            }}
+                            className="w-12 bg-[var(--card-bg)] px-1.5 py-1 rounded text-xs text-center font-semibold text-[var(--text-primary)] border border-[var(--border-light)] focus:outline-none focus:border-[var(--accent)]"
+                            placeholder="Total"
+                            title="Total Minutes"
+                          />
+                          <span className="text-xs text-[var(--text-secondary)] font-medium">m</span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const curSec = hoursMinutesToSeconds(Number(inputAudioHours) || 0, Number(inputAudioMinutes) || 0);
+                          const totSec = hoursMinutesToSeconds(Number(inputAudioTotalHours) || 0, Number(inputAudioTotalMinutes) || 0);
+                          handleApplyBookProgress({
+                            currentDurationSeconds: curSec,
+                            totalDurationSeconds: totSec || undefined,
+                            progressMode: 'time'
+                          });
+                        }}
+                        className="px-3 py-2 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-[var(--accent)]/25 active:scale-95"
+                      >
+                        Set Time
+                      </button>
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAudioIncrement(15 * 60)}
+                          className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                          title="Listen 15 minutes more"
+                        >
+                          +15m
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAudioIncrement(30 * 60)}
+                          className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                          title="Listen 30 minutes more"
+                        >
+                          +30m
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAudioIncrement(60 * 60)}
+                          className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-semibold border border-[var(--border-light)] transition-all active:scale-95"
+                          title="Listen 1 hour more"
+                        >
+                          +1h
+                        </button>
+                        {(Number(media.totalDurationSeconds) > 0 || Number(inputAudioTotalHours) > 0 || Number(inputAudioTotalMinutes) > 0) && (
+                          <button
+                            type="button"
+                            onClick={handleFinishBook}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 text-xs font-semibold border border-emerald-700/50 transition-all active:scale-95"
+                            title="Mark audiobook as finished"
+                          >
+                            Finished Audiobook
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : bookProgressMode === 'chapters' ? (
                   <>
                     <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] font-mono">
                       <span>
@@ -1867,19 +2182,27 @@ export default function MediaDetailModal({
                                 <img src={ed.coverUrl} alt={ed.title} className="w-full h-full object-cover" />
                               ) : (
                                 <div className="w-full h-full flex items-center justify-center text-zinc-500">
-                                  <BookOpen className="w-4 h-4" />
+                                  {ed.physicalFormat === 'Audiobook' ? <Headphones className="w-4 h-4" /> : <BookOpen className="w-4 h-4" />}
                                 </div>
                               )}
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-bold text-xs text-[var(--text-primary)] truncate max-w-xs">{ed.title}</span>
-                                <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--accent)]/15 text-[var(--accent)] capitalize">
+                                <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--accent)]/15 text-[var(--accent)] capitalize flex items-center gap-1">
+                                  {ed.physicalFormat === 'Audiobook' && <Headphones className="w-3 h-3" />}
                                   {ed.physicalFormat || 'Edition'}
                                 </span>
                               </div>
                               <div className="text-[11px] text-[var(--text-secondary)] flex items-center gap-2 flex-wrap mt-0.5 font-mono">
-                                {ed.totalPages ? <span>{ed.totalPages} pages</span> : <span>Pages unlisted</span>}
+                                {ed.totalDurationSeconds ? (
+                                  <span>{formatAudioDuration(ed.totalDurationSeconds)}</span>
+                                ) : ed.totalPages ? (
+                                  <span>{ed.totalPages} pages</span>
+                                ) : (
+                                  <span>Length unlisted</span>
+                                )}
+                                {ed.narrator ? <span>• Narrated by {ed.narrator}</span> : null}
                                 {ed.publishers?.[0] ? <span>• {ed.publishers[0]}</span> : null}
                                 {ed.year ? <span>({ed.year})</span> : null}
                                 {ed.isbn ? <span>ISBN: {ed.isbn}</span> : null}

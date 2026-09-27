@@ -7,6 +7,7 @@
  */
 
 import { getSetting, getEpisodesForMedia, saveMediaItem, touchMediaSyncedAt, getFranchiseCollection, saveFranchiseCollection } from '../db/index';
+import { parseAudioDuration, extractNarrator } from '../utils/audioDuration';
 import type {
   MediaItem,
   EpisodeItem,
@@ -70,8 +71,11 @@ export async function searchMedia(
   const bookProvider = options.bookProvider || 'openlibrary';
   const apiKey = await getTmdbApiKey();
 
-  // If user explicitly chose 'book', query selected book provider (Open Library is default)
+  // If user explicitly chose 'book', query selected book provider (Open Library, Google Books, or Audiobooks)
   if (typeFilter === 'book') {
+    if (bookProvider === 'audiobooks') {
+      return await searchITunesAudiobooks(trimmed, 7000);
+    }
     if (bookProvider === 'googlebooks') {
       return await searchGoogleBooks(trimmed, 7000);
     }
@@ -279,6 +283,63 @@ async function searchITunesMovies(query: string): Promise<MediaSearchResult[]> {
 }
 
 /**
+ * Free Audiobook Search via Apple iTunes Search API (zero keys required) (Issue #38)
+ */
+export async function searchITunesAudiobooks(query: string, timeoutMs: number = 7000): Promise<MediaSearchResult[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(
+      `https://itunes.apple.com/search?media=audiobook&entity=audiobook&limit=15&term=${encodeURIComponent(query)}`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const data = await res.json();
+
+    return (data.results || []).map((item: any): MediaSearchResult => {
+      const year = item.releaseDate ? new Date(item.releaseDate).getFullYear() : 'N/A';
+      // Upgrade artwork to high-resolution (600x600)
+      const posterUrl = item.artworkUrl100
+        ? item.artworkUrl100.replace('100x100bb', '600x600bb')
+        : (item.artworkUrl60 || null);
+
+      // Clean HTML tags from iTunes description
+      const rawDesc = item.description || '';
+      const cleanDesc = rawDesc.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+
+      // Extract narrator if present in description
+      const narrator = extractNarrator(cleanDesc) || extractNarrator(rawDesc);
+
+      return {
+        externalId: `itunes_audio_${item.collectionId || item.trackId}`,
+        source: 'itunes',
+        type: 'book',
+        title: item.collectionName || item.trackName || 'Untitled Audiobook',
+        year,
+        releaseDate: item.releaseDate ? item.releaseDate.split('T')[0] : '',
+        overview: cleanDesc || (narrator ? `Narrated by ${narrator}` : `Audiobook by ${item.artistName || 'Unknown'}`),
+        rating: null,
+        posterUrl,
+        backdropUrl: posterUrl,
+        author: item.artistName || undefined,
+        narrator,
+        bookFormat: 'Audiobook',
+        audioPreviewUrl: item.previewUrl || undefined,
+        genres: item.primaryGenreName ? [item.primaryGenreName] : ['Audiobook'],
+        totalPages: 0,
+        totalDurationSeconds: item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : undefined
+      };
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    console.error('iTunes audiobook search error:', err);
+    return [];
+  }
+}
+
+/**
  * Free Book Search via Open Library API (zero keys required)
  */
 export async function searchOpenLibraryBooks(query: string, timeoutMs: number = 7000): Promise<MediaSearchResult[]> {
@@ -460,7 +521,31 @@ export async function fetchOpenLibraryEditions(
       const isbn10 = Array.isArray(entry.isbn_10) && entry.isbn_10.length > 0 ? String(entry.isbn_10[0]) : undefined;
       const isbn13 = Array.isArray(entry.isbn_13) && entry.isbn_13.length > 0 ? String(entry.isbn_13[0]) : undefined;
       const isbn = isbn13 || isbn10;
-      const physicalFormat = entry.physical_format || (entry.number_of_pages ? 'Print' : 'Edition');
+      const rawFormat = entry.physical_format || '';
+      const isAudio = /audio|cd|cassette|spoken/i.test(rawFormat) ||
+                      /audiobook/i.test(entry.title || '') ||
+                      /listening length/i.test(String(entry.notes || ''));
+      const physicalFormat = entry.physical_format || (isAudio ? 'Audiobook' : (entry.number_of_pages ? 'Print' : 'Edition'));
+
+      let narrator: string | undefined;
+      if (Array.isArray(entry.contributors)) {
+        const narratorContributor = entry.contributors.find((c: any) =>
+          /narrat|reader/i.test(String(c?.role || ''))
+        );
+        if (narratorContributor?.name) narrator = String(narratorContributor.name).trim();
+      }
+
+      let totalDurationSeconds: number | undefined;
+      const notesStr = typeof entry.notes === 'string' ? entry.notes : (entry.notes?.value || '');
+      const paginationStr = typeof entry.pagination === 'string' ? entry.pagination : '';
+      if (notesStr || paginationStr) {
+        const dur = parseAudioDuration(notesStr) || parseAudioDuration(paginationStr);
+        if (dur > 0) totalDurationSeconds = dur;
+      }
+      if (!narrator && (notesStr || entry.description)) {
+        narrator = extractNarrator(notesStr) || extractNarrator(typeof entry.description === 'string' ? entry.description : entry.description?.value);
+      }
+
       let year = '';
       if (entry.publish_date) {
         const yearMatch = String(entry.publish_date).match(/\b(19\d\d|20\d\d)\b/);
@@ -475,6 +560,8 @@ export async function fetchOpenLibraryEditions(
         publishDate: entry.publish_date,
         year,
         totalPages: typeof entry.number_of_pages === 'number' ? entry.number_of_pages : undefined,
+        totalDurationSeconds,
+        narrator,
         isbn10,
         isbn13,
         isbn,
@@ -486,10 +573,10 @@ export async function fetchOpenLibraryEditions(
       };
     });
 
-    // Sort to prioritize editions that have both covers and known page counts
+    // Sort to prioritize editions that have both covers and known page counts or audio duration
     return editions.sort((a, b) => {
-      const scoreA = (a.coverUrl ? 2 : 0) + (a.totalPages ? 1 : 0);
-      const scoreB = (b.coverUrl ? 2 : 0) + (b.totalPages ? 1 : 0);
+      const scoreA = (a.coverUrl ? 2 : 0) + (a.totalPages || a.totalDurationSeconds ? 1 : 0);
+      const scoreB = (b.coverUrl ? 2 : 0) + (b.totalPages || b.totalDurationSeconds ? 1 : 0);
       return scoreB - scoreA;
     });
   } catch {
@@ -546,7 +633,31 @@ export async function fetchBookEditionByIsbn(
         ? String(entry.isbn_13[0])
         : (cleanIsbn.length === 13 ? cleanIsbn : undefined);
       const isbn = isbn13 || isbn10 || (isValidIsbn ? cleanIsbn : undefined);
-      const physicalFormat = entry.physical_format || (entry.number_of_pages ? 'Print' : 'Edition');
+      const rawFormat = entry.physical_format || '';
+      const isAudio = /audio|cd|cassette|spoken/i.test(rawFormat) ||
+                      /audiobook/i.test(entry.title || '') ||
+                      /listening length/i.test(String(entry.notes || ''));
+      const physicalFormat = entry.physical_format || (isAudio ? 'Audiobook' : (entry.number_of_pages ? 'Print' : 'Edition'));
+
+      let narrator: string | undefined;
+      if (Array.isArray(entry.contributors)) {
+        const narratorContributor = entry.contributors.find((c: any) =>
+          /narrat|reader/i.test(String(c?.role || ''))
+        );
+        if (narratorContributor?.name) narrator = String(narratorContributor.name).trim();
+      }
+
+      let totalDurationSeconds: number | undefined;
+      const notesStr = typeof entry.notes === 'string' ? entry.notes : (entry.notes?.value || '');
+      const paginationStr = typeof entry.pagination === 'string' ? entry.pagination : '';
+      if (notesStr || paginationStr) {
+        const dur = parseAudioDuration(notesStr) || parseAudioDuration(paginationStr);
+        if (dur > 0) totalDurationSeconds = dur;
+      }
+      if (!narrator && (notesStr || entry.description)) {
+        narrator = extractNarrator(notesStr) || extractNarrator(typeof entry.description === 'string' ? entry.description : entry.description?.value);
+      }
+
       let year = '';
       if (entry.publish_date) {
         const yearMatch = String(entry.publish_date).match(/\b(19\d\d|20\d\d)\b/);
@@ -561,6 +672,8 @@ export async function fetchBookEditionByIsbn(
         publishDate: entry.publish_date,
         year,
         totalPages: typeof entry.number_of_pages === 'number' ? entry.number_of_pages : undefined,
+        totalDurationSeconds,
+        narrator,
         isbn10,
         isbn13,
         isbn,
@@ -732,12 +845,28 @@ export async function fetchFullMediaDetails(
 ): Promise<FullMediaDetailsResponse> {
   const apiKey = await getTmdbApiKey();
 
-  if (item.source === 'openlibrary' || item.source === 'googlebooks' || item.type === 'book') {
+  if (item.source === 'openlibrary' || item.source === 'googlebooks' || item.type === 'book' || item.bookFormat === 'Audiobook') {
     const totalPages = item.totalPages || 0;
     const currentPage = item.currentPage || 0;
     const totalChapters = item.totalChapters || 0;
     const currentChapter = item.currentChapter || 0;
-    const progressMode = item.progressMode || 'pages';
+    const totalDurationSeconds = item.totalDurationSeconds || 0;
+    const currentDurationSeconds = item.currentDurationSeconds || 0;
+    const isAudio = (item.bookFormat && item.bookFormat.toLowerCase().includes('audio')) ||
+                    totalDurationSeconds > 0 ||
+                    item.progressMode === 'time';
+    const progressMode = item.progressMode || (isAudio ? 'time' : 'pages');
+    const bookFormat = item.bookFormat || (isAudio ? 'Audiobook' : undefined);
+
+    let totalEpisodes = totalPages || 1;
+    let watchedEpisodesCount = currentPage;
+    if (progressMode === 'chapters') {
+      totalEpisodes = totalChapters || 1;
+      watchedEpisodesCount = currentChapter;
+    } else if (progressMode === 'time') {
+      totalEpisodes = totalDurationSeconds > 0 ? Math.max(1, Math.round(totalDurationSeconds / 60)) : 1;
+      watchedEpisodesCount = Math.round(currentDurationSeconds / 60);
+    }
 
     let communityRating = item.communityRating ?? null;
     let communityRatingCount = item.communityRatingCount ?? null;
@@ -789,14 +918,19 @@ export async function fetchFullMediaDetails(
         genres: finalGenres,
         workId: workId || item.workId,
         progressMode,
+        bookFormat,
+        narrator: item.narrator,
+        totalDurationSeconds,
+        currentDurationSeconds,
+        audioPreviewUrl: item.audioPreviewUrl,
         totalSeasons: 0,
-        totalEpisodes: progressMode === 'chapters' ? (totalChapters || 1) : (totalPages || 1),
+        totalEpisodes,
         totalPages,
         currentPage,
         totalChapters,
         currentChapter,
         author: item.author || '',
-        watchedEpisodesCount: progressMode === 'chapters' ? currentChapter : currentPage,
+        watchedEpisodesCount,
         rating: item.rating ?? null,
         communityRating,
         communityRatingCount

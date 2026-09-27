@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen, Star, Globe, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen, Star, Globe, ChevronDown, ChevronUp, Headphones } from 'lucide-react';
 import { searchMedia, fetchFullMediaDetails, getTmdbApiKey, fetchOpenLibraryEditions, fetchBookEditionByIsbn } from '../services/api';
 import { saveMediaItem, computeAutoStatus, getAllMedia, getSetting, db } from '../db';
 import { isEpisodeAired } from '../utils/timezone';
 import { isMediaMatch } from '../utils/mediaMatch';
+import { formatAudioDuration } from '../utils/audioDuration';
 import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus, BookSearchProvider, BookEdition } from '../types';
 
 export interface SearchModalProps {
@@ -193,7 +194,7 @@ export default function SearchModal({
     }
   };
 
-  // Add a specific book edition to library (Issue #25)
+  // Add a specific book edition to library (Issue #25, #38)
   const handleAddEdition = async (parentItem: MediaSearchResult, edition: BookEdition, initialStatus: MediaStatus = 'plan_to_watch') => {
     const editionSearchItem: MediaSearchResult = {
       ...parentItem,
@@ -201,10 +202,12 @@ export default function SearchModal({
       workId: parentItem.workId || String(parentItem.externalId),
       editionCount: parentItem.editionCount,
       totalPages: edition.totalPages || parentItem.totalPages,
+      totalDurationSeconds: edition.totalDurationSeconds || parentItem.totalDurationSeconds,
+      narrator: edition.narrator || parentItem.narrator,
       isbn: edition.isbn || parentItem.isbn,
       publisher: edition.publishers?.[0] || parentItem.publisher,
       year: edition.year || parentItem.year,
-      bookFormat: edition.physicalFormat,
+      bookFormat: edition.physicalFormat || parentItem.bookFormat,
       posterUrl: edition.coverUrl || parentItem.posterUrl,
       backdropUrl: edition.coverUrl || parentItem.posterUrl
     };
@@ -415,6 +418,19 @@ export default function SearchModal({
                 >
                   Google Books
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setBookProvider('audiobooks')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                    bookProvider === 'audiobooks'
+                      ? 'bg-[var(--accent)] text-white shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Audiobooks (Search via iTunes Audiobooks catalog)"
+                >
+                  <Headphones className="w-3 h-3" />
+                  <span>Audiobooks</span>
+                </button>
               </div>
             )}
 
@@ -466,6 +482,7 @@ export default function SearchModal({
           {results.map(item => {
             const isTv = item.type === 'tv';
             const isBook = item.type === 'book';
+            const isAudio = isBook && (item.bookFormat === 'Audiobook' || !!item.totalDurationSeconds || !!item.narrator);
             const isAdding = addingId === item.externalId;
             const existingMatch = existingItems.find(libItem => isMediaMatch(item, libItem));
             const workId = item.workId || String(item.externalId);
@@ -501,7 +518,7 @@ export default function SearchModal({
                       <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-[var(--text-secondary)]">
-                        {isBook ? <BookOpen className="w-5 h-5" /> : isTv ? <Tv className="w-5 h-5" /> : <Film className="w-5 h-5" />}
+                        {isAudio ? <Headphones className="w-5 h-5" /> : isBook ? <BookOpen className="w-5 h-5" /> : isTv ? <Tv className="w-5 h-5" /> : <Film className="w-5 h-5" />}
                       </div>
                     )}
                   </div>
@@ -515,9 +532,26 @@ export default function SearchModal({
                       <span className="text-xs text-[var(--text-secondary)] font-mono">
                         ({item.year || 'N/A'})
                       </span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                        {isBook ? 'Book' : isTv ? 'TV' : 'Movie'}
+                      <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] flex items-center gap-1">
+                        {isAudio ? (
+                          <>
+                            <Headphones className="w-2.5 h-2.5" />
+                            <span>Audiobook</span>
+                          </>
+                        ) : (
+                          isBook ? 'Book' : isTv ? 'TV' : 'Movie'
+                        )}
                       </span>
+                      {item.totalDurationSeconds ? (
+                        <span className="text-[10px] text-[var(--text-secondary)] font-mono">
+                          {formatAudioDuration(item.totalDurationSeconds)}
+                        </span>
+                      ) : null}
+                      {item.narrator ? (
+                        <span className="text-[10px] text-[var(--text-secondary)] truncate max-w-xs">
+                          • Narrated by {item.narrator}
+                        </span>
+                      ) : null}
                       {item.communityRating && (
                         <span className="flex items-center gap-1 px-1.5 py-0.2 rounded bg-[var(--bg-secondary)] border border-[var(--border-light)] text-[10px] font-bold text-[#ffd60a]" title={`Community Rating: ${item.communityRating} / 10${item.communityRatingCount ? ` (${item.communityRatingCount.toLocaleString()} votes)` : ''}`}>
                           <Star className="w-2.5 h-2.5 fill-[#ffd60a] text-[#ffd60a]" />
@@ -564,14 +598,14 @@ export default function SearchModal({
                           onClick={() => handleAddMedia(item, 'watching')}
                           disabled={isAdding}
                           className="px-2.5 py-1.5 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-semibold transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1 shadow-sm"
-                          title={isBook ? "Add as Currently Reading" : "Add directly to Watching"}
+                          title={isAudio ? "Add to Currently Listening" : isBook ? "Add as Currently Reading" : "Add directly to Watching"}
                         >
                           {isAdding ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           ) : (
                             <Plus className="w-3.5 h-3.5" />
                           )}
-                          <span className="hidden sm:inline">{isBook ? 'Reading' : 'Watching'}</span>
+                          <span className="hidden sm:inline">{isAudio ? 'Listening' : isBook ? 'Reading' : 'Watching'}</span>
                         </button>
 
                         <button
@@ -579,9 +613,9 @@ export default function SearchModal({
                           onClick={() => handleAddMedia(item, 'plan_to_watch')}
                           disabled={isAdding}
                           className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium border border-[var(--border-light)] transition-all active:scale-95 disabled:opacity-50"
-                          title={isBook ? "Add to Want to Read" : "Add to Plan to Watch"}
+                          title={isAudio ? "Add to Plan to Listen" : isBook ? "Add to Want to Read" : "Add to Plan to Watch"}
                         >
-                          <span className="hidden sm:inline">{isBook ? 'Want to Read' : 'Watchlist'}</span>
+                          <span className="hidden sm:inline">{isAudio ? 'Plan to Listen' : isBook ? 'Want to Read' : 'Watchlist'}</span>
                           <span className="sm:hidden">+</span>
                         </button>
 
@@ -590,10 +624,10 @@ export default function SearchModal({
                           onClick={() => handleAddMedia(item, 'completed')}
                           disabled={isAdding}
                           className="px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 text-xs font-semibold transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1 shadow-sm"
-                          title={isBook ? "Add as Read" : "Add as Watched (Completed if ended, Caught Up if ongoing)"}
+                          title={isAudio ? "Add as Listened" : isBook ? "Add as Read" : "Add as Watched (Completed if ended, Caught Up if ongoing)"}
                         >
                           <Check className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">{isBook ? 'Read' : 'Watched'}</span>
+                          <span className="hidden sm:inline">{isAudio ? 'Listened' : isBook ? 'Read' : 'Watched'}</span>
                         </button>
                       </div>
                     )}
@@ -707,7 +741,7 @@ export default function SearchModal({
                                       <img src={ed.coverUrl} alt={ed.title} className="w-full h-full object-cover" />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center text-zinc-500">
-                                        <BookOpen className="w-3.5 h-3.5" />
+                                        {ed.physicalFormat === 'Audiobook' ? <Headphones className="w-3.5 h-3.5" /> : <BookOpen className="w-3.5 h-3.5" />}
                                       </div>
                                     )}
                                   </div>
@@ -716,12 +750,14 @@ export default function SearchModal({
                                       <span className="font-semibold text-[var(--text-primary)] truncate max-w-[200px] sm:max-w-xs">
                                         {ed.title}
                                       </span>
-                                      <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--accent)]/15 text-[var(--accent)] capitalize">
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-[var(--accent)]/15 text-[var(--accent)] capitalize flex items-center gap-1">
+                                        {ed.physicalFormat === 'Audiobook' && <Headphones className="w-2.5 h-2.5" />}
                                         {ed.physicalFormat || 'Edition'}
                                       </span>
                                     </div>
                                     <div className="text-[11px] text-[var(--text-secondary)] flex items-center gap-2 flex-wrap mt-0.5 font-mono">
-                                      {ed.totalPages ? <span>{ed.totalPages} pages</span> : null}
+                                      {ed.totalDurationSeconds ? <span>{formatAudioDuration(ed.totalDurationSeconds)}</span> : ed.totalPages ? <span>{ed.totalPages} pages</span> : null}
+                                      {ed.narrator ? <span>• Narrated by {ed.narrator}</span> : null}
                                       {ed.publishers?.[0] ? <span>• {ed.publishers[0]}</span> : null}
                                       {ed.year ? <span>({ed.year})</span> : null}
                                       {ed.isbn ? <span>ISBN: {ed.isbn}</span> : null}
@@ -735,16 +771,20 @@ export default function SearchModal({
                                     disabled={addingId === (ed.id || ed.key)}
                                     onClick={() => handleAddEdition(item, ed, 'watching')}
                                     className="px-2 py-1 rounded bg-[var(--accent)] hover:brightness-110 text-white text-[10px] font-bold transition-all disabled:opacity-50 cursor-pointer"
-                                    title="Add this edition as Currently Reading"
+                                    title={ed.physicalFormat === 'Audiobook' ? "Add this edition to Currently Listening" : "Add this edition as Currently Reading"}
                                   >
-                                    {addingId === (ed.id || ed.key) ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Reading'}
+                                    {addingId === (ed.id || ed.key) ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      ed.physicalFormat === 'Audiobook' ? 'Listening' : 'Reading'
+                                    )}
                                   </button>
                                   <button
                                     type="button"
                                     disabled={addingId === (ed.id || ed.key)}
                                     onClick={() => handleAddEdition(item, ed, 'plan_to_watch')}
                                     className="px-2 py-1 rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-[10px] font-medium border border-[var(--border-light)] transition-all disabled:opacity-50 cursor-pointer"
-                                    title="Add this edition to Want to Read"
+                                    title={ed.physicalFormat === 'Audiobook' ? "Add this edition to Plan to Listen" : "Add this edition to Want to Read"}
                                   >
                                     +
                                   </button>

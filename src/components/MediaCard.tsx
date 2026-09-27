@@ -1,8 +1,9 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe } from 'lucide-react';
+import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones } from 'lucide-react';
 import type { MediaItem, MediaStatus, RatingScale, GridDensity } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
+import { isAudiobookItem, formatAudioDuration } from '../utils/audioDuration';
 
 interface StatusStyle {
   label: string;
@@ -27,6 +28,15 @@ const BOOK_STATUS_CONFIG: Record<MediaStatus, StatusStyle> = {
   dropped: { label: 'Did Not Finish', bg: 'bg-red-500/15 text-red-400 border-red-500/30' },
 };
 
+const AUDIOBOOK_STATUS_CONFIG: Record<MediaStatus, StatusStyle> = {
+  watching: { label: 'Listening', bg: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+  caught_up: { label: 'Caught Up', bg: 'bg-sky-500/15 text-sky-400 border-sky-500/30' },
+  completed: { label: 'Finished', bg: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  plan_to_watch: { label: 'Plan to Listen', bg: 'bg-[var(--accent-bg)] text-[var(--accent)] border-[var(--accent)]/30' },
+  on_hold: { label: 'On Hold', bg: 'bg-orange-500/15 text-orange-400 border-orange-500/30' },
+  dropped: { label: 'Did Not Finish', bg: 'bg-red-500/15 text-red-400 border-red-500/30' },
+};
+
 export interface MediaCardProps {
   item: MediaItem;
   onClick: (item: MediaItem) => void;
@@ -46,21 +56,29 @@ export default function MediaCard({
 }: MediaCardProps): React.JSX.Element {
   const isTv = item.type === 'tv';
   const isBook = item.type === 'book';
-  const statusCfg = (isBook ? BOOK_STATUS_CONFIG[item.status] : STATUS_CONFIG[item.status]) || (isBook ? BOOK_STATUS_CONFIG.plan_to_watch : STATUS_CONFIG.plan_to_watch);
+  const isAudio = isAudiobookItem(item);
+  const statusCfg = isAudio
+    ? (AUDIOBOOK_STATUS_CONFIG[item.status] || AUDIOBOOK_STATUS_CONFIG.plan_to_watch)
+    : (isBook ? BOOK_STATUS_CONFIG[item.status] : STATUS_CONFIG[item.status]) || (isBook ? BOOK_STATUS_CONFIG.plan_to_watch : STATUS_CONFIG.plan_to_watch);
 
-  // TV / Book progress calculation
+  // TV / Book / Audiobook progress calculation
   const isChapters = isBook && item.progressMode === 'chapters';
+  const isTimeMode = isBook && (item.progressMode === 'time' || isAudio);
   const totalEps = item.totalEpisodes || 0;
   const watchedEps = item.watchedEpisodesCount || 0;
   const totalPages = item.totalPages || 0;
   const currentPage = item.currentPage || 0;
   const totalChapters = item.totalChapters || 0;
   const currentChapter = item.currentChapter || 0;
+  const totalDuration = item.totalDurationSeconds || 0;
+  const currentDuration = item.currentDurationSeconds || 0;
 
   const progressPercent = isTv
     ? (totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0)
     : isBook
-    ? isChapters
+    ? isTimeMode
+      ? (totalDuration > 0 ? Math.min(100, Math.round((currentDuration / totalDuration) * 100)) : 0)
+      : isChapters
       ? (totalChapters > 0 ? Math.min(100, Math.round((currentChapter / totalChapters) * 100)) : 0)
       : (totalPages > 0 ? Math.min(100, Math.round((currentPage / totalPages) * 100)) : 0)
     : 0;
@@ -68,7 +86,9 @@ export default function MediaCard({
   const isCompleted = isTv
     ? (totalEps > 0 && watchedEps >= totalEps)
     : isBook
-    ? isChapters
+    ? isTimeMode
+      ? (totalDuration > 0 && currentDuration >= totalDuration) || item.status === 'completed'
+      : isChapters
       ? (totalChapters > 0 && currentChapter >= totalChapters) || item.status === 'completed'
       : (totalPages > 0 && currentPage >= totalPages) || item.status === 'completed'
     : item.status === 'completed';
@@ -125,8 +145,16 @@ export default function MediaCard({
           <span className={`flex items-center gap-1 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 font-semibold text-white ${
             density === 'compact' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[11px]'
           }`}>
-            {isTv ? <Tv className={density === 'compact' ? 'w-2.5 h-2.5 text-[var(--accent)]' : 'w-3 h-3 text-[var(--accent)]'} /> : isBook ? <BookOpen className={density === 'compact' ? 'w-2.5 h-2.5 text-[var(--accent)]' : 'w-3 h-3 text-[var(--accent)]'} /> : <Film className={density === 'compact' ? 'w-2.5 h-2.5 text-[var(--accent)]' : 'w-3 h-3 text-[var(--accent)]'} />}
-            <span>{isTv ? 'TV' : isBook ? 'Book' : 'Movie'}</span>
+            {isAudio ? (
+              <Headphones className={density === 'compact' ? 'w-2.5 h-2.5 text-[var(--accent)]' : 'w-3 h-3 text-[var(--accent)]'} />
+            ) : isTv ? (
+              <Tv className={density === 'compact' ? 'w-2.5 h-2.5 text-[var(--accent)]' : 'w-3 h-3 text-[var(--accent)]'} />
+            ) : isBook ? (
+              <BookOpen className={density === 'compact' ? 'w-2.5 h-2.5 text-[var(--accent)]' : 'w-3 h-3 text-[var(--accent)]'} />
+            ) : (
+              <Film className={density === 'compact' ? 'w-2.5 h-2.5 text-[var(--accent)]' : 'w-3 h-3 text-[var(--accent)]'} />
+            )}
+            <span>{isAudio ? 'Audiobook' : isTv ? 'TV' : isBook ? 'Book' : 'Movie'}</span>
           </span>
         </div>
 
@@ -153,10 +181,10 @@ export default function MediaCard({
               className={`flex items-center gap-1 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white font-bold shadow-lg shadow-[var(--accent)]/30 backdrop-blur-sm transition-all active:scale-95 ${
                 density === 'compact' ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
               }`}
-              title={isChapters ? 'Quick read +1 chapter' : 'Quick read +10 pages'}
+              title={isTimeMode ? 'Quick listen +15 mins' : (isChapters ? 'Quick read +1 chapter' : 'Quick read +10 pages')}
             >
               <Plus className={density === 'compact' ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
-              <span>{isChapters ? '+1 Ch' : '+10 p'}</span>
+              <span>{isTimeMode ? '+15m' : (isChapters ? '+1 Ch' : '+10 p')}</span>
             </button>
           )}
 
@@ -200,7 +228,9 @@ export default function MediaCard({
           </div>
 
           <div className={`flex items-center ${density === 'compact' ? 'gap-1 text-[10px]' : 'gap-2 text-xs'} text-[var(--text-secondary)]`}>
-            <span className="truncate max-w-[90px]">{isBook && item.author ? item.author : item.year || 'N/A'}</span>
+            <span className="truncate max-w-[100px]" title={isAudio && item.narrator ? `Narrated by ${item.narrator}` : (isBook && item.author ? item.author : undefined)}>
+              {isAudio && item.narrator ? `🎙️ ${item.narrator}` : (isBook && item.author ? item.author : item.year || 'N/A')}
+            </span>
             <span>•</span>
             <span className={`rounded-md font-medium border ${statusCfg.bg} ${density === 'compact' ? 'px-1 py-0 text-[9px]' : 'px-2 py-0.2 text-[10px]'}`}>
               {statusCfg.label}
@@ -283,15 +313,19 @@ export default function MediaCard({
           </div>
         )}
 
-        {/* Book Progress Details */}
+        {/* Book / Audiobook Progress Details */}
         {isBook && (
           <div className={`${density === 'compact' ? 'pt-1' : 'pt-2'} border-t border-[var(--border-light)]`}>
             <div className={`flex items-center justify-between text-[var(--text-secondary)] font-medium ${
               density === 'compact' ? 'text-[9px] sm:text-[10px] mb-1' : 'text-[11px] mb-1.5'
             }`}>
-              <span>{isCompleted ? 'Finished' : 'Reading'}</span>
+              <span>{isCompleted ? 'Finished' : (isAudio ? 'Listening' : 'Reading')}</span>
               <span className="font-mono text-[var(--text-primary)]">
-                {isChapters ? (
+                {isTimeMode ? (
+                  totalDuration > 0
+                    ? `${formatAudioDuration(currentDuration)}/${formatAudioDuration(totalDuration)} (${progressPercent}%)`
+                    : `${formatAudioDuration(currentDuration)} listened`
+                ) : isChapters ? (
                   totalChapters > 0
                     ? `Ch ${currentChapter}/${totalChapters} (${progressPercent}%)`
                     : `${currentChapter} ch read`
@@ -303,22 +337,24 @@ export default function MediaCard({
               </span>
             </div>
 
-            {/* Slim Reading Progress Track */}
-            <div className={`w-full bg-[var(--bg-tertiary)] rounded-full overflow-hidden ${density === 'compact' ? 'h-1' : 'h-1.5'}`}>
-              <div
-                className={`h-full transition-all duration-300 rounded-full ${
-                  isCompleted
-                    ? 'bg-emerald-500'
-                    : 'bg-gradient-to-r from-[var(--accent)] to-[#30d158]'
-                }`}
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
+            {/* Slim Reading / Listening Progress Track */}
+            {(totalPages > 0 || totalChapters > 0 || totalDuration > 0) && (
+              <div className={`w-full bg-[var(--bg-tertiary)] rounded-full overflow-hidden ${density === 'compact' ? 'h-1' : 'h-1.5'}`}>
+                <div
+                  className={`h-full transition-all duration-300 rounded-full ${
+                    isCompleted
+                      ? 'bg-emerald-500'
+                      : 'bg-gradient-to-r from-[var(--accent)] to-[#30d158]'
+                  }`}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            )}
 
             {/* Total count not set hint */}
-            {((isChapters && totalChapters === 0) || (!isChapters && totalPages === 0)) && (
+            {((isTimeMode && totalDuration === 0) || (isChapters && totalChapters === 0) || (!isTimeMode && !isChapters && totalPages === 0)) && (
               <div className="mt-0.5 text-[9px] text-[var(--text-secondary)] italic">
-                Total {isChapters ? 'chapters' : 'pages'} not set
+                Total {isTimeMode ? 'runtime' : isChapters ? 'chapters' : 'pages'} not set
               </div>
             )}
           </div>

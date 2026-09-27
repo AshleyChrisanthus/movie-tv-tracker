@@ -196,6 +196,16 @@ export async function saveMediaItem(
         }
         totalEpisodes = totalChapters || 1;
         watchedEpisodesCount = currentChapter;
+      } else if (mode === 'time') {
+        const totalDuration = mediaItem.totalDurationSeconds ?? existingMedia?.totalDurationSeconds ?? 0;
+        const currentDuration = mediaItem.currentDurationSeconds ?? existingMedia?.currentDurationSeconds ?? 0;
+        if (totalDuration > 0 && currentDuration >= totalDuration) {
+          status = 'completed';
+        } else if (currentDuration > 0 && status === 'plan_to_watch') {
+          status = 'watching';
+        }
+        totalEpisodes = totalDuration > 0 ? Math.max(1, Math.round(totalDuration / 60)) : 1;
+        watchedEpisodesCount = Math.round(currentDuration / 60);
       } else {
         const totalPages = mediaItem.totalPages ?? existingMedia?.totalPages ?? 0;
         const currentPage = mediaItem.currentPage ?? existingMedia?.currentPage ?? 0;
@@ -219,11 +229,16 @@ export async function saveMediaItem(
       status,
       totalEpisodes,
       watchedEpisodesCount,
-      progressMode: mediaItem.progressMode ?? existingMedia?.progressMode ?? 'pages',
+      progressMode: mediaItem.progressMode ?? existingMedia?.progressMode ?? ((mediaItem.bookFormat?.toLowerCase().includes('audio') || (mediaItem.totalDurationSeconds && mediaItem.totalDurationSeconds > 0)) ? 'time' : 'pages'),
       totalPages: mediaItem.totalPages !== undefined ? mediaItem.totalPages : existingMedia?.totalPages,
       currentPage: mediaItem.currentPage !== undefined ? mediaItem.currentPage : (existingMedia?.currentPage ?? (status === 'completed' && (mediaItem.totalPages || existingMedia?.totalPages) ? (mediaItem.totalPages || existingMedia?.totalPages) : 0)),
       totalChapters: mediaItem.totalChapters !== undefined ? mediaItem.totalChapters : existingMedia?.totalChapters,
       currentChapter: mediaItem.currentChapter !== undefined ? mediaItem.currentChapter : (existingMedia?.currentChapter ?? (status === 'completed' && (mediaItem.totalChapters || existingMedia?.totalChapters) ? (mediaItem.totalChapters || existingMedia?.totalChapters) : 0)),
+      totalDurationSeconds: mediaItem.totalDurationSeconds !== undefined ? mediaItem.totalDurationSeconds : existingMedia?.totalDurationSeconds,
+      currentDurationSeconds: mediaItem.currentDurationSeconds !== undefined ? mediaItem.currentDurationSeconds : (existingMedia?.currentDurationSeconds ?? (status === 'completed' && (mediaItem.totalDurationSeconds || existingMedia?.totalDurationSeconds) ? (mediaItem.totalDurationSeconds || existingMedia?.totalDurationSeconds) : 0)),
+      narrator: mediaItem.narrator || existingMedia?.narrator,
+      audioPreviewUrl: mediaItem.audioPreviewUrl || existingMedia?.audioPreviewUrl,
+      bookFormat: mediaItem.bookFormat || existingMedia?.bookFormat,
       author: mediaItem.author || existingMedia?.author || '',
       isbn: mediaItem.isbn || existingMedia?.isbn,
       nextAirDate: nextAirDate !== null ? nextAirDate : (existingMedia?.nextAirDate ?? null),
@@ -1262,7 +1277,7 @@ export async function updateMediaLists(mediaId: string, lists: string[]): Promis
 }
 
 /**
- * Update reading progress for a book (page count or chapter count) (Issue #22).
+ * Update reading / listening progress for a book or audiobook (Issue #22, #38).
  */
 export async function updateBookProgress(
   mediaId: string,
@@ -1271,7 +1286,10 @@ export async function updateBookProgress(
     totalPages?: number;
     currentChapter?: number;
     totalChapters?: number;
-    progressMode?: 'pages' | 'chapters';
+    currentDurationSeconds?: number;
+    totalDurationSeconds?: number;
+    narrator?: string;
+    progressMode?: 'pages' | 'chapters' | 'time';
     percentage?: number;
   } | number
 ): Promise<MediaItem | null> {
@@ -1279,24 +1297,33 @@ export async function updateBookProgress(
   if (!media || media.type !== 'book') return null;
 
   const options = typeof progress === 'number' ? { currentPage: progress } : progress;
-  const mode = options.progressMode || media.progressMode || 'pages';
+  const isAudio = (media.bookFormat && media.bookFormat.toLowerCase().includes('audio')) ||
+                  (media.totalDurationSeconds && media.totalDurationSeconds > 0);
+  const mode = options.progressMode || media.progressMode || (isAudio ? 'time' : 'pages');
 
   const totalPages = options.totalPages !== undefined ? options.totalPages : (media.totalPages || 0);
   const totalChapters = options.totalChapters !== undefined ? options.totalChapters : (media.totalChapters || 0);
+  const totalDurationSeconds = options.totalDurationSeconds !== undefined ? options.totalDurationSeconds : (media.totalDurationSeconds || 0);
 
   let newPage = options.currentPage !== undefined ? options.currentPage : (media.currentPage || 0);
   let newChapter = options.currentChapter !== undefined ? options.currentChapter : (media.currentChapter || 0);
+  let newDuration = options.currentDurationSeconds !== undefined ? options.currentDurationSeconds : (media.currentDurationSeconds || 0);
 
-  // Direct percentage progress input (Issue #26)
+  // Direct percentage progress input (Issue #26, #38)
   if (options.percentage !== undefined) {
     const rawPct = Math.max(0, Math.min(100, Number(options.percentage) || 0));
     if (rawPct >= 100) {
       if (totalPages > 0) newPage = totalPages;
       if (totalChapters > 0) newChapter = totalChapters;
+      if (totalDurationSeconds > 0) newDuration = totalDurationSeconds;
     } else {
       if (mode === 'chapters') {
         if (totalChapters > 0) {
           newChapter = Math.round(totalChapters * (rawPct / 100));
+        }
+      } else if (mode === 'time') {
+        if (totalDurationSeconds > 0) {
+          newDuration = Math.round(totalDurationSeconds * (rawPct / 100));
         }
       } else {
         if (totalPages > 0) {
@@ -1308,28 +1335,37 @@ export async function updateBookProgress(
 
   newPage = Math.max(0, totalPages > 0 ? Math.min(newPage, totalPages) : newPage);
   newChapter = Math.max(0, totalChapters > 0 ? Math.min(newChapter, totalChapters) : newChapter);
+  newDuration = Math.max(0, totalDurationSeconds > 0 ? Math.min(newDuration, totalDurationSeconds) : newDuration);
 
-  // Check if either mode has reached its total (or if finishing via options)
+  // Check if active mode has reached its total (or if finishing via options)
   const reachedPageFinish = totalPages > 0 && newPage >= totalPages;
   const reachedChapterFinish = totalChapters > 0 && newChapter >= totalChapters;
-  const isFinished = reachedPageFinish || reachedChapterFinish;
+  const reachedTimeFinish = totalDurationSeconds > 0 && newDuration >= totalDurationSeconds;
+  const isFinished = mode === 'time'
+    ? reachedTimeFinish
+    : (mode === 'chapters' ? reachedChapterFinish : reachedPageFinish);
 
-  // If finished in one mode, reflect completion in both modes
+  // If finished in one mode, reflect completion in other modes if available
   if (isFinished) {
     if (totalPages > 0) newPage = totalPages;
     if (totalChapters > 0) newChapter = totalChapters;
+    if (totalDurationSeconds > 0) newDuration = totalDurationSeconds;
   } else if (media.status === 'completed') {
     // If book was already marked completed and user enters a new total without specifying a lesser progress
-    if (options.currentPage === undefined && options.currentChapter === undefined && options.percentage === undefined) {
+    if (options.currentPage === undefined && options.currentChapter === undefined && options.currentDurationSeconds === undefined && options.percentage === undefined) {
       if (totalPages > 0) newPage = totalPages;
       if (totalChapters > 0) newChapter = totalChapters;
+      if (totalDurationSeconds > 0) newDuration = totalDurationSeconds;
     }
   }
 
   const finalIsFinished = (totalPages > 0 && newPage >= totalPages) ||
-                          (totalChapters > 0 && newChapter >= totalChapters);
+                          (totalChapters > 0 && newChapter >= totalChapters) ||
+                          (totalDurationSeconds > 0 && newDuration >= totalDurationSeconds);
 
-  const hasProgress = mode === 'chapters' ? newChapter > 0 : newPage > 0;
+  const hasProgress = mode === 'chapters'
+    ? newChapter > 0
+    : (mode === 'time' ? newDuration > 0 : newPage > 0);
 
   let newStatus = media.status;
   if (finalIsFinished) {
@@ -1338,32 +1374,47 @@ export async function updateBookProgress(
     newStatus = 'watching';
   }
 
-  const watchedEpisodesCount = mode === 'chapters' ? newChapter : newPage;
-  const totalEpisodes = mode === 'chapters' ? (totalChapters || 1) : (totalPages || 1);
+  let watchedEpisodesCount = newPage;
+  let totalEpisodes = totalPages || 1;
+  if (mode === 'chapters') {
+    watchedEpisodesCount = newChapter;
+    totalEpisodes = totalChapters || 1;
+  } else if (mode === 'time') {
+    watchedEpisodesCount = Math.round(newDuration / 60);
+    totalEpisodes = totalDurationSeconds > 0 ? Math.max(1, Math.round(totalDurationSeconds / 60)) : 1;
+  }
 
-  const now = new Date().toISOString();
-  await db.media.update(mediaId, {
+  const updates: Partial<MediaItem> = {
     progressMode: mode,
     currentPage: newPage,
     totalPages,
     currentChapter: newChapter,
     totalChapters,
+    currentDurationSeconds: newDuration,
+    totalDurationSeconds,
     watchedEpisodesCount,
     totalEpisodes,
     status: newStatus,
-    updatedAt: now
-  });
+    updatedAt: new Date().toISOString()
+  };
 
+  if (options.narrator) {
+    updates.narrator = options.narrator;
+  }
+
+  await db.media.update(mediaId, updates);
   return (await db.media.get(mediaId)) || null;
 }
 
 /**
- * Switch a book to a different edition, adjusting totalPages while preserving reading progress percentage (Issue #25).
+ * Switch a book to a different edition, adjusting totalPages or audio duration while preserving progress percentage (Issue #25, #38).
  */
 export async function changeBookEdition(
   mediaId: string,
   edition: {
     totalPages?: number;
+    totalDurationSeconds?: number;
+    narrator?: string;
     isbn?: string;
     publisher?: string;
     year?: string | number;
@@ -1375,26 +1426,47 @@ export async function changeBookEdition(
   const media = await db.media.get(mediaId);
   if (!media || media.type !== 'book') return null;
 
-  const oldTotalPages = Number(media.totalPages) || 0;
-  const oldCurrentPage = Number(media.currentPage) || 0;
-  const newTotalPages = edition.totalPages !== undefined ? Number(edition.totalPages) || 0 : oldTotalPages;
-
-  let newCurrentPage = oldCurrentPage;
-  if (oldTotalPages > 0 && newTotalPages > 0 && oldCurrentPage > 0) {
-    const progressRatio = Math.min(1, oldCurrentPage / oldTotalPages);
-    newCurrentPage = Math.round(newTotalPages * progressRatio);
+  // Compute current percentage to scale across editions
+  let oldPct = 0;
+  if (media.progressMode === 'chapters' && (media.totalChapters || 0) > 0) {
+    oldPct = (media.currentChapter || 0) / (media.totalChapters || 1);
+  } else if (media.progressMode === 'time' && (media.totalDurationSeconds || 0) > 0) {
+    oldPct = (media.currentDurationSeconds || 0) / (media.totalDurationSeconds || 1);
+  } else if ((media.totalPages || 0) > 0) {
+    oldPct = (media.currentPage || 0) / (media.totalPages || 1);
   }
+  oldPct = Math.min(1, Math.max(0, oldPct));
 
   const updates: Partial<MediaItem> = {
     updatedAt: new Date().toISOString()
   };
 
-  if (newTotalPages > 0) {
-    updates.totalPages = newTotalPages;
-    updates.currentPage = newCurrentPage;
-    if (media.progressMode === 'pages' || !media.progressMode) {
-      updates.totalEpisodes = newTotalPages;
-      updates.watchedEpisodesCount = newCurrentPage;
+  const isAudioEdition = (edition.bookFormat && edition.bookFormat.toLowerCase().includes('audio')) ||
+                         (edition.totalDurationSeconds && edition.totalDurationSeconds > 0);
+
+  if (isAudioEdition) {
+    const newTotalDuration = edition.totalDurationSeconds !== undefined ? Number(edition.totalDurationSeconds) || 0 : (media.totalDurationSeconds || 0);
+    const newCurrentDuration = Math.round(newTotalDuration * oldPct);
+    updates.bookFormat = edition.bookFormat || 'Audiobook';
+    updates.totalDurationSeconds = newTotalDuration;
+    updates.currentDurationSeconds = newCurrentDuration;
+    updates.progressMode = 'time';
+    updates.totalEpisodes = newTotalDuration > 0 ? Math.max(1, Math.round(newTotalDuration / 60)) : 1;
+    updates.watchedEpisodesCount = Math.round(newCurrentDuration / 60);
+    if (edition.narrator) updates.narrator = edition.narrator;
+  } else {
+    const oldTotalPages = Number(media.totalPages) || 0;
+    const newTotalPages = edition.totalPages !== undefined ? Number(edition.totalPages) || 0 : oldTotalPages;
+    let newCurrentPage = Number(media.currentPage) || 0;
+    if (newTotalPages > 0) {
+      newCurrentPage = Math.round(newTotalPages * oldPct);
+      updates.totalPages = newTotalPages;
+      updates.currentPage = newCurrentPage;
+      if (media.progressMode === 'pages' || !media.progressMode || media.progressMode === 'time') {
+        updates.progressMode = 'pages';
+        updates.totalEpisodes = newTotalPages;
+        updates.watchedEpisodesCount = newCurrentPage;
+      }
     }
   }
 
@@ -1404,6 +1476,7 @@ export async function changeBookEdition(
   if (edition.bookFormat) updates.bookFormat = edition.bookFormat;
   if (edition.posterUrl) updates.posterUrl = edition.posterUrl;
   if (edition.editionId) updates.editionId = edition.editionId;
+  if (edition.narrator) updates.narrator = edition.narrator;
 
   await db.media.update(mediaId, updates);
   return (await db.media.get(mediaId)) || null;

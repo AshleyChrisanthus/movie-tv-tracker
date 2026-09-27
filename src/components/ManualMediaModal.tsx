@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Film, Tv, Save, AlertCircle, Eye, BookOpen } from 'lucide-react';
+import { X, Film, Tv, Save, AlertCircle, Eye, BookOpen, Headphones } from 'lucide-react';
 import { saveMediaItem, getAllMedia, type EpisodeInput } from '../db';
 import type { MediaItem, MediaType, MediaStatus, RatingScale } from '../types';
 import { normalizeRating, denormalizeRating, RATING_SCALE_CONFIG } from '../utils/rating';
+import { secondsToHoursMinutes, hoursMinutesToSeconds, isAudiobookItem } from '../utils/audioDuration';
 
 export interface ManualMediaModalProps {
   isOpen: boolean;
@@ -39,12 +40,24 @@ export default function ManualMediaModal({
   const [overview, setOverview] = useState<string>(item?.overview || '');
   const [posterUrl, setPosterUrl] = useState<string>(item?.posterUrl || '');
   const [author, setAuthor] = useState<string>(item?.author || '');
-  const [progressMode, setProgressMode] = useState<'pages' | 'chapters'>(item?.progressMode || 'pages');
+  const isAudio = isAudiobookItem(item);
+  const [bookFormat, setBookFormat] = useState<string>(item?.bookFormat || (isAudio ? 'Audiobook' : 'Paperback'));
+  const [narrator, setNarrator] = useState<string>(item?.narrator || '');
+  const [progressMode, setProgressMode] = useState<'pages' | 'chapters' | 'time'>(
+    (item?.progressMode as any) || (isAudio ? 'time' : 'pages')
+  );
   const [totalPages, setTotalPages] = useState<number | string>(item?.totalPages || 300);
   const [currentPage, setCurrentPage] = useState<number | string>(item?.currentPage || 0);
   const [totalChapters, setTotalChapters] = useState<number | string>(item?.totalChapters || 20);
   const [currentChapter, setCurrentChapter] = useState<number | string>(item?.currentChapter || 0);
   const [isbn, setIsbn] = useState<string>(item?.isbn || '');
+
+  const initialDuration = item?.totalDurationSeconds ? secondsToHoursMinutes(item.totalDurationSeconds) : { hours: 10, minutes: 0 };
+  const initialCurrentDuration = item?.currentDurationSeconds ? secondsToHoursMinutes(item.currentDurationSeconds) : { hours: 0, minutes: 0 };
+  const [audioTotalHours, setAudioTotalHours] = useState<number | string>(initialDuration.hours || '');
+  const [audioTotalMinutes, setAudioTotalMinutes] = useState<number | string>(initialDuration.minutes || '');
+  const [audioHours, setAudioHours] = useState<number | string>(initialCurrentDuration.hours || 0);
+  const [audioMinutes, setAudioMinutes] = useState<number | string>(initialCurrentDuration.minutes || 0);
   
   // Custom episodes generator
   const [seasonCount, setSeasonCount] = useState<number | string>(item?.totalSeasons || 1);
@@ -89,13 +102,24 @@ export default function ManualMediaModal({
       const parsedCurrentPage = parseInt(String(currentPage), 10) || 0;
       const parsedTotalChapters = parseInt(String(totalChapters), 10) || 0;
       const parsedCurrentChapter = parseInt(String(currentChapter), 10) || 0;
+      const parsedAudioTotalSec = hoursMinutesToSeconds(parseInt(String(audioTotalHours), 10) || 0, parseInt(String(audioTotalMinutes), 10) || 0);
+      const parsedAudioCurrentSec = hoursMinutesToSeconds(parseInt(String(audioHours), 10) || 0, parseInt(String(audioMinutes), 10) || 0);
+
       const totalEpisodes = type === 'tv'
         ? sCount * epCount
         : type === 'book'
-          ? (progressMode === 'chapters' ? (parsedTotalChapters || 1) : (parsedPages || 1))
+          ? (progressMode === 'chapters'
+              ? (parsedTotalChapters || 1)
+              : progressMode === 'time'
+                ? (parsedAudioTotalSec > 0 ? Math.max(1, Math.round(parsedAudioTotalSec / 60)) : 1)
+                : (parsedPages || 1))
           : 1;
       const watchedCount = type === 'book'
-        ? (progressMode === 'chapters' ? parsedCurrentChapter : parsedCurrentPage)
+        ? (progressMode === 'chapters'
+            ? parsedCurrentChapter
+            : progressMode === 'time'
+              ? Math.round(parsedAudioCurrentSec / 60)
+              : parsedCurrentPage)
         : (item?.watchedEpisodesCount || 0);
 
       // Generate episodes array if adding new TV series or if none exist
@@ -126,12 +150,16 @@ export default function ManualMediaModal({
         posterUrl: posterUrl.trim() || null,
         backdropUrl: posterUrl.trim() || null,
         author: type === 'book' ? author.trim() : undefined,
+        narrator: type === 'book' ? narrator.trim() : undefined,
+        bookFormat: type === 'book' ? bookFormat : undefined,
         isbn: type === 'book' ? isbn.trim() : undefined,
         progressMode: type === 'book' ? progressMode : undefined,
         totalPages: type === 'book' ? parsedPages : undefined,
         currentPage: type === 'book' ? parsedCurrentPage : undefined,
         totalChapters: type === 'book' ? parsedTotalChapters : undefined,
         currentChapter: type === 'book' ? parsedCurrentChapter : undefined,
+        totalDurationSeconds: type === 'book' && progressMode === 'time' ? parsedAudioTotalSec : undefined,
+        currentDurationSeconds: type === 'book' && progressMode === 'time' ? parsedAudioCurrentSec : undefined,
         source: item?.source || 'custom',
         externalId: item?.externalId || `custom_${Date.now()}`,
         totalSeasons: type === 'tv' ? sCount : 0,
@@ -400,6 +428,38 @@ export default function ManualMediaModal({
                   />
                 </div>
                 <div>
+                  <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Book Format</label>
+                  <select
+                    value={bookFormat}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setBookFormat(val);
+                      if (val === 'Audiobook' && progressMode !== 'time') {
+                        setProgressMode('time');
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                  >
+                    <option value="Paperback">Paperback</option>
+                    <option value="Hardcover">Hardcover</option>
+                    <option value="E-book">E-book</option>
+                    <option value="Audiobook">🎧 Audiobook</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Narrator(s) (Optional)</label>
+                  <input
+                    type="text"
+                    value={narrator}
+                    onChange={(e) => setNarrator(e.target.value)}
+                    placeholder="e.g. Michael Kramer, Kate Reading"
+                    className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                  />
+                </div>
+                <div>
                   <label className="block text-[11px] text-[var(--text-secondary)] mb-1">ISBN (Optional)</label>
                   <input
                     type="text"
@@ -413,33 +473,44 @@ export default function ManualMediaModal({
 
               <div>
                 <label className="block text-[11px] text-[var(--text-secondary)] mb-1.5 font-medium">Tracking Unit</label>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setProgressMode('pages')}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                    className={`py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                       progressMode === 'pages'
                         ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
                         : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-light)]'
                     }`}
                   >
-                    📖 Track by Pages
+                    📖 Pages
                   </button>
                   <button
                     type="button"
                     onClick={() => setProgressMode('chapters')}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                    className={`py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                       progressMode === 'chapters'
                         ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
                         : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-light)]'
                     }`}
                   >
-                    📑 Track by Chapters
+                    📑 Chapters
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProgressMode('time')}
+                    className={`py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                      progressMode === 'time'
+                        ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                        : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-light)]'
+                    }`}
+                  >
+                    🎧 Listening Time
                   </button>
                 </div>
               </div>
 
-              {progressMode === 'pages' ? (
+              {progressMode === 'pages' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Current Page</label>
@@ -462,7 +533,9 @@ export default function ManualMediaModal({
                     />
                   </div>
                 </div>
-              ) : (
+              )}
+
+              {progressMode === 'chapters' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Current Chapter</label>
@@ -483,6 +556,61 @@ export default function ManualMediaModal({
                       onChange={(e) => setTotalChapters(e.target.value)}
                       className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
                     />
+                  </div>
+                </div>
+              )}
+
+              {progressMode === 'time' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Current Position</label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          value={audioHours}
+                          onChange={(e) => setAudioHours(e.target.value)}
+                          placeholder="0"
+                          className="w-full px-2 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-center text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                        />
+                        <span className="text-xs text-[var(--text-secondary)] font-medium">h</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="59"
+                          value={audioMinutes}
+                          onChange={(e) => setAudioMinutes(e.target.value)}
+                          placeholder="0"
+                          className="w-full px-2 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-center text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                        />
+                        <span className="text-xs text-[var(--text-secondary)] font-medium">m</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Total Runtime</label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          value={audioTotalHours}
+                          onChange={(e) => setAudioTotalHours(e.target.value)}
+                          placeholder="0"
+                          className="w-full px-2 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-center text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                        />
+                        <span className="text-xs text-[var(--text-secondary)] font-medium">h</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="59"
+                          value={audioTotalMinutes}
+                          onChange={(e) => setAudioTotalMinutes(e.target.value)}
+                          placeholder="0"
+                          className="w-full px-2 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-center text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                        />
+                        <span className="text-xs text-[var(--text-secondary)] font-medium">m</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

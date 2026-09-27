@@ -16,8 +16,9 @@ import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync, fetchTMDBColl
 import { getNextFranchiseMovie } from './utils/franchise';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
+import { isAudiobookItem } from './utils/audioDuration';
 import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
-import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, GridColumns, UpcomingFilter } from './types';
+import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, GridColumns, UpcomingFilter, BookFormatFilter } from './types';
 
 export default function App(): React.JSX.Element {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
@@ -30,6 +31,9 @@ export default function App(): React.JSX.Element {
   );
   const [typeFilter, setTypeFilter] = useState<string>(
     () => localStorage.getItem('bingelog_type_filter') || 'all'
+  );
+  const [bookFormatFilter, setBookFormatFilter] = useState<BookFormatFilter>(
+    () => (localStorage.getItem('bingelog_book_format_filter') as BookFormatFilter) || 'all'
   );
   const [listFilter, setListFilter] = useState<string>(
     () => localStorage.getItem('bingelog_list_filter') || 'all'
@@ -256,6 +260,30 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const handleBookFormatChange = (format: BookFormatFilter): void => {
+    setBookFormatFilter(format);
+    localStorage.setItem('bingelog_book_format_filter', format);
+  };
+
+  // Compute format counts for books sub-tabs (Issue #38)
+  const bookCounts = useMemo(() => {
+    let all = 0;
+    let reading = 0;
+    let audiobook = 0;
+    for (const item of mediaList) {
+      if (item.type !== 'book') continue;
+      if (listFilter !== 'all' && (!item.lists || !item.lists.includes(listFilter))) continue;
+      if (statusFilter !== 'all' && item.status !== statusFilter) continue;
+      all++;
+      if (isAudiobookItem(item)) {
+        audiobook++;
+      } else {
+        reading++;
+      }
+    }
+    return { all, reading, audiobook };
+  }, [mediaList, listFilter, statusFilter]);
+
   // Compute status counts for filter tabs
   const itemCounts = useMemo<Record<string, number>>(() => {
     const counts: Record<string, number> = {
@@ -269,6 +297,10 @@ export default function App(): React.JSX.Element {
     };
     for (const item of mediaList) {
       if (typeFilter !== 'all' && item.type !== typeFilter) continue;
+      if (typeFilter === 'book') {
+        if (bookFormatFilter === 'audiobook' && !isAudiobookItem(item)) continue;
+        if (bookFormatFilter === 'reading' && isAudiobookItem(item)) continue;
+      }
       if (listFilter !== 'all' && (!item.lists || !item.lists.includes(listFilter))) continue;
       if (!shouldShowItemForUpcomingFilter(item, upcomingFilter, upcomingDays)) continue;
       counts.all++;
@@ -277,7 +309,7 @@ export default function App(): React.JSX.Element {
       }
     }
     return counts;
-  }, [mediaList, typeFilter, listFilter, upcomingFilter, upcomingDays]);
+  }, [mediaList, typeFilter, bookFormatFilter, listFilter, upcomingFilter, upcomingDays]);
 
   // Compute overall stats for navbar
   const stats = useMemo(() => ({
@@ -292,6 +324,10 @@ export default function App(): React.JSX.Element {
       .filter(item => {
         if (statusFilter !== 'all' && item.status !== statusFilter) return false;
         if (typeFilter !== 'all' && item.type !== typeFilter) return false;
+        if (typeFilter === 'book') {
+          if (bookFormatFilter === 'audiobook' && !isAudiobookItem(item)) return false;
+          if (bookFormatFilter === 'reading' && isAudiobookItem(item)) return false;
+        }
         if (listFilter !== 'all' && (!item.lists || !item.lists.includes(listFilter))) return false;
         if (!shouldShowItemForUpcomingFilter(item, upcomingFilter, upcomingDays)) return false;
         if (librarySearch.trim()) {
@@ -385,7 +421,14 @@ export default function App(): React.JSX.Element {
         await refreshLibrary();
       }
     } else if (item.type === 'book') {
-      if (item.progressMode === 'chapters') {
+      const isAudio = isAudiobookItem(item);
+      if (item.progressMode === 'time' || isAudio) {
+        const current = item.currentDurationSeconds || 0;
+        const total = item.totalDurationSeconds || 0;
+        const step = 900; // +15 minutes
+        const target = total > 0 ? Math.min(current + step, total) : current + step;
+        await updateBookProgress(item.id, { currentDurationSeconds: target, progressMode: 'time' });
+      } else if (item.progressMode === 'chapters') {
         const current = item.currentChapter || 0;
         const total = item.totalChapters || 0;
         const target = total > 0 ? Math.min(current + 1, total) : current + 1;
@@ -595,6 +638,9 @@ export default function App(): React.JSX.Element {
               onStatusChange={handleStatusChange}
               typeFilter={typeFilter}
               onTypeChange={handleTypeChange}
+              bookFormatFilter={bookFormatFilter}
+              onBookFormatChange={handleBookFormatChange}
+              bookCounts={bookCounts}
               listFilter={listFilter}
               onListChange={handleListChange}
               customLists={customLists}

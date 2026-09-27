@@ -37,9 +37,14 @@ export type MediaStatus =
 export type MediaSource = 'tmdb' | 'tvmaze' | 'itunes' | 'openlibrary' | 'googlebooks' | 'custom';
 
 /**
- * Supported book search providers (Issue #27).
+ * Supported book search providers (Issue #27, #38).
  */
-export type BookSearchProvider = 'openlibrary' | 'googlebooks';
+export type BookSearchProvider = 'openlibrary' | 'googlebooks' | 'audiobooks';
+
+/**
+ * Sub-tab format filter for Books view (Issue #38).
+ */
+export type BookFormatFilter = 'all' | 'reading' | 'audiobook';
 
 /**
  * Series broadcast air status (e.g., 'Returning Series', 'Ended', 'Running', 'Canceled').
@@ -83,11 +88,16 @@ export interface MediaItem {
   activeSeason?: number;                    // Navigation persistence pointer (Issue #13)
   author?: string;                          // Book author (Issue #22)
   authors?: string[];                       // Book authors array
-  progressMode?: 'pages' | 'chapters';      // Book tracking mode (pages or chapters)
+  narrator?: string;                        // Audiobook narrator / reader (Issue #38)
+  narrators?: string[];                     // Audiobook narrators array (Issue #38)
+  progressMode?: 'pages' | 'chapters' | 'time'; // Book/audiobook tracking mode
   totalPages?: number;                      // Total book pages (Issue #22)
   currentPage?: number;                     // Current page reading progress (Issue #22)
   totalChapters?: number;                   // Total chapters for book chapter tracking
   currentChapter?: number;                  // Current chapter reading progress
+  totalDurationSeconds?: number;            // Total audiobook runtime in seconds (Issue #38)
+  currentDurationSeconds?: number;          // Current listened runtime in seconds (Issue #38)
+  audioPreviewUrl?: string;                 // Sample audio snippet preview URL (Issue #38)
   isbn?: string;                            // ISBN-10 or ISBN-13
   workId?: string;                          // Open Library Work ID (e.g. 'OL45804W') (Issue #25)
   editionId?: string;                       // Open Library Edition ID (e.g. 'OL7353617M') (Issue #25)

@@ -115,6 +115,14 @@ export async function getFranchiseModule() {
   return await import('../../src/utils/franchise.js');
 }
 
+export async function getAudioDurationModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/utils/audioDuration.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/utils/audioDuration.ts');
+  }
+  return await import('../../src/utils/audioDuration.js');
+}
+
 // Reset database tables between tests
 export async function resetDatabase() {
   const { db } = await getDbModule();

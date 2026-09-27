@@ -124,7 +124,7 @@ export default function MediaCard({
     >
       {/* Poster Container */}
       <div className={`relative w-full overflow-hidden bg-[var(--bg-primary)] ${
-        density === 'compact' ? 'aspect-[3/4] max-h-[175px] sm:max-h-[195px]' : 'aspect-[2/3]'
+        isAudio ? 'aspect-square' : (density === 'compact' ? 'aspect-[3/4] max-h-[175px] sm:max-h-[195px]' : 'aspect-[2/3]')
       }`}>
         {item.posterUrl ? (
           <img

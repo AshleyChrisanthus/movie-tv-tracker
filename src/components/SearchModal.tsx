@@ -602,7 +602,7 @@ export default function SearchModal({
               >
                 <div className="flex items-center gap-3.5">
                   {/* Poster Thumbnail */}
-                  <div className="w-12 sm:w-14 aspect-[2/3] rounded-lg overflow-hidden bg-[var(--card-bg)] shrink-0 border border-[var(--border-light)]">
+                  <div className={`w-12 sm:w-14 ${isAudio ? 'aspect-square' : 'aspect-[2/3]'} rounded-lg overflow-hidden bg-[var(--card-bg)] shrink-0 border border-[var(--border-light)]`}>
                     {item.posterUrl ? (
                       <img src={item.posterUrl} alt={item.title} className="w-full h-full object-cover" />
                     ) : (

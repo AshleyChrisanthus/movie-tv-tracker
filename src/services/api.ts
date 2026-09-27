@@ -307,23 +307,32 @@ export async function searchITunesAudiobooks(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // Explicitly include country=US to access global audiobooks catalog across all client regions (e.g. India)
-    const res = await fetch(
+    // 1. Try US catalog first (broadest global audiobook licensing coverage)
+    let res = await fetch(
       `https://itunes.apple.com/search?media=audiobook&entity=audiobook&country=US&limit=25&term=${encodeURIComponent(query)}`,
       { signal: controller.signal }
     );
-    clearTimeout(timer);
-    if (!res.ok) {
-      console.warn(`iTunes audiobooks returned HTTP ${res.status}, falling back to Open Library audiobooks`);
-      onFallbackNotice?.({
-        provider: 'itunes',
-        reason: `iTunes service returned HTTP ${res.status}`,
-        fallbackTo: 'Open Library'
-      });
-      return await searchOpenLibraryAudiobooks(query, timeoutMs);
+    let data: any = res.ok ? await res.json() : null;
+    let items = Array.isArray(data?.results) ? data.results : [];
+
+    // 2. If US catalog returned 0 results, query local storefront (e.g. Australia, UK)
+    if (items.length === 0) {
+      try {
+        const localRes = await fetch(
+          `https://itunes.apple.com/search?media=audiobook&entity=audiobook&limit=25&term=${encodeURIComponent(query)}`,
+          { signal: controller.signal }
+        );
+        if (localRes.ok) {
+          const localData = await localRes.json();
+          if (Array.isArray(localData?.results) && localData.results.length > 0) {
+            items = localData.results;
+          }
+        }
+      } catch {
+        // proceed
+      }
     }
-    const data = await res.json();
-    const items = Array.isArray(data.results) ? data.results : [];
+    clearTimeout(timer);
 
     if (items.length === 0) {
       console.warn('iTunes audiobooks returned 0 results, falling back to Open Library audiobooks');

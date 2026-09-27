@@ -409,7 +409,7 @@ export default function App(): React.JSX.Element {
         // default 'updated'
         return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
       });
-  }, [mediaList, statusFilter, typeFilter, listFilter, librarySearch, sortBy, upcomingFilter, upcomingDays]);
+  }, [mediaList, statusFilter, typeFilter, bookFormatFilter, listFilter, librarySearch, sortBy, upcomingFilter, upcomingDays]);
 
   // Quick Action: +1 episode directly from media card (or +10 pages for books)
   const handleQuickIncrement = async (item: MediaItem): Promise<void> => {

@@ -64,6 +64,7 @@ describe('Tier 1: Issue #38 - Audiobooks Tracking, Listening Progress & iTunes S
       assert.equal(audioModule.isAudiobookItem({ type: 'book', totalDurationSeconds: 15000 }), true);
       assert.equal(audioModule.isAudiobookItem({ type: 'book', narrator: 'Stephen Fry' }), true);
       assert.equal(audioModule.isAudiobookItem({ type: 'book', bookFormat: 'Paperback', totalPages: 350 }), false);
+      assert.equal(audioModule.isAudiobookItem({ type: 'book', bookFormat: 'E-book' }), false);
       assert.equal(audioModule.isAudiobookItem({ type: 'tv', title: 'TV Show' }), false);
     });
   });

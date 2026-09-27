@@ -4,7 +4,7 @@ import { searchMedia, fetchFullMediaDetails, getTmdbApiKey, fetchOpenLibraryEdit
 import { saveMediaItem, computeAutoStatus, getAllMedia, getSetting, db } from '../db';
 import { isEpisodeAired } from '../utils/timezone';
 import { isMediaMatch } from '../utils/mediaMatch';
-import { formatAudioDuration } from '../utils/audioDuration';
+import { formatAudioDuration, isAudiobookItem } from '../utils/audioDuration';
 import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus, BookSearchProvider, AudiobookSearchProvider, BookEdition, FallbackNotice } from '../types';
 
 export interface SearchModalProps {
@@ -577,16 +577,18 @@ export default function SearchModal({
           {results.map(item => {
             const isTv = item.type === 'tv';
             const isBook = item.type === 'book';
-            const isAudio = (item.type === 'book' || (item as any).type === 'audiobook') && (
-              item.bookFormat === 'Audiobook' ||
-              item.bookFormat === 'Audio CD' ||
-              item.bookFormat === 'Audio Cassette' ||
-              item.bookFormat === 'MP3 CD' ||
-              !!item.totalDurationSeconds ||
-              !!item.narrator ||
-              (item.source === 'itunes' && item.type === 'book') ||
-              searchTypeTab === 'audiobook'
-            );
+            const isAudio = (item.type === 'book' || (item as any).type === 'audiobook') &&
+              item.bookFormat !== 'E-book' &&
+              !String(item.externalId).startsWith('itunes_ebook_') &&
+              (
+                isAudiobookItem(item as any) ||
+                item.bookFormat === 'Audiobook' ||
+                item.bookFormat === 'Audio CD' ||
+                item.bookFormat === 'Audio Cassette' ||
+                item.bookFormat === 'MP3 CD' ||
+                String(item.externalId).startsWith('itunes_audio_') ||
+                searchTypeTab === 'audiobook'
+              );
             const isAdding = addingId === item.externalId;
             const existingMatch = existingItems.find(libItem => isMediaMatch(item, libItem));
             const workId = item.workId || String(item.externalId);

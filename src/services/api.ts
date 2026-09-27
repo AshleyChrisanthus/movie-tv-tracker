@@ -260,13 +260,58 @@ async function searchTVMaze(query: string): Promise<MediaSearchResult[]> {
 }
 
 /**
+ * Browser JSONP loader for Apple iTunes API.
+ * Bypasses CORS and opaque-origin restrictions when running locally via file:/// or restricted origins.
+ */
+function fetchITunesJsonp<T>(url: string, timeoutMs: number = 6000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') {
+      return reject(new Error('JSONP only supported in browser environment'));
+    }
+    const callbackName = `__itunes_cb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const script = document.createElement('script');
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('iTunes JSONP timed out'));
+    }, timeoutMs);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (script.parentNode) script.parentNode.removeChild(script);
+      delete (window as any)[callbackName];
+    };
+
+    (window as any)[callbackName] = (data: T) => {
+      cleanup();
+      resolve(data);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('iTunes JSONP script load failed'));
+    };
+
+    const separator = url.includes('?') ? '&' : '?';
+    script.src = `${url}${separator}callback=${callbackName}`;
+    document.body.appendChild(script);
+  });
+}
+
+/**
  * Free Movie Search via iTunes API (Fallback when no TMDB key is provided)
  */
 async function searchITunesMovies(query: string): Promise<MediaSearchResult[]> {
   try {
-    const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=movie&entity=movie&limit=8`);
-    if (!res.ok) return [];
-    const data: ITunesSearchResponse = await res.json();
+    const movieUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=movie&entity=movie&limit=8`;
+    let data: ITunesSearchResponse | null = null;
+    try {
+      const res = await fetch(movieUrl);
+      if (res.ok) data = await res.json();
+    } catch {
+      // Fallback to JSONP if fetch blocked locally
+      data = await fetchITunesJsonp<ITunesSearchResponse>(movieUrl, 5000);
+    }
+    if (!data) return [];
 
     return (data.results || []).map((movie: ITunesResult): MediaSearchResult => {
       const year = movie.releaseDate ? new Date(movie.releaseDate).getFullYear() : 'N/A';
@@ -306,27 +351,38 @@ export async function searchITunesAudiobooks(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  const fetchItunesData = async (reqUrl: string): Promise<any> => {
+    try {
+      const res = await fetch(reqUrl, { signal: controller.signal });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (fetchErr) {
+      // If standard fetch failed (e.g. file:/// protocol in local browser or CORS block), attempt JSONP
+      try {
+        return await fetchITunesJsonp<any>(reqUrl, 5000);
+      } catch {
+        throw fetchErr;
+      }
+    }
+    return null;
+  };
+
   try {
     // 1. Try US catalog first (broadest global audiobook licensing coverage)
-    let res = await fetch(
-      `https://itunes.apple.com/search?media=audiobook&entity=audiobook&country=US&limit=25&term=${encodeURIComponent(query)}`,
-      { signal: controller.signal }
+    let data = await fetchItunesData(
+      `https://itunes.apple.com/search?media=audiobook&entity=audiobook&country=US&limit=25&term=${encodeURIComponent(query)}`
     );
-    let data: any = res.ok ? await res.json() : null;
     let items = Array.isArray(data?.results) ? data.results : [];
 
     // 2. If US catalog returned 0 results, query local storefront (e.g. Australia, UK)
     if (items.length === 0) {
       try {
-        const localRes = await fetch(
-          `https://itunes.apple.com/search?media=audiobook&entity=audiobook&limit=25&term=${encodeURIComponent(query)}`,
-          { signal: controller.signal }
+        const localData = await fetchItunesData(
+          `https://itunes.apple.com/search?media=audiobook&entity=audiobook&limit=25&term=${encodeURIComponent(query)}`
         );
-        if (localRes.ok) {
-          const localData = await localRes.json();
-          if (Array.isArray(localData?.results) && localData.results.length > 0) {
-            items = localData.results;
-          }
+        if (Array.isArray(localData?.results) && localData.results.length > 0) {
+          items = localData.results;
         }
       } catch {
         // proceed

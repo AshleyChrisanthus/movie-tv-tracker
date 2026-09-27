@@ -94,6 +94,20 @@ function localExportPlugin() {
   }
 }
 
+function devHtmlRewritePlugin() {
+  return {
+    name: 'dev-html-rewrite',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/' || req.url === '/index.html') {
+          req.url = '/index.dev.html';
+        }
+        next();
+      });
+    }
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   build: {
@@ -102,6 +116,7 @@ export default defineConfig({
     }
   },
   plugins: [
+    devHtmlRewritePlugin(),
     react(),
     tailwindcss(),
     viteSingleFile(),

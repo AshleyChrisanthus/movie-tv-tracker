@@ -38,6 +38,15 @@ export interface MediaSearchResult {
 }
 
 /**
+ * Informational notice when provider rate-limits or network failure triggers automatic fallback.
+ */
+export interface FallbackNotice {
+  provider: 'googlebooks' | 'itunes';
+  reason: string;
+  fallbackTo: string;
+}
+
+/**
  * Normalized Book Edition model (Issue #25, #38).
  */
 export interface BookEdition {

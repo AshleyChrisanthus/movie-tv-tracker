@@ -36,7 +36,8 @@ import type {
   OpenLibrarySearchResponse,
   BookEdition,
   BookSearchProvider,
-  AudiobookSearchProvider
+  AudiobookSearchProvider,
+  FallbackNotice
 } from '../types';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
@@ -61,6 +62,7 @@ export interface SearchMediaOptions {
   bookProvider?: BookSearchProvider;
   audiobookProvider?: AudiobookSearchProvider;
   onPartialResults?: (results: MediaSearchResult[]) => void;
+  onFallbackNotice?: (notice: FallbackNotice) => void;
 }
 
 export async function searchMedia(
@@ -79,16 +81,16 @@ export async function searchMedia(
     if (audiobookProvider === 'openlibrary') {
       return await searchOpenLibraryAudiobooks(trimmed, 7000);
     }
-    return await searchITunesAudiobooks(trimmed, 7000);
+    return await searchITunesAudiobooks(trimmed, 7000, options.onFallbackNotice);
   }
 
   // If user explicitly chose 'book', query selected book provider (Open Library, Google Books, or Audiobooks)
   if (typeFilter === 'book') {
     if (bookProvider === 'audiobooks') {
-      return await searchITunesAudiobooks(trimmed, 7000);
+      return await searchITunesAudiobooks(trimmed, 7000, options.onFallbackNotice);
     }
     if (bookProvider === 'googlebooks') {
-      return await searchGoogleBooks(trimmed, 7000);
+      return await searchGoogleBooks(trimmed, 7000, options.onFallbackNotice);
     }
     return await searchOpenLibraryBooks(trimmed, 7000);
   }
@@ -296,7 +298,11 @@ async function searchITunesMovies(query: string): Promise<MediaSearchResult[]> {
 /**
  * Free Audiobook Search via Apple iTunes Search API (zero keys required) (Issue #38)
  */
-export async function searchITunesAudiobooks(query: string, timeoutMs: number = 7000): Promise<MediaSearchResult[]> {
+export async function searchITunesAudiobooks(
+  query: string,
+  timeoutMs: number = 7000,
+  onFallbackNotice?: (notice: FallbackNotice) => void
+): Promise<MediaSearchResult[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -307,10 +313,29 @@ export async function searchITunesAudiobooks(query: string, timeoutMs: number = 
       { signal: controller.signal }
     );
     clearTimeout(timer);
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn(`iTunes audiobooks returned HTTP ${res.status}, falling back to Open Library audiobooks`);
+      onFallbackNotice?.({
+        provider: 'itunes',
+        reason: `iTunes service returned HTTP ${res.status}`,
+        fallbackTo: 'Open Library'
+      });
+      return await searchOpenLibraryAudiobooks(query, timeoutMs);
+    }
     const data = await res.json();
+    const items = Array.isArray(data.results) ? data.results : [];
 
-    return (data.results || []).map((item: any): MediaSearchResult => {
+    if (items.length === 0) {
+      console.warn('iTunes audiobooks returned 0 results, falling back to Open Library audiobooks');
+      onFallbackNotice?.({
+        provider: 'itunes',
+        reason: 'iTunes returned 0 results in your region',
+        fallbackTo: 'Open Library'
+      });
+      return await searchOpenLibraryAudiobooks(query, timeoutMs);
+    }
+
+    return items.map((item: any): MediaSearchResult => {
       const year = item.releaseDate ? new Date(item.releaseDate).getFullYear() : 'N/A';
       // Upgrade artwork to high-resolution (600x600)
       const posterUrl = item.artworkUrl100
@@ -346,21 +371,109 @@ export async function searchITunesAudiobooks(query: string, timeoutMs: number = 
     });
   } catch (err) {
     clearTimeout(timer);
-    console.error('iTunes audiobook search error:', err);
-    return [];
+    console.warn('iTunes audiobook search failed, falling back to Open Library audiobooks:', err);
+    onFallbackNotice?.({
+      provider: 'itunes',
+      reason: 'iTunes connection failed or is restricted on this network',
+      fallbackTo: 'Open Library'
+    });
+    return await searchOpenLibraryAudiobooks(query, timeoutMs);
   }
 }
 
 /**
  * Free Audiobook Search via Open Library API (zero keys required)
+ * Strictly searches and filters for works that have verified audio editions (Audio CD, Audio Cassette, Audiobook).
  */
 export async function searchOpenLibraryAudiobooks(query: string, timeoutMs: number = 7000): Promise<MediaSearchResult[]> {
-  const books = await searchOpenLibraryBooks(query, timeoutMs);
-  return books.map((book): MediaSearchResult => ({
-    ...book,
-    bookFormat: 'Audiobook',
-    genres: book.genres && book.genres.length > 0 ? book.genres : ['Audiobook']
-  }));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const fields = 'key,title,author_name,first_publish_year,format,number_of_pages_median,cover_i,isbn,publisher,subject,first_sentence,ratings_average,ratings_count,edition_count';
+    const res = await fetch(`${OPENLIBRARY_BASE_URL}/search.json?q=${encodeURIComponent(query)}&limit=35&fields=${fields}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const data: OpenLibrarySearchResponse = await res.json();
+
+    const isAudioDoc = (doc: any): boolean => {
+      const hasAudioFormat = Array.isArray(doc.format) && doc.format.some((f: string) =>
+        /audio|cd|cassette|sound|spoken|mp3|player/i.test(f)
+      );
+      const hasAudioTitle = /audio\s*(book|cd|cassette)|unabridged|abridged/i.test(doc.title || '');
+      const hasAudioSubject = Array.isArray(doc.subject) && doc.subject.some((s: string) =>
+        /audiobook|audio\s*book|sound\s*recording/i.test(s)
+      );
+      return Boolean(hasAudioFormat || hasAudioTitle || hasAudioSubject);
+    };
+
+    const queryNorm = query.trim().toLowerCase();
+    const queryTokens = queryNorm.split(/\s+/).filter(w => w.length > 1);
+
+    const audioDocs = (data.docs || []).filter((doc: any) => {
+      if (!isAudioDoc(doc)) return false;
+      const titleLower = (doc.title || '').toLowerCase();
+      const authorLower = Array.isArray(doc.author_name) ? doc.author_name.join(' ').toLowerCase() : '';
+      if (titleLower.includes(queryNorm) || authorLower.includes(queryNorm)) return true;
+      if (queryTokens.length > 0 && queryTokens.some(tok => titleLower.includes(tok) || authorLower.includes(tok))) return true;
+      return false;
+    });
+
+    return audioDocs.map((doc: any): MediaSearchResult => {
+      const author = Array.isArray(doc.author_name) && doc.author_name.length > 0
+        ? doc.author_name.join(', ')
+        : 'Unknown Author';
+      const year = doc.first_publish_year ? String(doc.first_publish_year) : 'N/A';
+      const posterUrl = doc.cover_i
+        ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg`
+        : null;
+      const totalPages = doc.number_of_pages_median || 0;
+      const isbn = Array.isArray(doc.isbn) && doc.isbn.length > 0 ? doc.isbn[0] : undefined;
+      const publisher = Array.isArray(doc.publisher) && doc.publisher.length > 0 ? doc.publisher[0] : undefined;
+
+      let detectedFormat = 'Audiobook';
+      if (Array.isArray(doc.format)) {
+        if (doc.format.some((f: string) => /audio\s*cd|cd/i.test(f))) detectedFormat = 'Audio CD';
+        else if (doc.format.some((f: string) => /cassette/i.test(f))) detectedFormat = 'Audio Cassette';
+        else if (doc.format.some((f: string) => /mp3/i.test(f))) detectedFormat = 'MP3 CD';
+      }
+
+      const overview = `Audiobook (${detectedFormat}) by ${author}${totalPages ? ` • (Companion print: ${totalPages} pages)` : ''}${publisher ? ` • Published by ${publisher}` : ''}`;
+      const communityRating = typeof doc.ratings_average === 'number'
+        ? Math.round((doc.ratings_average * 2) * 10) / 10
+        : null;
+      const communityRatingCount = typeof doc.ratings_count === 'number' ? doc.ratings_count : null;
+      const workId = doc.key.replace('/works/', '');
+
+      return {
+        externalId: workId,
+        workId,
+        editionCount: doc.edition_count || undefined,
+        source: 'openlibrary',
+        type: 'book',
+        title: doc.title || 'Untitled Audiobook',
+        year,
+        releaseDate: doc.first_publish_year ? `${doc.first_publish_year}-01-01` : '',
+        overview,
+        rating: null,
+        communityRating,
+        communityRatingCount,
+        posterUrl,
+        backdropUrl: posterUrl,
+        author,
+        totalPages,
+        isbn,
+        publisher,
+        bookFormat: detectedFormat,
+        genres: Array.isArray(doc.subject) ? doc.subject.slice(0, 5) : ['Audiobook']
+      };
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    return [];
+  }
 }
 
 /**
@@ -445,7 +558,8 @@ function stripHtml(html?: string): string {
  */
 export async function searchGoogleBooks(
   query: string,
-  timeoutMs: number = 7000
+  timeoutMs: number = 7000,
+  onFallbackNotice?: (notice: FallbackNotice) => void
 ): Promise<MediaSearchResult[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -458,7 +572,13 @@ export async function searchGoogleBooks(
     });
     clearTimeout(timer);
     if (!res.ok) {
+      const reason = res.status === 429 ? 'Daily quota limit reached (HTTP 429)' : `Google Books returned HTTP ${res.status}`;
       console.warn(`Google Books API returned status ${res.status}, falling back to Open Library`);
+      onFallbackNotice?.({
+        provider: 'googlebooks',
+        reason,
+        fallbackTo: 'Open Library'
+      });
       return await searchOpenLibraryBooks(query, timeoutMs);
     }
     const data = await res.json();
@@ -512,6 +632,11 @@ export async function searchGoogleBooks(
   } catch (err) {
     clearTimeout(timer);
     console.warn('Google Books search failed, falling back to Open Library:', err);
+    onFallbackNotice?.({
+      provider: 'googlebooks',
+      reason: 'Network connection or service unavailable',
+      fallbackTo: 'Open Library'
+    });
     return await searchOpenLibraryBooks(query, timeoutMs);
   }
 }

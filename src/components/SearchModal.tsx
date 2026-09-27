@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen, Star, Globe, ChevronDown, ChevronUp, Headphones } from 'lucide-react';
+import { Search, X, Film, Tv, Plus, Check, Loader2, Key, Eye, BookOpen, Star, Globe, ChevronDown, ChevronUp, Headphones, AlertCircle } from 'lucide-react';
 import { searchMedia, fetchFullMediaDetails, getTmdbApiKey, fetchOpenLibraryEditions, fetchBookEditionByIsbn } from '../services/api';
 import { saveMediaItem, computeAutoStatus, getAllMedia, getSetting, db } from '../db';
 import { isEpisodeAired } from '../utils/timezone';
 import { isMediaMatch } from '../utils/mediaMatch';
 import { formatAudioDuration } from '../utils/audioDuration';
-import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus, BookSearchProvider, AudiobookSearchProvider, BookEdition } from '../types';
+import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus, BookSearchProvider, AudiobookSearchProvider, BookEdition, FallbackNotice } from '../types';
 
 export interface SearchModalProps {
   isOpen: boolean;
@@ -28,6 +28,7 @@ export default function SearchModal({
   const [searchTypeTab, setSearchTypeTab] = useState<'all' | 'tv' | 'movie' | 'book' | 'audiobook'>('all');
   const [bookProvider, setBookProvider] = useState<BookSearchProvider>('openlibrary');
   const [audiobookProvider, setAudiobookProvider] = useState<AudiobookSearchProvider>('itunes');
+  const [fallbackNotice, setFallbackNotice] = useState<FallbackNotice | null>(null);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [isSearchingBooks, setIsSearchingBooks] = useState<boolean>(false);
   const [addingId, setAddingId] = useState<string | number | null>(null);
@@ -54,6 +55,7 @@ export default function SearchModal({
       setQuery('');
       setResults([]);
       setExpandedWorkId(null);
+      setFallbackNotice(null);
     }
   }, [isOpen]);
 
@@ -72,6 +74,7 @@ export default function SearchModal({
 
   // Debounced search with asynchronous streaming
   useEffect(() => {
+    setFallbackNotice(null);
     if (!query.trim()) {
       setResults([]);
       setIsSearching(false);
@@ -92,6 +95,9 @@ export default function SearchModal({
           typeFilter: searchTypeTab,
           bookProvider,
           audiobookProvider,
+          onFallbackNotice: (notice) => {
+            setFallbackNotice(notice);
+          },
           onPartialResults: (partial) => {
             // Instant video results arrived — display immediately!
             if (searchTypeTab === 'all' || searchTypeTab === 'tv' || searchTypeTab === 'movie') {
@@ -465,6 +471,44 @@ export default function SearchModal({
           </div>
         </div>
 
+        {/* Automatic Fallback Notice Banner */}
+        {fallbackNotice && (
+          <div className={`mx-4 mt-2.5 p-3 rounded-xl border flex items-start gap-2.5 text-xs animate-fadeIn ${
+            fallbackNotice.provider === 'googlebooks'
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+              : 'bg-sky-500/10 border-sky-500/30 text-sky-200'
+          }`}>
+            <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${
+              fallbackNotice.provider === 'googlebooks' ? 'text-amber-400' : 'text-sky-400'
+            }`} />
+            <div className="flex-1 min-w-0">
+              <div className="font-bold flex items-center gap-1.5 flex-wrap">
+                <span>{fallbackNotice.provider === 'googlebooks' ? 'Google Books Rate Limit Reached' : 'Apple Books / iTunes Notice'}</span>
+                <span className="text-[10px] opacity-75 font-mono">({fallbackNotice.reason})</span>
+              </div>
+              <div className="text-[11px] opacity-90 mt-0.5 leading-relaxed">
+                {fallbackNotice.provider === 'googlebooks' ? (
+                  <>
+                    Automatically showing results from <strong>Open Library</strong> so your search is uninterrupted. Add a personal Google Books API key in Settings to increase daily rate limits.
+                  </>
+                ) : (
+                  <>
+                    Apple Books / iTunes returned no results or is restricted on this network. Showing verified audiobooks from <strong>Open Library</strong> instead.
+                  </>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFallbackNotice(null)}
+              className="p-1 opacity-70 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Search Results List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
           {isSearching && results.length === 0 && (
@@ -511,7 +555,16 @@ export default function SearchModal({
           {results.map(item => {
             const isTv = item.type === 'tv';
             const isBook = item.type === 'book';
-            const isAudio = (item.type === 'book' || (item as any).type === 'audiobook') && (item.bookFormat === 'Audiobook' || !!item.totalDurationSeconds || !!item.narrator || (item.source === 'itunes' && item.type === 'book'));
+            const isAudio = (item.type === 'book' || (item as any).type === 'audiobook') && (
+              item.bookFormat === 'Audiobook' ||
+              item.bookFormat === 'Audio CD' ||
+              item.bookFormat === 'Audio Cassette' ||
+              item.bookFormat === 'MP3 CD' ||
+              !!item.totalDurationSeconds ||
+              !!item.narrator ||
+              (item.source === 'itunes' && item.type === 'book') ||
+              searchTypeTab === 'audiobook'
+            );
             const isAdding = addingId === item.externalId;
             const existingMatch = existingItems.find(libItem => isMediaMatch(item, libItem));
             const workId = item.workId || String(item.externalId);
@@ -521,6 +574,13 @@ export default function SearchModal({
             const workFilter = (editionFilters[workId] || '').trim().toLowerCase();
             const cleanFilter = workFilter.replace(/[^0-9x]/gi, '');
             const filteredEditions = currentEditions.filter(ed => {
+              if (isAudio) {
+                const isEdAudio = /audio|cd|cassette|spoken|sound|mp3|player/i.test(ed.physicalFormat || '') ||
+                                  /audiobook|audio\s*cd/i.test(ed.title || '') ||
+                                  (Number(ed.totalDurationSeconds) > 0) ||
+                                  !!ed.narrator;
+                if (!isEdAudio && !workFilter) return false;
+              }
               if (!workFilter) return true;
               const matchTitle = ed.title?.toLowerCase().includes(workFilter);
               const matchPublisher = ed.publishers?.some(p => p.toLowerCase().includes(workFilter));
@@ -565,12 +625,23 @@ export default function SearchModal({
                         {isAudio ? (
                           <>
                             <Headphones className="w-2.5 h-2.5" />
-                            <span>Audiobook</span>
+                            <span>{item.bookFormat || 'Audiobook'}</span>
                           </>
                         ) : (
                           isBook ? 'Book' : isTv ? 'TV' : 'Movie'
                         )}
                       </span>
+                      {item.source === 'openlibrary' && searchTypeTab === 'book' && bookProvider === 'googlebooks' && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          Open Library Fallback
+                        </span>
+                      )}
+                      {item.source === 'openlibrary' && searchTypeTab === 'audiobook' && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30 flex items-center gap-1">
+                          <BookOpen className="w-2.5 h-2.5" />
+                          <span>Open Library Audio</span>
+                        </span>
+                      )}
                       {item.totalDurationSeconds ? (
                         <span className="text-[10px] text-[var(--text-secondary)] font-mono">
                           {formatAudioDuration(item.totalDurationSeconds)}

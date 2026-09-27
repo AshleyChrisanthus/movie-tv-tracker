@@ -364,7 +364,8 @@ describe('Tier 1: Issue #38 - Audiobooks Tracking, Listening Progress & iTunes S
                   title: 'Dune',
                   author_name: ['Frank Herbert'],
                   first_publish_year: 1965,
-                  number_of_pages_median: 608
+                  number_of_pages_median: 608,
+                  format: ['Audiobook']
                 }
               ]
             })

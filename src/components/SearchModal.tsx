@@ -642,6 +642,11 @@ export default function SearchModal({
                           <span>Open Library Audio</span>
                         </span>
                       )}
+                      {item.source === 'itunes' && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                          Apple Books
+                        </span>
+                      )}
                       {item.totalDurationSeconds ? (
                         <span className="text-[10px] text-[var(--text-secondary)] font-mono">
                           {formatAudioDuration(item.totalDurationSeconds)}

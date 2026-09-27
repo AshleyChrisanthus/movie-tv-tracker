@@ -84,10 +84,13 @@ export async function searchMedia(
     return await searchITunesAudiobooks(trimmed, 7000, options.onFallbackNotice);
   }
 
-  // If user explicitly chose 'book', query selected book provider (Open Library, Google Books, or Audiobooks)
+  // If user explicitly chose 'book', query selected book provider (Open Library, Google Books, Apple Books, or Audiobooks)
   if (typeFilter === 'book') {
     if (bookProvider === 'audiobooks') {
       return await searchITunesAudiobooks(trimmed, 7000, options.onFallbackNotice);
+    }
+    if (bookProvider === 'applebooks') {
+      return await searchAppleBooksEbooks(trimmed, 7000);
     }
     if (bookProvider === 'googlebooks') {
       return await searchGoogleBooks(trimmed, 7000, options.onFallbackNotice);
@@ -138,9 +141,12 @@ export async function searchMedia(
     return [...tv, ...movies];
   })();
 
-  const bookSearchPromise = (bookProvider === 'googlebooks'
-    ? searchGoogleBooks(trimmed, 7000)
-    : searchOpenLibraryBooks(trimmed, 7000)
+  const bookSearchPromise = (
+    bookProvider === 'applebooks'
+      ? searchAppleBooksEbooks(trimmed, 7000)
+      : bookProvider === 'googlebooks'
+        ? searchGoogleBooks(trimmed, 7000)
+        : searchOpenLibraryBooks(trimmed, 7000)
   ).catch(() => []);
 
   // Dispatch video results as soon as available if streaming callback provided
@@ -443,6 +449,113 @@ export async function searchITunesAudiobooks(
       fallbackTo: 'Open Library'
     });
     return await searchOpenLibraryAudiobooks(query, timeoutMs);
+  }
+}
+
+/**
+ * Free eBook Search via Apple Books / iTunes Search API (zero keys required) (Issue #45)
+ */
+export async function searchAppleBooksEbooks(
+  query: string,
+  timeoutMs: number = 7000
+): Promise<MediaSearchResult[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const fetchItunesData = async (reqUrl: string): Promise<any> => {
+    try {
+      const res = await fetch(reqUrl, { signal: controller.signal });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (fetchErr) {
+      // If standard fetch failed (e.g. file:/// protocol in local browser or CORS block), attempt JSONP
+      try {
+        return await fetchITunesJsonp<any>(reqUrl, 5000);
+      } catch {
+        throw fetchErr;
+      }
+    }
+    return null;
+  };
+
+  try {
+    // 1. Query US store first for broadest eBook catalog
+    let data = await fetchItunesData(
+      `https://itunes.apple.com/search?media=ebook&entity=ebook&country=US&limit=25&term=${encodeURIComponent(query)}`
+    );
+    let items = Array.isArray(data?.results) ? data.results : [];
+
+    // 2. If US catalog returned 0 results, query local storefront (e.g. Australia, UK)
+    if (items.length === 0) {
+      try {
+        const localData = await fetchItunesData(
+          `https://itunes.apple.com/search?media=ebook&entity=ebook&limit=25&term=${encodeURIComponent(query)}`
+        );
+        if (Array.isArray(localData?.results) && localData.results.length > 0) {
+          items = localData.results;
+        }
+      } catch {
+        // proceed
+      }
+    }
+    clearTimeout(timer);
+
+    return items.map((item: any): MediaSearchResult => {
+      const year = item.releaseDate ? new Date(item.releaseDate).getFullYear() : 'N/A';
+      // Upgrade artwork to high-resolution (600x600)
+      const posterUrl = item.artworkUrl100
+        ? item.artworkUrl100.replace('100x100bb', '600x600bb')
+        : (item.artworkUrl60 || null);
+
+      const rawDesc = item.description || '';
+      const cleanDesc = rawDesc.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+
+      // Extract potential ISBN from artwork URL or description
+      let isbn: string | undefined;
+      const urlIsbnMatch = item.artworkUrl100?.match(/(\d{10}|\d{13})\.[a-z]+(\.jpg)?/i);
+      if (urlIsbnMatch) {
+        isbn = urlIsbnMatch[1];
+      } else {
+        const descIsbnMatch = cleanDesc.match(/ISBN(?:-1[03])?:?\s*([0-9X-]{10,17})/i);
+        if (descIsbnMatch) {
+          isbn = descIsbnMatch[1].replace(/[^0-9X]/gi, '');
+        }
+      }
+
+      const communityRating = typeof item.averageUserRating === 'number'
+        ? Math.round(item.averageUserRating * 2 * 10) / 10
+        : null;
+      const communityRatingCount = typeof item.userRatingCount === 'number' ? item.userRatingCount : null;
+
+      const genres = Array.isArray(item.genres) && item.genres.length > 0
+        ? item.genres.filter((g: string) => g !== 'Books')
+        : (item.primaryGenreName ? [item.primaryGenreName] : ['E-book']);
+
+      return {
+        externalId: `itunes_ebook_${item.trackId}`,
+        source: 'itunes',
+        type: 'book',
+        title: item.trackName || 'Untitled eBook',
+        year,
+        releaseDate: item.releaseDate ? item.releaseDate.split('T')[0] : '',
+        overview: cleanDesc || `Digital eBook by ${item.artistName || 'Unknown'}`,
+        rating: null,
+        communityRating,
+        communityRatingCount,
+        posterUrl,
+        backdropUrl: posterUrl,
+        author: item.artistName || undefined,
+        bookFormat: 'E-book',
+        genres: genres.length > 0 ? genres : ['E-book'],
+        totalPages: 0,
+        isbn
+      };
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn('Apple Books eBook search failed:', err);
+    return [];
   }
 }
 

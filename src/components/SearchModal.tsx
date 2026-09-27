@@ -429,6 +429,18 @@ export default function SearchModal({
                 >
                   Google Books
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setBookProvider('applebooks')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer ${
+                    bookProvider === 'applebooks'
+                      ? 'bg-[var(--accent)] text-white shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Apple Books (Digital eBooks - Zero Keys Required)"
+                >
+                  Apple Books (eBooks)
+                </button>
               </div>
             )}
 
@@ -521,16 +533,26 @@ export default function SearchModal({
           {!isSearching && !isSearchingBooks && results.length === 0 && query.trim().length > 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center px-4 gap-2">
               <p className="text-[var(--text-secondary)] text-sm">
-                No results found {searchTypeTab === 'book' ? `on ${bookProvider === 'googlebooks' ? 'Google Books' : 'Open Library'} ` : searchTypeTab === 'audiobook' ? `on ${audiobookProvider === 'itunes' ? 'Apple Books / iTunes' : 'Open Library'} ` : ''}for "{query}".
+                No results found {searchTypeTab === 'book' ? `on ${bookProvider === 'applebooks' ? 'Apple Books (eBooks)' : bookProvider === 'googlebooks' ? 'Google Books' : 'Open Library'} ` : searchTypeTab === 'audiobook' ? `on ${audiobookProvider === 'itunes' ? 'Apple Books / iTunes' : 'Open Library'} ` : ''}for "{query}".
               </p>
-              {searchTypeTab === 'book' && bookProvider === 'openlibrary' && (
+              {searchTypeTab === 'book' && bookProvider !== 'openlibrary' && (
                 <button
                   type="button"
-                  onClick={() => setBookProvider('googlebooks')}
+                  onClick={() => setBookProvider('openlibrary')}
                   className="mt-1 flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[var(--accent)]/15 hover:bg-[var(--accent)] text-[var(--accent)] hover:text-white border border-[var(--accent)]/30 text-xs font-semibold transition-all shadow-xs active:scale-95 cursor-pointer"
                 >
                   <BookOpen className="w-3.5 h-3.5" />
-                  <span>Search Google Books instead?</span>
+                  <span>Search Open Library instead?</span>
+                </button>
+              )}
+              {searchTypeTab === 'book' && bookProvider !== 'applebooks' && (
+                <button
+                  type="button"
+                  onClick={() => setBookProvider('applebooks')}
+                  className="mt-1 flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[var(--accent)]/15 hover:bg-[var(--accent)] text-[var(--accent)] hover:text-white border border-[var(--accent)]/30 text-xs font-semibold transition-all shadow-xs active:scale-95 cursor-pointer"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>Search Apple Books (eBooks) instead?</span>
                 </button>
               )}
               {searchTypeTab === 'audiobook' && audiobookProvider === 'itunes' && (
@@ -642,9 +664,14 @@ export default function SearchModal({
                           <span>Open Library Audio</span>
                         </span>
                       )}
-                      {item.source === 'itunes' && (
+                      {item.source === 'itunes' && !isAudio && (
                         <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30 flex items-center gap-1">
-                          Apple Books
+                          Apple Books (eBook)
+                        </span>
+                      )}
+                      {item.source === 'itunes' && isAudio && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                          Apple Books Audio
                         </span>
                       )}
                       {item.totalDurationSeconds ? (

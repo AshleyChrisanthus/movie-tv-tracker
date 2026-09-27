@@ -399,5 +399,133 @@ describe('Tier 1: Issues #25, #26, #27 - Book Editions, Percentage Progress & Mu
       assert.equal(queriedGoogle, true);
       assert.equal(queriedOpenLibrary, false);
     });
+
+    it('should search Apple Books eBooks and normalize results (Issue #45)', async () => {
+      mockFetch(async (url) => {
+        if (url.includes('itunes.apple.com/search') && url.includes('media=ebook')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resultCount: 1,
+              results: [
+                {
+                  trackId: 987654321,
+                  trackName: 'Dune',
+                  artistName: 'Frank Herbert',
+                  releaseDate: '1965-08-01T07:00:00Z',
+                  description: 'Set on the desert planet Arrakis.<br /><br />A masterpiece of science fiction.',
+                  artworkUrl100: 'https://is1-ssl.mzstatic.com/image/thumb/Publication/v4/9780441013593.jpg/100x100bb.jpg',
+                  averageUserRating: 4.65,
+                  userRatingCount: 1240,
+                  genres: ['Science Fiction', 'Fiction'],
+                  primaryGenreName: 'Sci-Fi & Fantasy'
+                }
+              ]
+            })
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const results = await apiModule.searchAppleBooksEbooks('Dune');
+      assert.equal(results.length, 1);
+      const book = results[0];
+      assert.equal(book.externalId, 'itunes_ebook_987654321');
+      assert.equal(book.source, 'itunes');
+      assert.equal(book.type, 'book');
+      assert.equal(book.title, 'Dune');
+      assert.equal(book.author, 'Frank Herbert');
+      assert.equal(book.year, 1965);
+      assert.equal(book.releaseDate, '1965-08-01');
+      assert.equal(book.bookFormat, 'E-book');
+      assert.equal(book.isbn, '9780441013593');
+      assert.equal(book.posterUrl, 'https://is1-ssl.mzstatic.com/image/thumb/Publication/v4/9780441013593.jpg/600x600bb.jpg');
+      assert.equal(book.communityRating, 9.3);
+      assert.equal(book.communityRatingCount, 1240);
+      assert.ok(book.overview.includes('Set on the desert planet Arrakis.'));
+      assert.ok(!book.overview.includes('<br'));
+    });
+
+    it('should route searchMedia to Apple Books eBooks when bookProvider is applebooks (Issue #45)', async () => {
+      let queriedAppleBooks = false;
+
+      mockFetch(async (url) => {
+        if (url.includes('itunes.apple.com/search') && url.includes('media=ebook')) {
+          queriedAppleBooks = true;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resultCount: 1,
+              results: [
+                {
+                  trackId: 112233,
+                  trackName: 'Neuromancer',
+                  artistName: 'William Gibson',
+                  releaseDate: '1984-07-01T00:00:00Z',
+                  genres: ['Cyberpunk']
+                }
+              ]
+            })
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const results = await apiModule.searchMedia('Neuromancer', {
+        typeFilter: 'book',
+        bookProvider: 'applebooks'
+      });
+
+      assert.equal(queriedAppleBooks, true);
+      assert.equal(results.length, 1);
+      assert.equal(results[0].title, 'Neuromancer');
+      assert.equal(results[0].bookFormat, 'E-book');
+      assert.equal(results[0].source, 'itunes');
+    });
+
+    it('should fallback to local storefront when US catalog returns zero results (Issue #45)', async () => {
+      const queriedUrls = [];
+
+      mockFetch(async (url) => {
+        if (url.includes('itunes.apple.com/search') && url.includes('media=ebook')) {
+          queriedUrls.push(url);
+          if (url.includes('country=US')) {
+            // US has 0 results for this localized book
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ resultCount: 0, results: [] })
+            };
+          }
+          // Global/local storefront fallback returns result
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resultCount: 1,
+              results: [
+                {
+                  trackId: 445566,
+                  trackName: 'Regional Aussie Title',
+                  artistName: 'Local Author',
+                  releaseDate: '2023-01-01T00:00:00Z'
+                }
+              ]
+            })
+          };
+        }
+        return { ok: false, status: 404 };
+      });
+
+      const results = await apiModule.searchAppleBooksEbooks('Regional Aussie Title');
+      assert.equal(results.length, 1);
+      assert.equal(results[0].title, 'Regional Aussie Title');
+      assert.equal(queriedUrls.length, 2);
+      assert.ok(queriedUrls[0].includes('country=US'));
+      assert.ok(!queriedUrls[1].includes('country=US'));
+    });
   });
 });
+

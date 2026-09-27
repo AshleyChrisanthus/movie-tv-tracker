@@ -39,7 +39,7 @@ export type MediaSource = 'tmdb' | 'tvmaze' | 'itunes' | 'openlibrary' | 'google
 /**
  * Supported book search providers (Issue #27, #38).
  */
-export type BookSearchProvider = 'openlibrary' | 'googlebooks' | 'audiobooks';
+export type BookSearchProvider = 'openlibrary' | 'googlebooks' | 'applebooks' | 'audiobooks';
 
 /**
  * Supported audiobook search providers (Issue #38).

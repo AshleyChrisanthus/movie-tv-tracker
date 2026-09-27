@@ -568,15 +568,15 @@ export default function SettingsModal({
                 <h3 className="text-sm font-bold text-[var(--text-primary)]">Book Search Provider</h3>
               </div>
               <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/30 font-medium capitalize">
-                {defaultBookProvider === 'googlebooks' ? 'Google Books' : 'Open Library'}
+                {defaultBookProvider === 'googlebooks' ? 'Google Books' : defaultBookProvider === 'applebooks' ? 'Apple Books (eBooks)' : 'Open Library'}
               </span>
             </div>
 
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Select your default search provider for books. Open Library provides structured Works and Editions hierarchy. Google Books offers broader catalog availability.
+              Select your default search provider for books. Open Library provides structured Works and Editions hierarchy. Google Books offers rich synopses. Apple Books provides a fast, zero-key commercial eBook catalog.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => handleBookProviderChange('openlibrary')}
@@ -588,7 +588,7 @@ export default function SettingsModal({
               >
                 <div className="text-xs font-bold">Open Library (Default)</div>
                 <div className={`text-[10px] mt-0.5 ${defaultBookProvider === 'openlibrary' ? 'text-white/80' : 'text-[var(--text-secondary)]'}`}>
-                  Work-level clustering & multi-edition browser
+                  Structured works, print editions & ISBNs
                 </div>
               </button>
 
@@ -603,7 +603,22 @@ export default function SettingsModal({
               >
                 <div className="text-xs font-bold">Google Books</div>
                 <div className={`text-[10px] mt-0.5 ${defaultBookProvider === 'googlebooks' ? 'text-white/80' : 'text-[var(--text-secondary)]'}`}>
-                  Alternative catalog with rich descriptions
+                  Rich descriptions (Key recommended)
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleBookProviderChange('applebooks')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  defaultBookProvider === 'applebooks'
+                    ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-sm'
+                    : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-light)]'
+                }`}
+              >
+                <div className="text-xs font-bold">Apple Books (eBooks)</div>
+                <div className={`text-[10px] mt-0.5 ${defaultBookProvider === 'applebooks' ? 'text-white/80' : 'text-[var(--text-secondary)]'}`}>
+                  Zero keys required (Digital eBooks only, no physical ISBNs)
                 </div>
               </button>
             </div>

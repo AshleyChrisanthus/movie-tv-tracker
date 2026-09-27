@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Trash2, ArrowRight, Sparkles, Check } from 'lucide-react';
 import type { CanvasEdge, CanvasEdgeType } from '../../types';
 
@@ -31,6 +31,18 @@ export const CanvasEdgeEditModal: React.FC<CanvasEdgeEditModalProps> = ({
   const [label, setLabel] = useState<string>(edge?.label || '');
   const [isAnimated, setIsAnimated] = useState<boolean>(edge?.animated ?? false);
 
+  // Handle Escape key to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !edge) return null;
 
   const handleSelectType = (t: CanvasEdgeType, defaultLabel: string) => {
@@ -51,7 +63,12 @@ export const CanvasEdgeEditModal: React.FC<CanvasEdgeEditModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+    <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+    >
       <div className="w-full max-w-md bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-3xl shadow-2xl p-6 relative">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-[var(--border-light)] mb-4">

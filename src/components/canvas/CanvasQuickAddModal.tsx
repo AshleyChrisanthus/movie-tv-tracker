@@ -99,6 +99,18 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
     return () => clearTimeout(timer);
   }, [isOpen, collectionQuery, activeTab]);
 
+  // Handle Escape key to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleSelectCollection = async (col: TMDBCollectionSearchResult) => {
@@ -125,7 +137,12 @@ export const CanvasQuickAddModal: React.FC<CanvasQuickAddModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
+    <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200"
+    >
       <div className="w-full max-w-2xl bg-[var(--bg-secondary)] border border-[var(--border-light)] rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-[var(--border-light)]">

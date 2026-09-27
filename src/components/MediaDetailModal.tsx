@@ -132,6 +132,22 @@ export default function MediaDetailModal({
   const [isLookingUpIsbn, setIsLookingUpIsbn] = useState<boolean>(false);
   const [isbnLookupMessage, setIsbnLookupMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
+  // Handle Escape key to close modal (or inner edition selector first)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showEditionSelector) {
+          setShowEditionSelector(false);
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, showEditionSelector, onClose]);
+
   // Localized User Timezone
   const [userTz, setUserTz] = useState<string>('');
 
@@ -700,7 +716,12 @@ export default function MediaDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm overflow-y-auto animate-fadeIn">
+    <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm overflow-y-auto animate-fadeIn"
+    >
       <div className="relative w-full max-w-4xl bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[92vh]">
         
         {/* Backdrop & Header Banner */}
@@ -1735,7 +1756,12 @@ export default function MediaDetailModal({
 
               {/* Edition Selector Modal with ISBN Search & Direct Lookup (Issue #25) */}
               {showEditionSelector && (
-                <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fadeIn">
+                <div 
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) setShowEditionSelector(false);
+                  }}
+                  className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fadeIn"
+                >
                   <div className="relative w-full max-w-lg bg-[var(--card-bg)] border border-[var(--border-light)] rounded-2xl shadow-2xl p-4 flex flex-col max-h-[80vh]">
                     <div className="flex items-center justify-between pb-3 border-b border-[var(--border-light)]">
                       <div className="flex items-center gap-2">

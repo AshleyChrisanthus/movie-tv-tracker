@@ -112,6 +112,18 @@ export default function SettingsModal({
     }
   }, [isOpen, propRatingScale, propUpcomingDays]);
 
+  // Handle Escape key to exit settings modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const handleRatingScaleChange = async (scale: RatingScale) => {
     setRatingScale(scale);
     await setSetting('rating_scale', scale);
@@ -325,7 +337,12 @@ export default function SettingsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/65 backdrop-blur-md overflow-y-auto animate-fadeIn">
+    <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/65 backdrop-blur-md overflow-y-auto animate-fadeIn"
+    >
       <div className="relative w-full max-w-2xl bg-[var(--card-bg)] border border-[var(--border-light)] rounded-2xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[90vh]">
         
         {/* Header */}

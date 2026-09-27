@@ -293,5 +293,130 @@ describe('Tier 1: Issue #38 - Audiobooks Tracking, Listening Progress & iTunes S
       assert.equal(results[0].narrator, 'Campbell Scott');
       assert.equal(results[0].bookFormat, 'Audiobook');
     });
+
+    it('should query iTunes audiobooks with country=US to support global client regions', async () => {
+      let requestedUrl = '';
+      mockFetch((url) => {
+        requestedUrl = url;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            resultCount: 1,
+            results: [{ collectionName: 'Dune', artistName: 'Frank Herbert', trackId: 123 }]
+          })
+        };
+      });
+
+      await apiModule.searchITunesAudiobooks('Dune');
+      assert.ok(requestedUrl.includes('country=US'), 'iTunes search must specify country=US');
+      assert.ok(requestedUrl.includes('limit=25'), 'iTunes search should fetch up to 25 items');
+    });
+
+    it('should route searchMedia to audiobooks when typeFilter is audiobook', async () => {
+      let requestedUrl = '';
+      mockFetch((url) => {
+        requestedUrl = url;
+        if (url.includes('itunes.apple.com/search') && url.includes('audiobook')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              resultCount: 1,
+              results: [
+                {
+                  collectionId: 554433,
+                  artistName: 'Frank Herbert',
+                  collectionName: 'Dune (Unabridged)',
+                  artworkUrl100: 'https://is1-ssl.mzstatic.com/image/thumb/100x100bb.jpg',
+                  description: 'Narrated by Scott Brick.',
+                  trackTimeMillis: 75600000
+                }
+              ]
+            })
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({ resultCount: 0, results: [] }) };
+      });
+
+      const results = await apiModule.searchMedia('Dune', {
+        typeFilter: 'audiobook',
+        audiobookProvider: 'itunes'
+      });
+
+      assert.equal(results.length, 1);
+      assert.equal(results[0].title, 'Dune (Unabridged)');
+      assert.equal(results[0].narrator, 'Scott Brick');
+      assert.equal(results[0].bookFormat, 'Audiobook');
+    });
+
+    it('should search Open Library audiobooks when audiobookProvider is openlibrary', async () => {
+      mockFetch((url) => {
+        if (url.includes('openlibrary.org/search.json')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              numFound: 1,
+              docs: [
+                {
+                  key: '/works/OL123W',
+                  title: 'Dune',
+                  author_name: ['Frank Herbert'],
+                  first_publish_year: 1965,
+                  number_of_pages_median: 608
+                }
+              ]
+            })
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({ resultCount: 0, results: [] }) };
+      });
+
+      const results = await apiModule.searchMedia('Dune', {
+        typeFilter: 'audiobook',
+        audiobookProvider: 'openlibrary'
+      });
+
+      assert.equal(results.length, 1);
+      assert.equal(results[0].title, 'Dune');
+      assert.equal(results[0].bookFormat, 'Audiobook');
+      assert.equal(results[0].source, 'openlibrary');
+    });
+
+    it('should gracefully fallback to Open Library when Google Books returns HTTP 429 quota exhausted', async () => {
+      mockFetch((url) => {
+        if (url.includes('googleapis.com/books')) {
+          return {
+            ok: false,
+            status: 429,
+            json: async () => ({ error: { code: 429, message: 'Resource exhausted' } })
+          };
+        }
+        if (url.includes('openlibrary.org/search.json')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              numFound: 1,
+              docs: [
+                {
+                  key: '/works/OL999W',
+                  title: 'Dune (Open Library Fallback)',
+                  author_name: ['Frank Herbert'],
+                  first_publish_year: 1965
+                }
+              ]
+            })
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({ docs: [] }) };
+      });
+
+      const results = await apiModule.searchGoogleBooks('Dune');
+      assert.equal(results.length, 1);
+      assert.equal(results[0].title, 'Dune (Open Library Fallback)');
+      assert.equal(results[0].source, 'openlibrary');
+    });
   });
 });

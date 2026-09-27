@@ -42,6 +42,11 @@ export type MediaSource = 'tmdb' | 'tvmaze' | 'itunes' | 'openlibrary' | 'google
 export type BookSearchProvider = 'openlibrary' | 'googlebooks' | 'audiobooks';
 
 /**
+ * Supported audiobook search providers (Issue #38).
+ */
+export type AudiobookSearchProvider = 'itunes' | 'openlibrary';
+
+/**
  * Sub-tab format filter for Books view (Issue #38).
  */
 export type BookFormatFilter = 'all' | 'reading' | 'audiobook';

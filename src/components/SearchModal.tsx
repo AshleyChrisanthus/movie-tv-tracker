@@ -5,7 +5,7 @@ import { saveMediaItem, computeAutoStatus, getAllMedia, getSetting, db } from '.
 import { isEpisodeAired } from '../utils/timezone';
 import { isMediaMatch } from '../utils/mediaMatch';
 import { formatAudioDuration } from '../utils/audioDuration';
-import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus, BookSearchProvider, BookEdition } from '../types';
+import type { MediaItem, MediaSearchResult, MediaStatus, WatchedStatus, BookSearchProvider, AudiobookSearchProvider, BookEdition } from '../types';
 
 export interface SearchModalProps {
   isOpen: boolean;
@@ -25,8 +25,9 @@ export default function SearchModal({
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<MediaSearchResult[]>([]);
   const [existingItems, setExistingItems] = useState<MediaItem[]>([]);
-  const [searchTypeTab, setSearchTypeTab] = useState<'all' | 'tv' | 'movie' | 'book'>('all');
+  const [searchTypeTab, setSearchTypeTab] = useState<'all' | 'tv' | 'movie' | 'book' | 'audiobook'>('all');
   const [bookProvider, setBookProvider] = useState<BookSearchProvider>('openlibrary');
+  const [audiobookProvider, setAudiobookProvider] = useState<AudiobookSearchProvider>('itunes');
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [isSearchingBooks, setIsSearchingBooks] = useState<boolean>(false);
   const [addingId, setAddingId] = useState<string | number | null>(null);
@@ -79,7 +80,7 @@ export default function SearchModal({
     }
 
     setIsSearching(true);
-    if (searchTypeTab === 'all' || searchTypeTab === 'book') {
+    if (searchTypeTab === 'all' || searchTypeTab === 'book' || searchTypeTab === 'audiobook') {
       setIsSearchingBooks(true);
     } else {
       setIsSearchingBooks(false);
@@ -90,10 +91,13 @@ export default function SearchModal({
         const res = await searchMedia(query, {
           typeFilter: searchTypeTab,
           bookProvider,
+          audiobookProvider,
           onPartialResults: (partial) => {
             // Instant video results arrived — display immediately!
-            setResults(partial);
-            setIsSearching(false);
+            if (searchTypeTab === 'all' || searchTypeTab === 'tv' || searchTypeTab === 'movie') {
+              setResults(partial);
+              setIsSearching(false);
+            }
           }
         });
         setResults(res);
@@ -106,7 +110,7 @@ export default function SearchModal({
     }, 350);
 
     return () => clearTimeout(timeoutId);
-  }, [query, searchTypeTab, bookProvider]);
+  }, [query, searchTypeTab, bookProvider, audiobookProvider]);
 
   // Toggle nested editions view for an Open Library book (Issue #25)
   const handleToggleEditions = async (item: MediaSearchResult) => {
@@ -366,20 +370,21 @@ export default function SearchModal({
           )}
         </div>
 
-        {/* Media Type Tabs & Book Provider Selector */}
+        {/* Media Type Tabs & Book / Audiobook Provider Selector */}
         <div className="px-4 py-2 bg-[var(--bg-primary)] border-b border-[var(--border-light)] flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {[
               { key: 'all', label: 'All Types' },
               { key: 'tv', label: 'TV Series' },
               { key: 'movie', label: 'Movies' },
-              { key: 'book', label: 'Books' }
+              { key: 'book', label: 'Books' },
+              { key: 'audiobook', label: '🎧 Audiobooks' }
             ].map(tab => (
               <button
                 key={tab.key}
                 type="button"
-                onClick={() => setSearchTypeTab(tab.key as 'all' | 'tv' | 'movie' | 'book')}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                onClick={() => setSearchTypeTab(tab.key as 'all' | 'tv' | 'movie' | 'book' | 'audiobook')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   searchTypeTab === tab.key
                     ? 'bg-[var(--accent)] text-white shadow-sm'
                     : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)]'
@@ -418,18 +423,35 @@ export default function SearchModal({
                 >
                   Google Books
                 </button>
+              </div>
+            )}
+
+            {searchTypeTab === 'audiobook' && (
+              <div className="flex items-center gap-1 text-xs bg-[var(--card-bg)] px-2 py-0.5 rounded-lg border border-[var(--border-light)]">
+                <span className="text-[10px] text-[var(--text-secondary)] font-medium">Source:</span>
                 <button
                   type="button"
-                  onClick={() => setBookProvider('audiobooks')}
+                  onClick={() => setAudiobookProvider('itunes')}
                   className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
-                    bookProvider === 'audiobooks'
+                    audiobookProvider === 'itunes'
                       ? 'bg-[var(--accent)] text-white shadow-xs'
                       : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                   }`}
-                  title="Audiobooks (Search via iTunes Audiobooks catalog)"
+                  title="Apple Books / iTunes (Default - Global Audiobooks Catalog)"
                 >
-                  <Headphones className="w-3 h-3" />
-                  <span>Audiobooks</span>
+                  <span>Apple Books / iTunes (Default)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAudiobookProvider('openlibrary')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                    audiobookProvider === 'openlibrary'
+                      ? 'bg-[var(--accent)] text-white shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Open Library (Audio Editions & Records)"
+                >
+                  <span>Open Library</span>
                 </button>
               </div>
             )}
@@ -437,7 +459,7 @@ export default function SearchModal({
             {isSearchingBooks && (
               <div className="flex items-center gap-1.5 text-[11px] text-[var(--accent)] font-medium">
                 <Loader2 className="w-3 h-3 animate-spin" />
-                <span>Fetching books...</span>
+                <span>{searchTypeTab === 'audiobook' ? 'Fetching audiobooks...' : 'Fetching books...'}</span>
               </div>
             )}
           </div>
@@ -455,19 +477,26 @@ export default function SearchModal({
           {!isSearching && !isSearchingBooks && results.length === 0 && query.trim().length > 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center px-4 gap-2">
               <p className="text-[var(--text-secondary)] text-sm">
-                No results found {searchTypeTab === 'book' || bookProvider === 'openlibrary' ? 'on Open Library ' : ''}for "{query}".
+                No results found {searchTypeTab === 'book' ? `on ${bookProvider === 'googlebooks' ? 'Google Books' : 'Open Library'} ` : searchTypeTab === 'audiobook' ? `on ${audiobookProvider === 'itunes' ? 'Apple Books / iTunes' : 'Open Library'} ` : ''}for "{query}".
               </p>
-              {(searchTypeTab === 'book' || searchTypeTab === 'all') && bookProvider === 'openlibrary' && (
+              {searchTypeTab === 'book' && bookProvider === 'openlibrary' && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setBookProvider('googlebooks');
-                    if (searchTypeTab !== 'book') setSearchTypeTab('book');
-                  }}
+                  onClick={() => setBookProvider('googlebooks')}
                   className="mt-1 flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[var(--accent)]/15 hover:bg-[var(--accent)] text-[var(--accent)] hover:text-white border border-[var(--accent)]/30 text-xs font-semibold transition-all shadow-xs active:scale-95 cursor-pointer"
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                   <span>Search Google Books instead?</span>
+                </button>
+              )}
+              {searchTypeTab === 'audiobook' && audiobookProvider === 'itunes' && (
+                <button
+                  type="button"
+                  onClick={() => setAudiobookProvider('openlibrary')}
+                  className="mt-1 flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[var(--accent)]/15 hover:bg-[var(--accent)] text-[var(--accent)] hover:text-white border border-[var(--accent)]/30 text-xs font-semibold transition-all shadow-xs active:scale-95 cursor-pointer"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>Search Open Library Audiobooks instead?</span>
                 </button>
               )}
             </div>
@@ -482,7 +511,7 @@ export default function SearchModal({
           {results.map(item => {
             const isTv = item.type === 'tv';
             const isBook = item.type === 'book';
-            const isAudio = isBook && (item.bookFormat === 'Audiobook' || !!item.totalDurationSeconds || !!item.narrator);
+            const isAudio = (item.type === 'book' || (item as any).type === 'audiobook') && (item.bookFormat === 'Audiobook' || !!item.totalDurationSeconds || !!item.narrator || (item.source === 'itunes' && item.type === 'book'));
             const isAdding = addingId === item.externalId;
             const existingMatch = existingItems.find(libItem => isMediaMatch(item, libItem));
             const workId = item.workId || String(item.externalId);

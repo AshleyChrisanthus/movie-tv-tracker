@@ -1718,6 +1718,16 @@ export default function MediaDetailModal({
                         )}
                       </div>
                     </div>
+
+                    {/* Companion Print Pages Notice if duration is unset */}
+                    {Number(media.totalPages) > 0 && !(Number(media.totalDurationSeconds) > 0) && (
+                      <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-primary)] px-3 py-2 rounded-lg border border-[var(--border-light)] mt-1">
+                        <BookOpen className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                        <span>
+                          Companion edition has <strong>{media.totalPages} pages</strong>. You can enter total listening hours &amp; minutes above if you know the audio length, or switch to <strong>Pages</strong> mode to track reading.
+                        </span>
+                      </div>
+                    )}
                   </>
                 ) : bookProgressMode === 'chapters' ? (
                   <>

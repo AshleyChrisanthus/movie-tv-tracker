@@ -35,7 +35,8 @@ import type {
   ITunesSearchResponse,
   OpenLibrarySearchResponse,
   BookEdition,
-  BookSearchProvider
+  BookSearchProvider,
+  AudiobookSearchProvider
 } from '../types';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
@@ -56,8 +57,9 @@ export async function getTmdbApiKey(): Promise<string> {
  * Intelligently queries TMDB + Open Library (default) / Google Books or TVMaze + iTunes + Open Library / Google Books.
  */
 export interface SearchMediaOptions {
-  typeFilter?: 'all' | 'movie' | 'tv' | 'book';
+  typeFilter?: 'all' | 'movie' | 'tv' | 'book' | 'audiobook';
   bookProvider?: BookSearchProvider;
+  audiobookProvider?: AudiobookSearchProvider;
   onPartialResults?: (results: MediaSearchResult[]) => void;
 }
 
@@ -69,7 +71,16 @@ export async function searchMedia(
   const trimmed = query.trim();
   const typeFilter = options.typeFilter || 'all';
   const bookProvider = options.bookProvider || 'openlibrary';
+  const audiobookProvider = options.audiobookProvider || 'itunes';
   const apiKey = await getTmdbApiKey();
+
+  // If user explicitly chose 'audiobook', query selected audiobook provider (Apple Books/iTunes or Open Library)
+  if (typeFilter === 'audiobook') {
+    if (audiobookProvider === 'openlibrary') {
+      return await searchOpenLibraryAudiobooks(trimmed, 7000);
+    }
+    return await searchITunesAudiobooks(trimmed, 7000);
+  }
 
   // If user explicitly chose 'book', query selected book provider (Open Library, Google Books, or Audiobooks)
   if (typeFilter === 'book') {
@@ -290,8 +301,9 @@ export async function searchITunesAudiobooks(query: string, timeoutMs: number = 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    // Explicitly include country=US to access global audiobooks catalog across all client regions (e.g. India)
     const res = await fetch(
-      `https://itunes.apple.com/search?media=audiobook&entity=audiobook&limit=15&term=${encodeURIComponent(query)}`,
+      `https://itunes.apple.com/search?media=audiobook&entity=audiobook&country=US&limit=25&term=${encodeURIComponent(query)}`,
       { signal: controller.signal }
     );
     clearTimeout(timer);
@@ -337,6 +349,18 @@ export async function searchITunesAudiobooks(query: string, timeoutMs: number = 
     console.error('iTunes audiobook search error:', err);
     return [];
   }
+}
+
+/**
+ * Free Audiobook Search via Open Library API (zero keys required)
+ */
+export async function searchOpenLibraryAudiobooks(query: string, timeoutMs: number = 7000): Promise<MediaSearchResult[]> {
+  const books = await searchOpenLibraryBooks(query, timeoutMs);
+  return books.map((book): MediaSearchResult => ({
+    ...book,
+    bookFormat: 'Audiobook',
+    genres: book.genres && book.genres.length > 0 ? book.genres : ['Audiobook']
+  }));
 }
 
 /**
@@ -433,7 +457,10 @@ export async function searchGoogleBooks(
       signal: controller.signal
     });
     clearTimeout(timer);
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn(`Google Books API returned status ${res.status}, falling back to Open Library`);
+      return await searchOpenLibraryBooks(query, timeoutMs);
+    }
     const data = await res.json();
     const items = Array.isArray(data?.items) ? data.items : [];
 
@@ -482,9 +509,10 @@ export async function searchGoogleBooks(
         genres: Array.isArray(vi.categories) ? vi.categories : []
       };
     });
-  } catch {
+  } catch (err) {
     clearTimeout(timer);
-    return [];
+    console.warn('Google Books search failed, falling back to Open Library:', err);
+    return await searchOpenLibraryBooks(query, timeoutMs);
   }
 }
 

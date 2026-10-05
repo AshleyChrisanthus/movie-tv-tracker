@@ -311,6 +311,30 @@ export default function MediaCard({
                 </span>
               </div>
             )}
+
+            {/* TV Streaming Provider Badge (Issue #46) */}
+            {item.streamingProviders && item.streamingProviders.length > 0 && (
+              <div
+                className={`flex items-center gap-1.5 rounded-md font-medium truncate bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 ${
+                  density === 'compact' ? 'mt-1 px-1.5 py-0.5 text-[9px]' : 'mt-1.5 px-2 py-0.5 text-[10px]'
+                }`}
+                title={`Streaming on ${item.streamingProviders.map(p => p.name).join(', ')}`}
+              >
+                {item.streamingProviders[0]?.logoUrl ? (
+                  <img
+                    src={item.streamingProviders[0].logoUrl}
+                    alt={item.streamingProviders[0].name}
+                    className="w-3 h-3 rounded object-cover shrink-0"
+                  />
+                ) : (
+                  <Play className="w-2.5 h-2.5 fill-current shrink-0" />
+                )}
+                <span className="truncate">
+                  Streaming on {item.streamingProviders[0].name}
+                  {item.streamingProviders.length > 1 ? ` +${item.streamingProviders.length - 1}` : ''}
+                </span>
+              </div>
+            )}
           </div>
         )}
 

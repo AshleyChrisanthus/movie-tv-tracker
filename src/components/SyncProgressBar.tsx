@@ -55,10 +55,13 @@ export default function SyncProgressBar({
               <span className="text-xs font-semibold tracking-wide text-[var(--text-primary)] truncate block">
                 {isActive ? (
                   <>
-                    Syncing library <span className="text-[var(--accent)]">({completed}/{total})</span>: {currentTitle ? `"${currentTitle}"` : 'Checking...'}
+                    {syncState.syncType === 'streaming' ? 'Updating streaming' : 'Syncing library'}{' '}
+                    <span className="text-[var(--accent)]">({completed}/{total})</span>: {currentTitle ? `"${currentTitle}"` : 'Checking...'}
                   </>
                 ) : isCancelled ? (
                   'Sync cancelled by user'
+                ) : syncState.syncType === 'streaming' ? (
+                  'Streaming availability update complete!'
                 ) : (
                   'Library sync complete!'
                 )}
@@ -110,15 +113,23 @@ export default function SyncProgressBar({
         <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)]">
           <div>
             {isActive ? (
-              <span>Checking for newly dropped seasons, episodes, and official titles...</span>
+              <span>
+                {syncState.syncType === 'streaming'
+                  ? 'Querying TMDB & JustWatch for latest theatrical/streaming dates and providers...'
+                  : 'Checking for newly dropped seasons, episodes, and official titles...'}
+              </span>
             ) : isComplete ? (
               <span>
-                {updatedCount > 0
-                  ? `Successfully found and synced updates for ${updatedCount} show${updatedCount !== 1 ? 's' : ''}.`
-                  : 'All shows and episode checklists are completely up to date.'}
+                {syncState.syncType === 'streaming'
+                  ? (updatedCount > 0
+                      ? `Refreshed streaming and release dates for ${updatedCount} title${updatedCount !== 1 ? 's' : ''}.`
+                      : 'All streaming providers and release dates are up to date.')
+                  : (updatedCount > 0
+                      ? `Successfully found and synced updates for ${updatedCount} show${updatedCount !== 1 ? 's' : ''}.`
+                      : 'All shows and episode checklists are completely up to date.')}
               </span>
             ) : (
-              <span>Sync halted. Progress up to show #{completed} was saved.</span>
+              <span>Sync halted. Progress up to title #{completed} was saved.</span>
             )}
           </div>
 

@@ -1455,7 +1455,8 @@ async function fetchTMDBTVDetails(
 async function fetchTMDBMovieDetails(
   movieId: string | number,
   apiKey: string,
-  fallbackItem: Partial<MediaItem> = {}
+  fallbackItem: Partial<MediaItem> = {},
+  regionOverride?: string
 ): Promise<FullMediaDetailsResponse> {
   const res = await fetch(`${TMDB_BASE_URL}/movie/${movieId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids,release_dates,watch/providers`);
   if (!res.ok) throw new Error('Failed to fetch TMDB movie details');
@@ -1473,7 +1474,7 @@ async function fetchTMDBMovieDetails(
     fetchTMDBCollection(belongsToCollection.id).catch(() => {});
   }
 
-  const effectiveRegion = await getEffectiveStreamingRegion();
+  const effectiveRegion = regionOverride || (await getEffectiveStreamingRegion());
   const rawReleaseDates = (data as unknown as Record<string, unknown>).release_dates as { results?: Parameters<typeof parseTMDBReleaseDates>[0] } | undefined;
   const rawWatchProviders = (data as unknown as Record<string, unknown>)['watch/providers'] as Record<string, unknown> | undefined;
   const watchResults = (rawWatchProviders?.results || (data as unknown as Record<string, unknown>).watch_providers) as Parameters<typeof parseTMDBWatchProviders>[0] | undefined;
@@ -1789,21 +1790,30 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
         airStatus: freshData.media.airStatus || mediaItem.airStatus,
         networkTimezone: freshData.media.networkTimezone || mediaItem.networkTimezone,
         schedule: freshData.media.schedule || mediaItem.schedule,
+        streamingProviders: (freshData.media.streamingProviders && freshData.media.streamingProviders.length > 0)
+          ? freshData.media.streamingProviders
+          : (mediaItem.streamingProviders || []),
         communityRating: freshData.media.communityRating !== undefined ? freshData.media.communityRating : mediaItem.communityRating,
         communityRatingCount: freshData.media.communityRatingCount !== undefined ? freshData.media.communityRatingCount : mediaItem.communityRatingCount,
         lastSyncedAt: new Date().toISOString()
       };
       await saveMediaItem(updatedMedia, mergedEpisodes);
     } else {
+      const freshProviders = freshData.media.streamingProviders || [];
+      const oldProviders = mediaItem.streamingProviders || [];
+      const providersChanged = freshProviders.length !== oldProviders.length || JSON.stringify(freshProviders) !== JSON.stringify(oldProviders);
+
       if (
         (freshData.media.airStatus && freshData.media.airStatus !== mediaItem.airStatus) ||
         (freshData.media.networkTimezone && freshData.media.networkTimezone !== mediaItem.networkTimezone) ||
-        (freshData.media.communityRating && freshData.media.communityRating !== mediaItem.communityRating)
+        (freshData.media.communityRating && freshData.media.communityRating !== mediaItem.communityRating) ||
+        providersChanged
       ) {
         await saveMediaItem({
           ...mediaItem,
           airStatus: freshData.media.airStatus || mediaItem.airStatus,
           networkTimezone: freshData.media.networkTimezone || mediaItem.networkTimezone,
+          streamingProviders: freshProviders.length > 0 ? freshProviders : oldProviders,
           communityRating: freshData.media.communityRating || mediaItem.communityRating,
           communityRatingCount: freshData.media.communityRatingCount || mediaItem.communityRatingCount
         });
@@ -1832,19 +1842,21 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
  * and active watch providers, updating the item in IndexedDB.
  */
 export async function syncMovieStreamingDetails(
-  movieItem: MediaItem
+  movieItem: MediaItem,
+  regionOverride?: string,
+  apiKeyOverride?: string
 ): Promise<{ hasUpdates: boolean; updatedItem: MediaItem }> {
   if (!movieItem || movieItem.type !== 'movie' || !movieItem.externalId || movieItem.source !== 'tmdb') {
     return { hasUpdates: false, updatedItem: movieItem };
   }
 
-  const apiKey = await getTmdbApiKey();
+  const apiKey = apiKeyOverride || (await getTmdbApiKey());
   if (!apiKey) {
     return { hasUpdates: false, updatedItem: movieItem };
   }
 
   try {
-    const freshData = await fetchTMDBMovieDetails(movieItem.externalId, apiKey, movieItem);
+    const freshData = await fetchTMDBMovieDetails(movieItem.externalId, apiKey, movieItem, regionOverride);
     const fresh = freshData.media;
 
     let hasUpdates = false;
@@ -1955,6 +1967,172 @@ export async function runSyncQueue(
       completed++;
       if (onProgress) {
         onProgress(completed, total, show, result, abortSignal?.aborted || false);
+      }
+
+      if (delayMs > 0 && !abortSignal?.aborted) {
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+  });
+
+  await Promise.all(workers);
+
+  return {
+    total,
+    completed,
+    updatedShows,
+    isCancelled: abortSignal?.aborted || false
+  };
+}
+
+/**
+ * Refreshes streaming availability and release dates for a single MediaItem (Movie or TV show).
+ */
+export async function syncSingleMediaStreaming(
+  mediaItem: MediaItem,
+  region?: string,
+  apiKeyOverride?: string
+): Promise<{ hasUpdates: boolean; updatedItem: MediaItem }> {
+  if (!mediaItem || (mediaItem.type !== 'movie' && mediaItem.type !== 'tv')) {
+    return { hasUpdates: false, updatedItem: mediaItem };
+  }
+
+  const apiKey = apiKeyOverride || (await getTmdbApiKey());
+  const effectiveRegion = region || (await getEffectiveStreamingRegion());
+
+  if (mediaItem.type === 'movie') {
+    if (mediaItem.source === 'tmdb' && mediaItem.externalId && apiKey) {
+      return await syncMovieStreamingDetails(mediaItem, effectiveRegion, apiKey);
+    }
+    return { hasUpdates: false, updatedItem: mediaItem };
+  }
+
+  // TV show streaming refresh
+  if (mediaItem.type === 'tv') {
+    let tmdbShowId = mediaItem.tmdbId || (mediaItem.source === 'tmdb' ? mediaItem.externalId : null);
+
+    // If show doesn't have tmdbId yet, attempt lookup via title or imdbId if TMDB key is present
+    if (!tmdbShowId && apiKey) {
+      try {
+        if (mediaItem.imdbId) {
+          const findRes = await fetch(`${TMDB_BASE_URL}/find/${encodeURIComponent(mediaItem.imdbId)}?api_key=${encodeURIComponent(apiKey)}&external_source=imdb_id`);
+          if (findRes.ok) {
+            const findData = await findRes.json();
+            if (findData.tv_results?.[0]?.id) {
+              tmdbShowId = findData.tv_results[0].id;
+            }
+          }
+        }
+        if (!tmdbShowId && mediaItem.title) {
+          const sRes = await fetch(`${TMDB_BASE_URL}/search/tv?query=${encodeURIComponent(mediaItem.title)}&api_key=${encodeURIComponent(apiKey)}`);
+          if (sRes.ok) {
+            const sData = await sRes.json();
+            if (sData.results?.[0]?.id) {
+              tmdbShowId = sData.results[0].id;
+            }
+          }
+        }
+      } catch {
+        // Fallback gracefully
+      }
+    }
+
+    if (tmdbShowId && apiKey) {
+      try {
+        const res = await fetch(`${TMDB_BASE_URL}/tv/${tmdbShowId}/watch/providers?api_key=${encodeURIComponent(apiKey)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const rawWatchProviders = data.results as Parameters<typeof parseTMDBWatchProviders>[0];
+          const newProviders = parseTMDBWatchProviders(rawWatchProviders, effectiveRegion);
+
+          const oldProviders = mediaItem.streamingProviders || [];
+          const hasUpdates =
+            newProviders.length !== oldProviders.length ||
+            JSON.stringify(newProviders) !== JSON.stringify(oldProviders);
+
+          const updatedItem: MediaItem = {
+            ...mediaItem,
+            tmdbId: mediaItem.tmdbId || tmdbShowId,
+            streamingProviders: newProviders,
+            lastSyncedAt: new Date().toISOString()
+          };
+
+          if (hasUpdates || !mediaItem.tmdbId) {
+            await saveMediaItem(updatedItem);
+          }
+          return { hasUpdates, updatedItem };
+        }
+      } catch (err) {
+        console.warn(`Failed to fetch streaming providers for TV show ${mediaItem.title}:`, err);
+      }
+    }
+
+    return { hasUpdates: false, updatedItem: mediaItem };
+  }
+
+  return { hasUpdates: false, updatedItem: mediaItem };
+}
+
+/**
+ * Filter library items to find Movies and TV Shows eligible for streaming availability sync.
+ */
+export function getMediaEligibleForStreamingSync(items: MediaItem[]): MediaItem[] {
+  return (items || []).filter(item => {
+    if (item.type !== 'movie' && item.type !== 'tv') return false;
+    return Boolean(item.externalId || item.tmdbId || item.title);
+  });
+}
+
+/**
+ * Run a concurrent worker pool to sync streaming providers & release dates for all titles.
+ */
+export async function runStreamingSyncQueue(
+  items: MediaItem[],
+  options: SyncQueueOptions = {}
+): Promise<SyncQueueResult> {
+  const {
+    concurrency = 2,
+    delayMs = 200,
+    onProgress,
+    abortSignal
+  } = options;
+
+  let index = 0;
+  let completed = 0;
+  const total = items.length;
+  if (total === 0) {
+    return { total: 0, completed: 0, updatedShows: [], isCancelled: false };
+  }
+
+  const effectiveRegion = options.region || (await getEffectiveStreamingRegion());
+  const apiKey = await getTmdbApiKey();
+  const updatedShows: Array<{ show: MediaItem; result: SyncResult }> = [];
+  const workerCount = Math.min(concurrency || 2, total);
+
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (index < total) {
+      if (abortSignal?.aborted) break;
+
+      const i = index++;
+      const item = items[i];
+
+      let result: SyncResult | null = null;
+      try {
+        const { hasUpdates, updatedItem } = await syncSingleMediaStreaming(item, effectiveRegion, apiKey);
+        result = {
+          hasUpdates,
+          mediaTitle: item.title
+        };
+        if (hasUpdates) {
+          updatedShows.push({ show: updatedItem, result });
+        }
+      } catch (err) {
+        console.warn(`Streaming sync error on ${item.title}:`, err);
+      }
+
+      completed++;
+      if (onProgress) {
+        onProgress(completed, total, item, result, abortSignal?.aborted || false);
       }
 
       if (delayMs > 0 && !abortSignal?.aborted) {

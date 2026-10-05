@@ -19,11 +19,13 @@ export interface SyncState {
   total: number;
   currentTitle: string;
   updatedCount: number;
+  syncType?: 'episodes' | 'streaming';
 }
 
 export interface SyncQueueOptions {
   concurrency?: number;
   delayMs?: number;
+  region?: string;
   onProgress?: (
     completed: number,
     total: number,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Plus, Settings, Search, RefreshCw, Palette, Sun, Moon, Network } from 'lucide-react';
+import { Film, Plus, Settings, Search, RefreshCw, Palette, Sun, Moon, Network, Tv } from 'lucide-react';
 import type { ThemeMode } from '../types';
 
 export interface NavbarProps {
@@ -8,6 +8,8 @@ export interface NavbarProps {
   onOpenSettings: () => void;
   onStartSyncAll: () => void;
   isSyncing: boolean;
+  onStartStreamingSync?: () => void;
+  isSyncingStreaming?: boolean;
   onOpenTheme: () => void;
   onToggleTheme: () => void;
   themeMode?: ThemeMode;
@@ -27,6 +29,8 @@ export default function Navbar({
   onOpenSettings,
   onStartSyncAll,
   isSyncing,
+  onStartStreamingSync,
+  isSyncingStreaming = false,
   onOpenTheme,
   onToggleTheme,
   themeMode = 'dark',
@@ -129,7 +133,7 @@ export default function Navbar({
           <button
             type="button"
             onClick={onStartSyncAll}
-            disabled={isSyncing}
+            disabled={isSyncing || isSyncingStreaming}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all shadow-sm active:scale-95 ${
               isSyncing
                 ? 'bg-[var(--bg-hover)] text-[var(--accent)] border-[var(--accent)] cursor-wait'
@@ -140,6 +144,24 @@ export default function Navbar({
             <RefreshCw className={`w-3.5 h-3.5 text-[var(--accent)] ${isSyncing ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync All'}</span>
           </button>
+
+          {/* Sync Streaming Options Button */}
+          {onStartStreamingSync && (
+            <button
+              type="button"
+              onClick={onStartStreamingSync}
+              disabled={isSyncing || isSyncingStreaming}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all shadow-sm active:scale-95 ${
+                isSyncingStreaming
+                  ? 'bg-[var(--bg-hover)] text-emerald-400 border-emerald-500 cursor-wait'
+                  : 'bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border-[var(--border-light)]'
+              }`}
+              title="Update streaming availability and platforms for movies and TV shows"
+            >
+              <Tv className={`w-3.5 h-3.5 text-emerald-400 ${isSyncingStreaming ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{isSyncingStreaming ? 'Syncing...' : 'Sync Streaming'}</span>
+            </button>
+          )}
 
           {/* Customize Theme & Colors Button (App Directory Palette Button) */}
           <button

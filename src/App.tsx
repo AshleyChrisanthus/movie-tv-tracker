@@ -12,7 +12,7 @@ import ThemeModal from './components/ThemeModal';
 import ListManagerModal from './components/ListManagerModal';
 import { FranchiseCanvasView } from './components/canvas/FranchiseCanvasView';
 import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, clearAllPersonalRatings, getCustomLists, updateBookProgress, getSetting, setSetting, backfillMovieFranchiseCollections } from './db';
-import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync, fetchTMDBCollection } from './services/api';
+import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync, fetchTMDBCollection, runStreamingSyncQueue, getMediaEligibleForStreamingSync } from './services/api';
 import { getNextFranchiseMovie } from './utils/franchise';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
@@ -512,7 +512,8 @@ export default function App(): React.JSX.Element {
       completed: 0,
       total: shows.length,
       currentTitle: shows[0]?.title || '',
-      updatedCount: 0
+      updatedCount: 0,
+      syncType: 'episodes'
     });
 
     let liveUpdatedCount = 0;
@@ -530,6 +531,73 @@ export default function App(): React.JSX.Element {
           completed,
           total,
           currentTitle: currentShow?.title || '',
+          updatedCount: liveUpdatedCount,
+          isCancelled
+        }));
+      }
+    });
+
+    setSyncState(prev => ({
+      ...prev,
+      isActive: false,
+      isComplete: !queueResult.isCancelled,
+      isCancelled: queueResult.isCancelled,
+      updatedCount: liveUpdatedCount
+    }));
+
+    await refreshLibrary();
+  };
+
+  // Start Sync All Streaming Availability
+  const handleStartStreamingSyncAll = async (): Promise<void> => {
+    if (syncState.isActive) return;
+
+    const items = await getAllMedia();
+    const eligible = getMediaEligibleForStreamingSync(items);
+
+    if (eligible.length === 0) {
+      setSyncState({
+        isActive: false,
+        isComplete: true,
+        isCancelled: false,
+        completed: 0,
+        total: 0,
+        currentTitle: '',
+        updatedCount: 0,
+        syncType: 'streaming'
+      });
+      return;
+    }
+
+    const abortController = new AbortController();
+    syncAbortRef.current = abortController;
+
+    setSyncState({
+      isActive: true,
+      isComplete: false,
+      isCancelled: false,
+      completed: 0,
+      total: eligible.length,
+      currentTitle: eligible[0]?.title || '',
+      updatedCount: 0,
+      syncType: 'streaming'
+    });
+
+    let liveUpdatedCount = 0;
+
+    const queueResult = await runStreamingSyncQueue(eligible, {
+      concurrency: 2,
+      delayMs: 200,
+      abortSignal: abortController.signal,
+      onProgress: (completed, total, currentItem, result, isCancelled) => {
+        if (result?.hasUpdates) {
+          liveUpdatedCount++;
+        }
+        setSyncState(prev => ({
+          ...prev,
+          completed,
+          total,
+          currentTitle: currentItem?.title || '',
           updatedCount: liveUpdatedCount,
           isCancelled
         }));
@@ -583,7 +651,9 @@ export default function App(): React.JSX.Element {
         currentTab={mainTab}
         onSelectTab={handleMainTabChange}
         onStartSyncAll={handleStartSyncAll}
-        isSyncing={syncState.isActive}
+        isSyncing={syncState.isActive && syncState.syncType !== 'streaming'}
+        onStartStreamingSync={handleStartStreamingSyncAll}
+        isSyncingStreaming={syncState.isActive && syncState.syncType === 'streaming'}
         stats={stats}
       />
 
@@ -823,6 +893,7 @@ export default function App(): React.JSX.Element {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onDataRestored={refreshLibrary}
+        onStreamingUpdated={refreshLibrary}
         ratingScale={ratingScale}
         onRatingScaleChange={setRatingScale}
         upcomingDays={upcomingDays}

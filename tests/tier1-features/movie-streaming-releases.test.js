@@ -193,5 +193,66 @@ describe('Tier 1: Issue #46 Movie Theatrical-to-Streaming Release Dates & Watch 
       assert.equal(retrieved.streamingProviders?.length, 1);
       assert.equal(retrieved.streamingProviders[0].name, 'Disney Plus');
     });
+
+    it('persists and retrieves streamingProviders on TV shows in Dexie', async () => {
+      const savedShow = await dbModule.saveMediaItem({
+        title: 'Stranger Things',
+        type: 'tv',
+        status: 'watching',
+        year: 2016,
+        streamingProviders: [
+          { id: 8, name: 'Netflix', logoUrl: 'https://example.com/netflix.jpg', type: 'flatrate' }
+        ]
+      });
+
+      assert.ok(savedShow.id);
+      const retrieved = await dbModule.getMediaById(savedShow.id);
+      assert.equal(retrieved.type, 'tv');
+      assert.equal(retrieved.streamingProviders?.length, 1);
+      assert.equal(retrieved.streamingProviders[0].name, 'Netflix');
+    });
+  });
+
+  describe('Streaming Sync Queue & Eligibility', () => {
+    it('correctly filters eligible movies and TV shows for streaming sync', async () => {
+      const { getMediaEligibleForStreamingSync } = await import('../../src/services/api.ts');
+      const items = [
+        { id: '1', title: 'Movie 1', type: 'movie', externalId: 100 },
+        { id: '2', title: 'TV Show 1', type: 'tv', externalId: 200 },
+        { id: '3', title: 'Book 1', type: 'book', externalId: 'OL123M' },
+        { id: '4', title: '', type: 'movie' }
+      ];
+
+      const eligible = getMediaEligibleForStreamingSync(items);
+      assert.equal(eligible.length, 2);
+      assert.equal(eligible[0].id, '1');
+      assert.equal(eligible[1].id, '2');
+    });
+
+    it('runs streaming sync queue and reports progress', async () => {
+      const { runStreamingSyncQueue } = await import('../../src/services/api.ts');
+      const progressUpdates = [];
+
+      const items = [
+        { id: 'm1', title: 'Inception', type: 'movie' },
+        { id: 't1', title: 'Breaking Bad', type: 'tv' }
+      ];
+
+      const result = await runStreamingSyncQueue(items, {
+        concurrency: 1,
+        delayMs: 10,
+        region: 'US',
+        onProgress: (completed, total, currentItem) => {
+          progressUpdates.push({ completed, total, title: currentItem.title });
+        }
+      });
+
+      assert.equal(result.total, 2);
+      assert.equal(result.completed, 2);
+      assert.equal(result.isCancelled, false);
+      assert.equal(progressUpdates.length, 2);
+      assert.equal(progressUpdates[0].completed, 1);
+      assert.equal(progressUpdates[1].completed, 2);
+    });
   });
 });

@@ -4,13 +4,14 @@ import {
   AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
   Zap, Archive, Sparkles, Globe, Clock, Star, Calendar, BookOpen, Tv, Play
 } from 'lucide-react';
-import { getSetting, setSetting, clearAllPersonalRatings } from '../db';
+import { getSetting, setSetting, clearAllPersonalRatings, getAllMedia } from '../db';
 import { 
   saveExportToLocal, downloadExportToBrowser, 
   getLocalExportsList, importBackupFile,
   isFileSystemAccessSupported, linkBackupDirectory, 
   getLinkedDirectoryHandle, unlinkBackupDirectory 
 } from '../services/exportService';
+import { runStreamingSyncQueue, getMediaEligibleForStreamingSync } from '../services/api';
 import { 
   getUserTimeZone, setUserTimeZone, getSystemTimeZone, 
   COMMON_TIMEZONES, type TimeZoneOption 
@@ -22,6 +23,7 @@ export interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDataRestored?: () => void;
+  onStreamingUpdated?: () => void;
   ratingScale?: RatingScale;
   onRatingScaleChange?: (scale: RatingScale) => void;
   upcomingDays?: number;
@@ -37,6 +39,7 @@ export default function SettingsModal({
   isOpen,
   onClose,
   onDataRestored,
+  onStreamingUpdated,
   ratingScale: propRatingScale,
   onRatingScaleChange,
   upcomingDays: propUpcomingDays,
@@ -67,6 +70,9 @@ export default function SettingsModal({
   // Streaming Region (Issue #46)
   const [streamingRegion, setStreamingRegion] = useState<string>('auto');
   const [regionNotice, setRegionNotice] = useState<NoticeStatus | null>(null);
+  const [isUpdatingStreaming, setIsUpdatingStreaming] = useState<boolean>(false);
+  const [streamingProgress, setStreamingProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [eligibleStreamingCount, setEligibleStreamingCount] = useState<number>(0);
   
   // File System Access & Export State
   const [fsSupported, setFsSupported] = useState<boolean>(false);
@@ -106,6 +112,9 @@ export default function SettingsModal({
       }
       getUserTimeZone().then(tz => setUserTimezone(tz));
       getSetting<string>('streaming_region', 'auto').then(r => setStreamingRegion(r || 'auto'));
+      getAllMedia().then(all => {
+        setEligibleStreamingCount(getMediaEligibleForStreamingSync(all).length);
+      });
       checkLinkedDirectory();
       loadExportsList();
     } else {
@@ -191,6 +200,51 @@ export default function SettingsModal({
   const loadExportsList = async () => {
     const list = await getLocalExportsList();
     setLocalExports(list);
+  };
+
+  const handleUpdateAllStreaming = async (customRegion?: string) => {
+    if (isUpdatingStreaming) return;
+    setIsUpdatingStreaming(true);
+    setStreamingProgress(null);
+    try {
+      const all = await getAllMedia();
+      const eligible = getMediaEligibleForStreamingSync(all);
+      setEligibleStreamingCount(eligible.length);
+      if (eligible.length === 0) {
+        setRegionNotice({
+          success: true,
+          message: 'No movie or TV titles found to update.'
+        });
+        return;
+      }
+      const targetRegion = customRegion !== undefined ? customRegion : streamingRegion;
+      setRegionNotice({
+        success: true,
+        message: `Updating streaming options for ${eligible.length} titles...`
+      });
+      const result = await runStreamingSyncQueue(eligible, {
+        region: targetRegion,
+        onProgress: (completed, total) => {
+          setStreamingProgress({ completed, total });
+        }
+      });
+      setRegionNotice({
+        success: true,
+        message: `Updated streaming options for ${result.completed} title(s)${result.updatedShows.length > 0 ? ` (${result.updatedShows.length} updated)` : ''}.`
+      });
+      if (onStreamingUpdated) onStreamingUpdated();
+      if (onDataRestored) onDataRestored();
+      setTimeout(() => setRegionNotice(null), 4000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setRegionNotice({
+        success: false,
+        message: `Streaming update failed: ${message}`
+      });
+    } finally {
+      setIsUpdatingStreaming(false);
+      setStreamingProgress(null);
+    }
   };
 
   if (!isOpen) return null;
@@ -518,17 +572,14 @@ export default function SettingsModal({
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <select
                 value={streamingRegion}
+                disabled={isUpdatingStreaming}
                 onChange={async (e) => {
                   const reg = e.target.value;
                   setStreamingRegion(reg);
                   await setSetting('streaming_region', reg);
-                  setRegionNotice({
-                    success: true,
-                    message: `Streaming region updated to ${reg === 'auto' ? `Auto (${getBrowserRegion()})` : reg}. All movie cards will localize streaming to this region.`
-                  });
-                  setTimeout(() => setRegionNotice(null), 3500);
+                  handleUpdateAllStreaming(reg);
                 }}
-                className="flex-1 px-3 py-2 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)] font-medium cursor-pointer"
+                className="flex-1 px-3 py-2 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)] font-medium cursor-pointer disabled:opacity-50"
               >
                 <option value="auto">Auto-Detect (Browser: {getBrowserRegion()})</option>
                 {STREAMING_REGIONS.map(reg => (
@@ -540,20 +591,48 @@ export default function SettingsModal({
 
               <button
                 type="button"
+                disabled={isUpdatingStreaming}
                 onClick={async () => {
                   setStreamingRegion('auto');
                   await setSetting('streaming_region', 'auto');
-                  setRegionNotice({
-                    success: true,
-                    message: `Reset to Auto-Detect (Browser: ${getBrowserRegion()}).`
-                  });
-                  setTimeout(() => setRegionNotice(null), 3500);
+                  handleUpdateAllStreaming('auto');
                 }}
-                className="px-3.5 py-2 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)] shrink-0"
+                className="px-3.5 py-2 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)] shrink-0 disabled:opacity-50"
               >
                 Use Auto
               </button>
             </div>
+
+            {/* Update All Streaming Options Button & Progress */}
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-xs text-[var(--text-secondary)]">
+                {eligibleStreamingCount} title{eligibleStreamingCount === 1 ? '' : 's'} available to sync
+              </span>
+              <button
+                type="button"
+                disabled={isUpdatingStreaming || eligibleStreamingCount === 0}
+                onClick={() => handleUpdateAllStreaming()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-95"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingStreaming ? 'animate-spin text-emerald-400' : 'text-emerald-400'}`} />
+                <span>
+                  {isUpdatingStreaming && streamingProgress 
+                    ? `Updating (${streamingProgress.completed}/${streamingProgress.total})...`
+                    : isUpdatingStreaming 
+                    ? 'Updating...' 
+                    : 'Update Streaming Options'}
+                </span>
+              </button>
+            </div>
+
+            {isUpdatingStreaming && streamingProgress && (
+              <div className="w-full bg-[var(--bg-tertiary)] rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round((streamingProgress.completed / Math.max(1, streamingProgress.total)) * 100)}%` }}
+                />
+              </div>
+            )}
 
             {regionNotice && (
               <div className="p-2.5 rounded-lg text-xs flex items-center gap-2 bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">

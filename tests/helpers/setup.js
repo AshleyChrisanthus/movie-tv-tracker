@@ -123,6 +123,14 @@ export async function getAudioDurationModule() {
   return await import('../../src/utils/audioDuration.js');
 }
 
+export async function getRegionModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/utils/region.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/utils/region.ts');
+  }
+  return await import('../../src/utils/region.js');
+}
+
 // Reset database tables between tests
 export async function resetDatabase() {
   const { db } = await getDbModule();

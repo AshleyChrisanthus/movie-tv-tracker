@@ -31,6 +31,7 @@ const testFiles = [
   'path:/tier1-features/movie-franchises.test.js',
   'path:/tier1-features/book-editions-percentage-search.test.js',
   'path:/tier1-features/audiobooks-support.test.js',
+  'path:/tier1-features/movie-streaming-releases.test.js',
 
   // Tier 2: Boundary & Corner Cases
   'path:/tier2-boundary/empty-and-edge-items.test.js',

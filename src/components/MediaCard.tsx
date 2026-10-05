@@ -1,9 +1,10 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones } from 'lucide-react';
+import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones, Play } from 'lucide-react';
 import type { MediaItem, MediaStatus, RatingScale, GridDensity } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
 import { isAudiobookItem, formatAudioDuration } from '../utils/audioDuration';
+import { getMovieStreamingStatus } from '../utils/region';
 
 interface StatusStyle {
   label: string;
@@ -360,20 +361,61 @@ export default function MediaCard({
           </div>
         )}
 
-        {/* Movie status hint & Franchise info (Issue #34) */}
-        {!isTv && !isBook && (
-          <div className={`${density === 'compact' ? 'pt-0.5 text-[10px]' : 'pt-1 text-[11px]'} text-[var(--text-secondary)] flex items-center justify-between gap-1`}>
-            <span>{item.status === 'completed' ? 'Watched' : 'In Watchlist'}</span>
-            {item.collectionName && (
-              <span
-                className="truncate text-[var(--accent)] font-medium text-[9px] sm:text-[10px] max-w-[130px]"
-                title={`Part of ${item.collectionName}`}
-              >
-                {item.nextFranchiseMovieTitle ? `Next: ${item.nextFranchiseMovieTitle}` : item.collectionName}
-              </span>
-            )}
-          </div>
-        )}
+        {/* Movie status hint & Franchise info (Issue #34, #46) */}
+        {!isTv && !isBook && (() => {
+          const movieStatus = getMovieStreamingStatus(item);
+          return (
+            <div className={`${density === 'compact' ? 'pt-1' : 'pt-2'} border-t border-[var(--border-light)] flex flex-col gap-1`}>
+              {/* Streaming or Release status badge */}
+              {movieStatus && movieStatus.state !== 'unknown' && movieStatus.state !== 'released' && (
+                <div
+                  className={`flex items-center gap-1.5 rounded-md font-medium truncate ${
+                    movieStatus.state === 'streaming'
+                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+                      : movieStatus.state === 'digital_upcoming'
+                      ? 'bg-sky-500/15 border border-sky-500/30 text-sky-300'
+                      : movieStatus.state === 'in_theaters'
+                      ? 'bg-amber-500/15 border border-amber-500/30 text-amber-300'
+                      : 'bg-purple-500/15 border border-purple-500/30 text-purple-300'
+                  } ${density === 'compact' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]'}`}
+                  title={movieStatus.badgeDetail || movieStatus.badgeLabel}
+                >
+                  {movieStatus.state === 'streaming' ? (
+                    movieStatus.primaryProvider?.logoUrl ? (
+                      <img
+                        src={movieStatus.primaryProvider.logoUrl}
+                        alt={movieStatus.primaryProvider.name}
+                        className="w-3 h-3 rounded object-cover shrink-0"
+                      />
+                    ) : (
+                      <Play className="w-2.5 h-2.5 fill-current shrink-0" />
+                    )
+                  ) : movieStatus.state === 'digital_upcoming' ? (
+                    <Clock className="w-2.5 h-2.5 shrink-0 text-sky-400" />
+                  ) : (
+                    <Film className="w-2.5 h-2.5 shrink-0 text-amber-400" />
+                  )}
+                  <span className="truncate">{movieStatus.badgeLabel}</span>
+                </div>
+              )}
+
+              {/* Status and Franchise metadata row */}
+              <div className={`text-[var(--text-secondary)] flex items-center justify-between gap-1 ${
+                density === 'compact' ? 'text-[9px] sm:text-[10px]' : 'text-[11px]'
+              }`}>
+                <span>{item.status === 'completed' ? 'Watched' : 'In Watchlist'}</span>
+                {item.collectionName && (
+                  <span
+                    className="truncate text-[var(--accent)] font-medium text-[9px] sm:text-[10px] max-w-[130px]"
+                    title={`Part of ${item.collectionName}`}
+                  >
+                    {item.nextFranchiseMovieTitle ? `Next: ${item.nextFranchiseMovieTitle}` : item.collectionName}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

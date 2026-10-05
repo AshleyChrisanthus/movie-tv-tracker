@@ -125,9 +125,22 @@ export interface MediaItem {
   nextFranchiseMovieTitle?: string | null;  // Next sequel/prequel title in franchise
   nextFranchiseMovieId?: number | string | null; // Next sequel/prequel externalId in franchise
   notes?: string;                           // Personal user review / notes
+  theatricalReleaseDate?: string | null;    // Official theatrical premiere or release date (YYYY-MM-DD)
+  digitalReleaseDate?: string | null;       // Digital / streaming drop date (YYYY-MM-DD or ISO)
+  streamingProviders?: WatchProvider[];     // Subscription / flatrate streaming platforms available in region
   lastSyncedAt?: string;                    // ISO timestamp of last successful sync
   createdAt: string;                        // ISO creation timestamp
   updatedAt: string;                        // ISO modification timestamp
+}
+
+/**
+ * Watch/streaming platform provider (TMDB watch/providers / JustWatch).
+ */
+export interface WatchProvider {
+  id: number;
+  name: string;
+  logoUrl?: string;
+  type?: 'flatrate' | 'rent' | 'buy' | 'free';
 }
 
 /**

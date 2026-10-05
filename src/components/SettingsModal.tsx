@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Key, Download, Upload, Folder, FolderCheck, CheckCircle, 
   AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
-  Zap, Archive, Sparkles, Globe, Clock, Star, Calendar, BookOpen
+  Zap, Archive, Sparkles, Globe, Clock, Star, Calendar, BookOpen, Tv, Play
 } from 'lucide-react';
 import { getSetting, setSetting, clearAllPersonalRatings } from '../db';
 import { 
@@ -15,6 +15,7 @@ import {
   getUserTimeZone, setUserTimeZone, getSystemTimeZone, 
   COMMON_TIMEZONES, type TimeZoneOption 
 } from '../utils/timezone';
+import { STREAMING_REGIONS, getBrowserRegion } from '../utils/region';
 import type { BackupMode, ExportFileInfo, RatingScale, BookSearchProvider } from '../types';
 
 export interface SettingsModalProps {
@@ -62,6 +63,10 @@ export default function SettingsModal({
   // Timezone & Locale State
   const [userTimezone, setUserTimezone] = useState<string>(getSystemTimeZone());
   const [timezoneNotice, setTimezoneNotice] = useState<NoticeStatus | null>(null);
+
+  // Streaming Region (Issue #46)
+  const [streamingRegion, setStreamingRegion] = useState<string>('auto');
+  const [regionNotice, setRegionNotice] = useState<NoticeStatus | null>(null);
   
   // File System Access & Export State
   const [fsSupported, setFsSupported] = useState<boolean>(false);
@@ -100,6 +105,7 @@ export default function SettingsModal({
         getSetting<number>('upcoming_window_days', 7).then(d => setUpcomingDays(d || 7));
       }
       getUserTimeZone().then(tz => setUserTimezone(tz));
+      getSetting<string>('streaming_region', 'auto').then(r => setStreamingRegion(r || 'auto'));
       checkLinkedDirectory();
       loadExportsList();
     } else {
@@ -107,6 +113,7 @@ export default function SettingsModal({
       setExportNotice(null);
       setImportNotice(null);
       setTimezoneNotice(null);
+      setRegionNotice(null);
       setRatingNotice(null);
       setBookSettingNotice(null);
     }
@@ -488,6 +495,70 @@ export default function SettingsModal({
               <div className="p-2.5 rounded-lg text-xs flex items-center gap-2 bg-sky-950/60 text-sky-300 border border-sky-800/60">
                 <CheckCircle className="w-4 h-4 text-sky-400" />
                 <span>{timezoneNotice.message}</span>
+              </div>
+            )}
+          </div>
+
+          {/* STREAMING REGION & WATCH PROVIDERS SECTION (Issue #46) */}
+          <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Tv className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Streaming Region & Providers</h3>
+              </div>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
+                TMDB & JustWatch
+              </span>
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              Determines theatrical-to-streaming drop dates and subscription platforms (e.g. Netflix, Max, Disney+) displayed on movie cards and media details.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <select
+                value={streamingRegion}
+                onChange={async (e) => {
+                  const reg = e.target.value;
+                  setStreamingRegion(reg);
+                  await setSetting('streaming_region', reg);
+                  setRegionNotice({
+                    success: true,
+                    message: `Streaming region updated to ${reg === 'auto' ? `Auto (${getBrowserRegion()})` : reg}. All movie cards will localize streaming to this region.`
+                  });
+                  setTimeout(() => setRegionNotice(null), 3500);
+                }}
+                className="flex-1 px-3 py-2 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-xl text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)] font-medium cursor-pointer"
+              >
+                <option value="auto">Auto-Detect (Browser: {getBrowserRegion()})</option>
+                {STREAMING_REGIONS.map(reg => (
+                  <option key={reg.code} value={reg.code}>
+                    {reg.flag} {reg.name} ({reg.code})
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  setStreamingRegion('auto');
+                  await setSetting('streaming_region', 'auto');
+                  setRegionNotice({
+                    success: true,
+                    message: `Reset to Auto-Detect (Browser: ${getBrowserRegion()}).`
+                  });
+                  setTimeout(() => setRegionNotice(null), 3500);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-semibold transition-all border border-[var(--border-light)] shrink-0"
+              >
+                Use Auto
+              </button>
+            </div>
+
+            {regionNotice && (
+              <div className="p-2.5 rounded-lg text-xs flex items-center gap-2 bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                <span>{regionNotice.message}</span>
               </div>
             )}
           </div>

@@ -8,6 +8,7 @@
 
 import { getSetting, getEpisodesForMedia, saveMediaItem, touchMediaSyncedAt, getFranchiseCollection, saveFranchiseCollection } from '../db/index';
 import { parseAudioDuration, extractNarrator } from '../utils/audioDuration';
+import { getEffectiveStreamingRegion, parseTMDBReleaseDates, parseTMDBWatchProviders } from '../utils/region';
 import type {
   MediaItem,
   EpisodeItem,
@@ -1381,7 +1382,7 @@ async function fetchTMDBTVDetails(
   apiKey: string,
   fallbackItem: Partial<MediaItem> = {}
 ): Promise<FullMediaDetailsResponse> {
-  const res = await fetch(`${TMDB_BASE_URL}/tv/${showId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids`);
+  const res = await fetch(`${TMDB_BASE_URL}/tv/${showId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids,watch/providers`);
   if (!res.ok) throw new Error('Failed to fetch TMDB TV details');
   const data: TMDBTV = await res.json();
 
@@ -1414,6 +1415,11 @@ async function fetchTMDBTVDetails(
   const communityRating = data.vote_average ? Number(data.vote_average.toFixed(1)) : (fallbackItem.communityRating ?? null);
   const communityRatingCount = data.vote_count || fallbackItem.communityRatingCount || null;
 
+  const effectiveRegion = await getEffectiveStreamingRegion();
+  const rawWatchProviders = (data as unknown as Record<string, unknown>)['watch/providers'] as Record<string, unknown> | undefined;
+  const watchResults = (rawWatchProviders?.results || (data as unknown as Record<string, unknown>).watch_providers) as Record<string, unknown> | undefined;
+  const tvStreamingProviders = parseTMDBWatchProviders(watchResults as Parameters<typeof parseTMDBWatchProviders>[0], effectiveRegion);
+
   const media: Partial<MediaItem> = {
     ...fallbackItem,
     rating: fallbackItem.rating ?? null,
@@ -1436,7 +1442,8 @@ async function fetchTMDBTVDetails(
     totalEpisodes: allEpisodes.length || data.number_of_episodes || 0,
     watchedEpisodesCount: 0,
     currentSeason: 1,
-    currentEpisode: 0
+    currentEpisode: 0,
+    streamingProviders: tvStreamingProviders.length > 0 ? tvStreamingProviders : (fallbackItem.streamingProviders || [])
   };
 
   return { media, episodes: allEpisodes };
@@ -1450,7 +1457,7 @@ async function fetchTMDBMovieDetails(
   apiKey: string,
   fallbackItem: Partial<MediaItem> = {}
 ): Promise<FullMediaDetailsResponse> {
-  const res = await fetch(`${TMDB_BASE_URL}/movie/${movieId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids`);
+  const res = await fetch(`${TMDB_BASE_URL}/movie/${movieId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids,release_dates,watch/providers`);
   if (!res.ok) throw new Error('Failed to fetch TMDB movie details');
   const data: TMDBMovie = await res.json();
 
@@ -1466,6 +1473,14 @@ async function fetchTMDBMovieDetails(
     fetchTMDBCollection(belongsToCollection.id).catch(() => {});
   }
 
+  const effectiveRegion = await getEffectiveStreamingRegion();
+  const rawReleaseDates = (data as unknown as Record<string, unknown>).release_dates as { results?: Parameters<typeof parseTMDBReleaseDates>[0] } | undefined;
+  const rawWatchProviders = (data as unknown as Record<string, unknown>)['watch/providers'] as Record<string, unknown> | undefined;
+  const watchResults = (rawWatchProviders?.results || (data as unknown as Record<string, unknown>).watch_providers) as Parameters<typeof parseTMDBWatchProviders>[0] | undefined;
+
+  const { theatricalReleaseDate, digitalReleaseDate } = parseTMDBReleaseDates(rawReleaseDates?.results, effectiveRegion);
+  const movieStreamingProviders = parseTMDBWatchProviders(watchResults, effectiveRegion);
+
   const media: Partial<MediaItem> = {
     ...fallbackItem,
     rating: fallbackItem.rating ?? null,
@@ -1474,6 +1489,9 @@ async function fetchTMDBMovieDetails(
     title: data.title || fallbackItem.title,
     year: data.release_date ? new Date(data.release_date).getFullYear() : fallbackItem.year,
     releaseDate: data.release_date || fallbackItem.releaseDate || '',
+    theatricalReleaseDate: theatricalReleaseDate || data.release_date || fallbackItem.theatricalReleaseDate || null,
+    digitalReleaseDate: digitalReleaseDate || fallbackItem.digitalReleaseDate || null,
+    streamingProviders: movieStreamingProviders.length > 0 ? movieStreamingProviders : (fallbackItem.streamingProviders || []),
     overview: data.overview || fallbackItem.overview,
     posterUrl: data.poster_path ? `${TMDB_IMAGE_BASE}/w500${data.poster_path}` : fallbackItem.posterUrl,
     backdropUrl: data.backdrop_path ? `${TMDB_IMAGE_BASE}/original${data.backdrop_path}` : fallbackItem.backdropUrl,
@@ -1806,6 +1824,57 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
     const errorMessage = err instanceof Error ? err.message : String(err);
     console.warn(`Failed to sync episodes for ${mediaItem.title}:`, err);
     return { hasUpdates: false, error: errorMessage, mediaTitle: mediaItem.title };
+  }
+}
+
+/**
+ * Refreshes TMDB movie details to check for newly scheduled digital/streaming dates
+ * and active watch providers, updating the item in IndexedDB.
+ */
+export async function syncMovieStreamingDetails(
+  movieItem: MediaItem
+): Promise<{ hasUpdates: boolean; updatedItem: MediaItem }> {
+  if (!movieItem || movieItem.type !== 'movie' || !movieItem.externalId || movieItem.source !== 'tmdb') {
+    return { hasUpdates: false, updatedItem: movieItem };
+  }
+
+  const apiKey = await getTmdbApiKey();
+  if (!apiKey) {
+    return { hasUpdates: false, updatedItem: movieItem };
+  }
+
+  try {
+    const freshData = await fetchTMDBMovieDetails(movieItem.externalId, apiKey, movieItem);
+    const fresh = freshData.media;
+
+    let hasUpdates = false;
+    if (fresh.digitalReleaseDate && fresh.digitalReleaseDate !== movieItem.digitalReleaseDate) {
+      hasUpdates = true;
+    }
+    if (fresh.theatricalReleaseDate && fresh.theatricalReleaseDate !== movieItem.theatricalReleaseDate) {
+      hasUpdates = true;
+    }
+    const freshProviders = fresh.streamingProviders || [];
+    const oldProviders = movieItem.streamingProviders || [];
+    if (freshProviders.length !== oldProviders.length || JSON.stringify(freshProviders) !== JSON.stringify(oldProviders)) {
+      hasUpdates = true;
+    }
+
+    const mergedItem: MediaItem = {
+      ...movieItem,
+      theatricalReleaseDate: fresh.theatricalReleaseDate || movieItem.theatricalReleaseDate || null,
+      digitalReleaseDate: fresh.digitalReleaseDate || movieItem.digitalReleaseDate || null,
+      streamingProviders: fresh.streamingProviders || movieItem.streamingProviders || [],
+      communityRating: fresh.communityRating !== undefined ? fresh.communityRating : movieItem.communityRating,
+      communityRatingCount: fresh.communityRatingCount !== undefined ? fresh.communityRatingCount : movieItem.communityRatingCount,
+      lastSyncedAt: new Date().toISOString()
+    };
+
+    await saveMediaItem(mergedItem);
+    return { hasUpdates, updatedItem: mergedItem };
+  } catch (err) {
+    console.warn(`Failed to sync movie streaming details for ${movieItem.title}:`, err);
+    return { hasUpdates: false, updatedItem: movieItem };
   }
 }
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
   CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen, Globe,
-  Network, Sparkles, Percent, Search, Headphones, Volume2, VolumeX, Play, Pause
+  Network, Sparkles, Percent, Search, Headphones, Volume2, VolumeX, Play, Pause, Clock
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
@@ -11,7 +11,8 @@ import {
   getCustomLists, toggleMediaList, saveCustomList, updateBookProgress,
   changeBookEdition, setSetting, getAllMedia, saveMediaItem, db
 } from '../db';
-import { syncMediaEpisodes, fetchTMDBCollection, getTmdbApiKey, fetchOpenLibraryEditions, enrichBookSynopsis, fetchBookEditionByIsbn } from '../services/api';
+import { syncMediaEpisodes, syncMovieStreamingDetails, fetchTMDBCollection, getTmdbApiKey, fetchOpenLibraryEditions, enrichBookSynopsis, fetchBookEditionByIsbn } from '../services/api';
+import { getMovieStreamingStatus } from '../utils/region';
 import { 
   getNextFranchiseMovie, getFranchisePartsWithLibraryStatus, 
   createMediaItemFromCollectionPart, type NextFranchiseMovieInfo, type FranchisePartStatus 
@@ -583,6 +584,39 @@ export default function MediaDetailModal({
     }
   };
 
+  // Sync latest movie streaming availability & release dates (Issue #46)
+  const handleSyncMovie = async (silent = false) => {
+    if (isTv || isBook || !media || !media.externalId || isSyncing) return;
+    if (!silent) setIsSyncing(true);
+    setSyncNotice(null);
+
+    try {
+      const { hasUpdates, updatedItem } = await syncMovieStreamingDetails(media);
+      if (hasUpdates) {
+        if (onUpdated) onUpdated();
+        if (onUpdate) onUpdate(updatedItem);
+        if (!silent) {
+          setSyncNotice({
+            success: true,
+            message: '✨ Updated streaming release dates and watch providers!'
+          });
+        }
+      } else if (!silent) {
+        setSyncNotice({
+          success: true,
+          message: 'Streaming availability and release dates are up to date.'
+        });
+      }
+    } catch (err) {
+      if (!silent) {
+        const message = err instanceof Error ? err.message : String(err);
+        setSyncNotice({ success: false, message: `Sync failed: ${message}` });
+      }
+    } finally {
+      if (!silent) setIsSyncing(false);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen || !media) return;
     getUserTimeZone().then(tz => setUserTz(tz));
@@ -591,6 +625,12 @@ export default function MediaDetailModal({
     // Silently check for new episodes if watching a TV show with external ID
     if (isTv && media.status === 'watching' && media.externalId) {
       handleSync(true);
+    }
+    // Silently check for movie streaming info if not yet cached
+    if (media.type === 'movie' && media.source === 'tmdb' && media.externalId) {
+      if (!media.theatricalReleaseDate && !media.digitalReleaseDate && (!media.streamingProviders || media.streamingProviders.length === 0)) {
+        handleSyncMovie(true);
+      }
     }
     // Load Franchise Collection and library movies for movies in a franchise (Issue #34)
     if (media.type === 'movie') {
@@ -663,6 +703,17 @@ export default function MediaDetailModal({
     }
   }, [media?.id, media?.collectionId, isOpen]);
 
+  // Franchise Next Movie & Sequence calculations (Issue #34)
+  const nextFranchiseMovie: NextFranchiseMovieInfo | null = useMemo(() => {
+    if (!media || media.type !== 'movie' || !collection || !collection.parts) return null;
+    return getNextFranchiseMovie(media, collection.parts, libraryMovies);
+  }, [media, collection, libraryMovies]);
+
+  const franchiseSequence: FranchisePartStatus[] = useMemo(() => {
+    if (!media || media.type !== 'movie' || !collection || !collection.parts) return [];
+    return getFranchisePartsWithLibraryStatus(collection.parts, media, libraryMovies);
+  }, [media, collection, libraryMovies]);
+
   if (!isOpen || !media) return null;
 
   // Handle status change
@@ -680,17 +731,6 @@ export default function MediaDetailModal({
       setLibraryMovies(all.filter(m => m.type === 'movie'));
     }
   };
-
-  // Franchise Next Movie & Sequence calculations (Issue #34)
-  const nextFranchiseMovie: NextFranchiseMovieInfo | null = useMemo(() => {
-    if (!media || media.type !== 'movie' || !collection || !collection.parts) return null;
-    return getNextFranchiseMovie(media, collection.parts, libraryMovies);
-  }, [media, collection, libraryMovies]);
-
-  const franchiseSequence: FranchisePartStatus[] = useMemo(() => {
-    if (!media || media.type !== 'movie' || !collection || !collection.parts) return [];
-    return getFranchisePartsWithLibraryStatus(collection.parts, media, libraryMovies);
-  }, [media, collection, libraryMovies]);
 
   const handleAddFranchisePart = async (part: TMDBCollectionPart, targetStatus: MediaStatus = 'plan_to_watch') => {
     if (!collection) return;
@@ -1328,6 +1368,19 @@ export default function MediaDetailModal({
                 </button>
               )}
 
+              {!isTv && !isBook && media.source === 'tmdb' && media.externalId && (
+                <button
+                  type="button"
+                  onClick={() => handleSyncMovie(false)}
+                  disabled={isSyncing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)] text-xs font-medium transition-all disabled:opacity-50"
+                  title="Check TMDB for updated theatrical/streaming release dates & available platforms"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? 'Checking...' : 'Sync Streaming'}</span>
+                </button>
+              )}
+
               {onEditCustom && (
                 <button
                   type="button"
@@ -1460,6 +1513,107 @@ export default function MediaDetailModal({
               )}
             </div>
           )}
+
+          {/* WHERE TO WATCH & RELEASE TIMELINE (Issue #46) */}
+          {!isBook && (() => {
+            const movieStreamingInfo = !isTv ? getMovieStreamingStatus(media) : null;
+            const hasProviders = media.streamingProviders && media.streamingProviders.length > 0;
+            const hasDates = Boolean(media.theatricalReleaseDate || media.digitalReleaseDate);
+            if (!hasProviders && !hasDates && isTv) return null;
+
+            return (
+              <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <Tv className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-[var(--text-primary)]">
+                      {!isTv ? 'Where to Watch & Release Timeline' : 'Where to Watch / Streaming'}
+                    </h3>
+                  </div>
+                  {!isTv && movieStreamingInfo && movieStreamingInfo.state !== 'unknown' && (
+                    <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold border ${
+                      movieStreamingInfo.state === 'streaming'
+                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                        : movieStreamingInfo.state === 'digital_upcoming'
+                        ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                        : movieStreamingInfo.state === 'in_theaters'
+                        ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                        : 'bg-purple-500/15 text-purple-400 border-purple-500/30'
+                    }`}>
+                      {movieStreamingInfo.badgeLabel}
+                    </span>
+                  )}
+                </div>
+
+                {/* Available Subscription Streaming Services */}
+                {hasProviders ? (
+                  <div>
+                    <span className="text-[11px] text-[var(--text-secondary)] font-medium block mb-2">
+                      Subscription Streaming:
+                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {media.streamingProviders!.map(provider => (
+                        <div
+                          key={provider.id}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-light)] text-xs font-semibold text-[var(--text-primary)] shadow-xs"
+                        >
+                          {provider.logoUrl ? (
+                            <img src={provider.logoUrl} alt={provider.name} className="w-4 h-4 rounded object-cover" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5 text-emerald-400" />
+                          )}
+                          <span>{provider.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  !isTv && (
+                    <div className="text-xs text-[var(--text-secondary)]">
+                      {movieStreamingInfo?.state === 'in_theaters'
+                        ? '🎬 Currently showing in theaters. Subscription streaming release has not yet been announced.'
+                        : movieStreamingInfo?.state === 'digital_upcoming'
+                        ? '⏳ Not yet on subscription streaming. Digital release is scheduled as listed below.'
+                        : 'No subscription streaming provider currently listed for your region.'}
+                    </div>
+                  )
+                )}
+
+                {/* Theatrical vs Digital Release Dates for Movies */}
+                {!isTv && (media.theatricalReleaseDate || media.digitalReleaseDate) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-[var(--border-light)] text-xs">
+                    {media.theatricalReleaseDate && (
+                      <div className="p-2.5 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-light)] flex flex-col">
+                        <span className="text-[11px] text-[var(--text-secondary)] flex items-center gap-1 mb-0.5">
+                          <Film className="w-3 h-3 text-amber-400" />
+                          Theatrical Premiere
+                        </span>
+                        <span className="font-semibold text-[var(--text-primary)] font-mono">
+                          {new Date(media.theatricalReleaseDate).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                        </span>
+                      </div>
+                    )}
+                    {media.digitalReleaseDate && (
+                      <div className="p-2.5 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-light)] flex flex-col">
+                        <span className="text-[11px] text-[var(--text-secondary)] flex items-center gap-1 mb-0.5">
+                          <Clock className="w-3 h-3 text-sky-400" />
+                          Digital / Streaming Drop
+                        </span>
+                        <span className="font-semibold text-[var(--text-primary)] font-mono">
+                          {new Date(media.digitalReleaseDate).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                          {movieStreamingInfo?.countdownDays && movieStreamingInfo.countdownDays > 0 ? (
+                            <span className="text-[11px] text-sky-400 font-normal ml-1">
+                              ({movieStreamingInfo.countdownDays} days away)
+                            </span>
+                          ) : null}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* BOOK READING PROGRESS TRACKING */}
           {isBook && (

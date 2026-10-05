@@ -4,6 +4,21 @@ import type { MediaItem, UpcomingFilter } from '../types';
  * Extracts a comparable Date object from media release or premiere date.
  */
 export function getItemReleaseDate(item: MediaItem): Date | null {
+  if (item.type === 'movie' && item.digitalReleaseDate) {
+    const digDate = new Date(item.digitalReleaseDate);
+    if (!isNaN(digDate.getTime())) {
+      const rawTheat = item.theatricalReleaseDate || item.releaseDate;
+      const theatDate = rawTheat ? new Date(rawTheat) : null;
+      if (theatDate && !isNaN(theatDate.getTime()) && theatDate.getTime() > Date.now()) {
+        return theatDate;
+      }
+      return digDate;
+    }
+  }
+  if (item.theatricalReleaseDate) {
+    const d = new Date(item.theatricalReleaseDate);
+    if (!isNaN(d.getTime())) return d;
+  }
   if (item.releaseDate) {
     const d = new Date(item.releaseDate);
     if (!isNaN(d.getTime())) return d;
@@ -33,6 +48,14 @@ export function isItemUpcoming(item: MediaItem, now: Date = new Date()): { isUpc
     const lastAired = new Date(item.lastAiredDate);
     if (!isNaN(lastAired.getTime()) && lastAired.getTime() <= now.getTime()) {
       return { isUpcoming: false, releaseDate: lastAired };
+    }
+  }
+
+  // If movie has a scheduled future digital release date
+  if (item.type === 'movie' && item.digitalReleaseDate) {
+    const digDate = new Date(item.digitalReleaseDate);
+    if (!isNaN(digDate.getTime()) && digDate.getTime() > now.getTime()) {
+      return { isUpcoming: true, releaseDate: digDate };
     }
   }
 

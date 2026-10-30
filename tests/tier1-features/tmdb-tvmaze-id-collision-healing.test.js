@@ -476,4 +476,179 @@ describe('Tier 1: TMDB -> TVMaze ID Collision Protection & Automatic Library Sel
     assert.equal(abbottAfter.externalId, 55350, 'Abbott Elementary externalId must remain 55350');
     assert.equal(abbottAfter.totalEpisodes, 50);
   });
+
+  test('healCorruptedTmdbShows should detect and heal Abbott Elementary when corrupted by MyPam! 4-episode collision and restore S5E8 watch progress', async () => {
+    const { db, saveMediaItem, healCorruptedTmdbShows } = await getDbModule();
+
+    // 1. Seed database with corrupted Abbott Elementary (source: 'tmdb', externalId: 55350, 4 episodes from MyPam! TMDB 55350 collision)
+    const corruptedAbbott = {
+      id: 'media_abbott_corrupted',
+      title: 'Abbott Elementary',
+      type: 'tv',
+      source: 'tmdb', // Flip caused by earlier healer!
+      externalId: 55350, // TVMaze ID 55350!
+      tvmazeId: 55350,
+      tmdbId: 125935,
+      imdbId: 'tt14218830',
+      thetvdbId: 403102,
+      totalSeasons: 1,
+      totalEpisodes: 4,
+      watchedEpisodesCount: 4,
+      status: 'watching'
+    };
+
+    await saveMediaItem(corruptedAbbott);
+
+    // Seed 4 corrupted episodes from MyPam!
+    const corruptedEpisodes = [];
+    for (let i = 1; i <= 4; i++) {
+      corruptedEpisodes.push({
+        id: `media_abbott_corrupted_S1E${i}`,
+        mediaId: 'media_abbott_corrupted',
+        seasonNumber: 1,
+        episodeNumber: i,
+        title: `MyPam Episode ${i}`,
+        isWatched: 1,
+        watchedAt: '2026-09-14T03:05:00.000Z'
+      });
+    }
+    await db.episodes.bulkPut(corruptedEpisodes);
+
+    // Mock TVMaze 55350 episodes endpoint returning the 101 authentic Abbott Elementary episodes across 6 seasons:
+    // S1: 13, S2: 22, S3: 14, S4: 22, S5: 22, S6: 8 (total = 101)
+    const seasonCounts = [
+      { season: 1, count: 13, date: '2021-12-07' },
+      { season: 2, count: 22, date: '2022-09-21' },
+      { season: 3, count: 14, date: '2024-02-07' },
+      { season: 4, count: 22, date: '2024-10-09' },
+      { season: 5, count: 22, date: '2025-10-08' },
+      { season: 6, count: 8, date: '2026-10-07' }
+    ];
+    const mockTvmazeEpisodes = [];
+    for (const sc of seasonCounts) {
+      for (let e = 1; e <= sc.count; e++) {
+        mockTvmazeEpisodes.push({
+          season: sc.season,
+          number: e,
+          name: `S${sc.season} Episode ${e}`,
+          airdate: sc.date
+        });
+      }
+    }
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/shows/55350/episodes')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => mockTvmazeEpisodes
+        };
+      }
+      return { ok: false, status: 404 };
+    };
+
+    try {
+      const healResult = await healCorruptedTmdbShows();
+
+      assert.equal(healResult.healedCount, 1, 'Should heal the corrupted Abbott Elementary show');
+      const healedShowInfo = healResult.healedShows.find(s => s.title === 'Abbott Elementary');
+      assert.ok(healedShowInfo, 'Abbott Elementary should be in healed list');
+      assert.equal(healedShowInfo.previousEpisodesCount, 4);
+      assert.equal(healedShowInfo.healedEpisodesCount, 101);
+
+      // Verify database record post-heal
+      const healedMedia = await db.media.get('media_abbott_corrupted');
+      assert.equal(healedMedia.source, 'tvmaze', 'Source must be restored to tvmaze');
+      assert.equal(healedMedia.externalId, 55350, 'External ID must be 55350');
+      assert.equal(healedMedia.tvmazeId, 55350, 'TVMaze ID must be 55350');
+      assert.equal(healedMedia.tmdbId, 125935, 'True TMDB ID 125935 must be preserved');
+      assert.equal(healedMedia.totalSeasons, 6, 'Total seasons must be restored to 6');
+      assert.equal(healedMedia.totalEpisodes, 101, 'Total episodes must be restored to 101');
+      assert.equal(healedMedia.watchedEpisodesCount, 79, 'User reached S5E8 (13+22+14+22+8 = 79 watched episodes)');
+      assert.equal(healedMedia.status, 'watching', 'Status must be watching');
+      assert.equal(healedMedia.currentSeason, 5, 'Current season must be 5');
+      assert.equal(healedMedia.currentEpisode, 8, 'Current episode must be 8');
+
+      const afterEps = await db.episodes.where('mediaId').equals('media_abbott_corrupted').toArray();
+      assert.equal(afterEps.length, 101, 'All 101 episodes across 6 seasons must be in database');
+      const s5e8 = afterEps.find(e => e.seasonNumber === 5 && e.episodeNumber === 8);
+      const s5e9 = afterEps.find(e => e.seasonNumber === 5 && e.episodeNumber === 9);
+      assert.equal(s5e8.isWatched, 1, 'S5E8 must be marked watched');
+      assert.equal(s5e9.isWatched, 0, 'S5E9 must be marked unwatched');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('isMatchingShowIdentity and fetchFullMediaDetails should reject unrelated shows from cross-provider numeric ID collisions', async () => {
+    const { isMatchingShowIdentity, fetchFullMediaDetails } = await getApiModule();
+
+    // 1. Direct identity check
+    assert.equal(
+      isMatchingShowIdentity({ title: 'Abbott Elementary', imdbId: 'tt14218830' }, 'MyPam!', 'tt9999999'),
+      false,
+      'Must reject MyPam! when expecting Abbott Elementary'
+    );
+    assert.equal(
+      isMatchingShowIdentity({ title: 'Shrinking', imdbId: 'tt15677150' }, "Bruce Forsyth's Big Night", null),
+      false,
+      'Must reject Bruce Forsyth when expecting Shrinking'
+    );
+    assert.equal(
+      isMatchingShowIdentity({ title: 'Abbott Elementary', imdbId: 'tt14218830' }, 'Abbott Elementary', 'tt14218830'),
+      true,
+      'Must accept matching show identity'
+    );
+
+    // 2. Mislabeled TVMaze show in fetchFullMediaDetails should auto-route to TVMaze and restore source: 'tvmaze'
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const urlStr = String(url);
+      if (urlStr.includes('api.tvmaze.com/shows/55350/episodes')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { season: 1, number: 1, name: 'Pilot', airdate: '2021-12-07' }
+          ]
+        };
+      }
+      if (urlStr.includes('api.tvmaze.com/shows/55350')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: 55350,
+            name: 'Abbott Elementary',
+            status: 'Running',
+            premiered: '2021-12-07',
+            externals: { imdb: 'tt14218830', thetvdb: 403102 }
+          })
+        };
+      }
+      return { ok: false, status: 404 };
+    };
+
+    try {
+      const mislabeledShow = {
+        id: 'media_abbott_test',
+        title: 'Abbott Elementary',
+        type: 'tv',
+        source: 'tmdb', // Wrongly flipped!
+        externalId: 55350, // TVMaze ID!
+        tvmazeId: 55350,
+        tmdbId: 125935,
+        imdbId: 'tt14218830'
+      };
+      const details = await fetchFullMediaDetails(mislabeledShow);
+      assert.equal(details.media.source, 'tvmaze', 'Must automatically restore source to tvmaze');
+      assert.equal(details.media.externalId, 55350);
+      assert.equal(details.episodes.length, 1);
+      assert.equal(details.episodes[0].title, 'Pilot');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

@@ -1239,6 +1239,41 @@ export async function enrichBookSynopsis(params: {
 }
 
 /**
+ * Verify that a provider response (from TMDB or TVMaze) actually represents the expected media item
+ * and is not an unrelated show returned due to a cross-provider numeric ID collision.
+ */
+export function isMatchingShowIdentity(
+  expectedItem: Partial<MediaItem>,
+  returnedName?: string | null,
+  returnedImdbId?: string | null
+): boolean {
+  if (!expectedItem) return true;
+
+  // 1. If both have an IMDb ID, they must match
+  if (expectedItem.imdbId && returnedImdbId) {
+    const expImdb = expectedItem.imdbId.trim().toLowerCase();
+    const retImdb = returnedImdbId.trim().toLowerCase();
+    if (expImdb && retImdb) {
+      return expImdb === retImdb;
+    }
+  }
+
+  // 2. If expectedItem has a known title and provider returned a name, verify title similarity
+  if (expectedItem.title && returnedName) {
+    const normExp = expectedItem.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const normRet = returnedName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normExp && normRet) {
+      if (normExp === normRet) return true;
+      if (normExp.length >= 4 && normRet.includes(normExp)) return true;
+      if (normRet.length >= 4 && normExp.includes(normRet)) return true;
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Safely resolve a TVMaze show ID for a media item.
  * Never treats a TMDB external ID as a TVMaze ID.
  */
@@ -1410,22 +1445,30 @@ export async function fetchFullMediaDetails(
   }
 
   if (item.source === 'tmdb') {
-    // If the item is Shrinking with TVMaze ID 58323, safely route to TVMaze
-    if (item.title && item.title.trim().toLowerCase() === 'shrinking' && (String(item.externalId) === '58323' || String(item.tvmazeId) === '58323')) {
-      return await fetchTVMazeDetails(58323, {
+    // Universal guard: If a TV show has source === 'tmdb', but its externalId differs from its tmdbId
+    // (e.g., a TVMaze show like Abbott Elementary 55350 or Shrinking 58323 whose source was mislabeled as 'tmdb'),
+    // route it directly to TVMaze with its TVMaze ID!
+    if (
+      item.type === 'tv' &&
+      item.tmdbId &&
+      item.externalId &&
+      String(item.externalId) !== String(item.tmdbId)
+    ) {
+      const trueTvmazeId = item.tvmazeId || item.externalId;
+      return await fetchTVMazeDetails(trueTvmazeId, {
         ...item,
         source: 'tvmaze',
-        externalId: 58323,
-        tvmazeId: 58323,
-        tmdbId: 136311
+        externalId: trueTvmazeId,
+        tvmazeId: trueTvmazeId,
+        tmdbId: item.tmdbId
       });
     }
 
-    if (apiKey && item.externalId) {
+    if (apiKey && (item.tmdbId || item.externalId)) {
       if (item.type === 'movie') {
-        return await fetchTMDBMovieDetails(item.externalId, apiKey, item);
+        return await fetchTMDBMovieDetails(item.tmdbId || item.externalId!, apiKey, item);
       } else {
-        return await fetchTMDBTVDetails(item.externalId, apiKey, item);
+        return await fetchTMDBTVDetails(item.tmdbId || item.externalId!, apiKey, item);
       }
     }
 
@@ -1513,6 +1556,11 @@ async function fetchTVMazeDetails(
     showData = await showRes.json();
   }
 
+  // Identity safeguard: Never allow a cross-provider numeric ID collision to overwrite an existing show
+  if (showData && !isMatchingShowIdentity(fallbackItem, showData.name, showData.externals?.imdb)) {
+    throw new Error(`TVMaze ID collision rejected for "${fallbackItem.title}": ID ${showId} returned "${showData.name}"`);
+  }
+
   let episodesData: TVMazeEpisode[] = [];
   if (episodesRes && episodesRes.ok) {
     episodesData = await episodesRes.json();
@@ -1586,6 +1634,12 @@ async function fetchTMDBTVDetails(
   const res = await fetch(`${TMDB_BASE_URL}/tv/${showId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids,watch/providers`);
   if (!res.ok) throw new Error('Failed to fetch TMDB TV details');
   const data: TMDBTV = await res.json();
+
+  // Identity safeguard: Never allow a cross-provider numeric ID collision to overwrite an existing show
+  const returnedImdbId = (data as { external_ids?: { imdb_id?: string } })?.external_ids?.imdb_id;
+  if (!isMatchingShowIdentity(fallbackItem, data.name, returnedImdbId)) {
+    throw new Error(`TMDB ID collision rejected for "${fallbackItem.title}": ID ${showId} returned "${data.name}"`);
+  }
 
   const regularSeasons = (data.seasons || []).filter(s => s.season_number > 0);
 
@@ -1986,13 +2040,28 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
       }
     });
 
-    const hasPrunedEpisodes = existingEpisodes.length > 0 && mergedEpisodes.length < existingEpisodes.length;
-    const hasUpdates = newEpisodesCount > 0 || updatedTitlesCount > 0 || updatedAirstampsCount > 0 || hasPrunedEpisodes;
+    // Safeguard: If provider returned fewer episodes than already exist, preserve all existing episodes
+    // and only merge updates/additions (never delete existing episodes during background/modal sync)
+    const freshKeySet = new Set<string>();
+    for (const freshEp of (freshData.episodes || [])) {
+      freshKeySet.add(`${freshEp.seasonNumber}_${freshEp.episodeNumber}`);
+    }
+    for (const existingEp of existingEpisodes) {
+      const key = `${existingEp.seasonNumber}_${existingEp.episodeNumber}`;
+      if (!freshKeySet.has(key)) {
+        mergedEpisodes.push(existingEp);
+      }
+    }
+    mergedEpisodes.sort((a, b) => (a.seasonNumber - b.seasonNumber) || (a.episodeNumber - b.episodeNumber));
+
+    const hasUpdates = newEpisodesCount > 0 || updatedTitlesCount > 0 || updatedAirstampsCount > 0;
 
     if (hasUpdates) {
       const updatedMedia: Partial<MediaItem> = {
         ...mediaItem,
-        totalSeasons: freshData.media.totalSeasons || mediaItem.totalSeasons,
+        source: freshData.media.source || mediaItem.source,
+        externalId: freshData.media.externalId || mediaItem.externalId,
+        totalSeasons: Math.max(Number(freshData.media.totalSeasons) || 1, Number(mediaItem.totalSeasons) || 1),
         totalEpisodes: mergedEpisodes.length,
         airStatus: freshData.media.airStatus || mediaItem.airStatus,
         networkTimezone: freshData.media.networkTimezone || mediaItem.networkTimezone,

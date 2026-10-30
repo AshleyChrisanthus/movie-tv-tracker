@@ -285,11 +285,12 @@ export default function App(): React.JSX.Element {
     refreshLibrary().then(async () => {
       // Quietly heal existing library shows with missing status/next episode metadata and cross-references
       try {
+        // Run cross-provider collision auto-healer FIRST before any backfill or background sync
+        const healedTmdb = await healCorruptedTmdbShows();
         const healed = await backfillMissingMediaMetadata();
         const backfilledRefs = await backfillMediaCrossReferences();
         const backfilledRatings = await backfillCommunityRatings();
         const backfilledCollections = await backfillMovieFranchiseCollections();
-        const healedTmdb = await healCorruptedTmdbShows();
 
         if (healedTmdb.healedCount > 0) {
           const sample = healedTmdb.healedShows[0];

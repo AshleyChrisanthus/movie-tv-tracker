@@ -189,4 +189,23 @@ describe('Tier 1: Issue #47 Pinned Cards Section & Persistence', () => {
       assert.equal(Boolean(restoredUnpinned.isPinned), false);
     });
   });
+
+  describe('Pin Button Card Visibility (Always Visible without Hover)', () => {
+    it('MediaCard source should keep pin button visible all the time (opacity-100)', async () => {
+      const fs = await import('fs');
+      const cardSource = fs.readFileSync('src/components/MediaCard.tsx', 'utf8');
+
+      // Assert that unpinned button does not use opacity-0 or group-hover:opacity-100 to hide
+      assert.ok(
+        !cardSource.includes('opacity-0 group-hover:opacity-100'),
+        'Pin button must not be hidden with opacity-0 group-hover:opacity-100'
+      );
+      assert.ok(
+        cardSource.includes("item.isPinned\n                  ? 'opacity-100 bg-[var(--accent)] text-white") ||
+        cardSource.includes("item.isPinned ? 'opacity-100 bg-[var(--accent)] text-white") ||
+        cardSource.includes("opacity-100 bg-black/50 hover:bg-black/80"),
+        'Pin button must have opacity-100 and remain visible all the time'
+      );
+    });
+  });
 });

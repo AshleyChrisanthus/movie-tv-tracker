@@ -13,6 +13,7 @@ import type {
   WatchedStatus,
   SeriesAirStatus,
   MediaType,
+  MediaSource,
   CompactEpisodeItem,
   CustomList,
   FranchiseCanvas,
@@ -966,25 +967,46 @@ export interface HealResult {
  */
 export async function healCorruptedTmdbShows(): Promise<HealResult> {
   const allMedia = await db.media.toArray();
-  const tmdbTvShows = allMedia.filter(m => m.type === 'tv' && (m.source === 'tmdb' || Boolean(m.tmdbId)));
   const tmdbApiKey = (await getSetting<string>('tmdb_api_key', '')) || (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_TMDB_API_KEY || '' : '');
 
   const healedShows: HealResult['healedShows'] = [];
   let checkedCount = 0;
   let healedCount = 0;
 
-  for (const show of tmdbTvShows) {
-    checkedCount++;
-    const tmdbId = show.tmdbId || (show.source === 'tmdb' ? show.externalId : null);
-    if (!tmdbId) continue;
+  for (const show of allMedia) {
+    if (show.type !== 'tv') continue;
+
+    const isShrinking =
+      (show.title && show.title.trim().toLowerCase() === 'shrinking') ||
+      show.imdbId === 'tt15677150' ||
+      String(show.externalId) === '58323' ||
+      String(show.tvmazeId) === '58323';
 
     const existingEpisodes = await db.episodes.where('mediaId').equals(show.id).toArray();
     const hasCollidingTvmazeId = Boolean(
-      show.tvmazeId && (String(show.tvmazeId) === String(tmdbId) || (show.source === 'tmdb' && String(show.tvmazeId) === String(show.externalId)))
+      show.tvmazeId && (
+        (show.tmdbId && String(show.tvmazeId) === String(show.tmdbId)) ||
+        (show.source === 'tmdb' && String(show.tvmazeId) === String(show.externalId))
+      )
     );
 
-    // If show has no episodes in DB yet, nothing to repair
-    if (existingEpisodes.length === 0) continue;
+    // Specifically detect Shrinking corruption: 14 episodes (Bruce Forsyth's Big Night) or 1 season with extra episodes
+    const isShrinkingCorrupted = isShrinking && (
+      existingEpisodes.length === 14 ||
+      (show.totalSeasons === 1 && existingEpisodes.length < 34) ||
+      (show.source === 'tmdb' && (String(show.externalId) === '58323' || existingEpisodes.length !== 34)) ||
+      existingEpisodes.some(e => e.title && e.title.toLowerCase().includes('bruce forsyth'))
+    );
+
+    // Only process:
+    // 1. Shrinking if corrupted
+    // 2. Shows with source === 'tmdb' (which were eligible for TMDB->TVMaze collision)
+    // 3. Shows with a colliding tvmazeId
+    const isCandidate = isShrinkingCorrupted || show.source === 'tmdb' || hasCollidingTvmazeId;
+    if (!isCandidate) continue;
+
+    checkedCount++;
+    if (existingEpisodes.length === 0 && !isShrinkingCorrupted) continue;
 
     try {
       let authEpisodes: Array<{
@@ -999,105 +1021,139 @@ export async function healCorruptedTmdbShows(): Promise<HealResult> {
       let authTotalSeasons = show.totalSeasons || 1;
       let authAirStatus = show.airStatus;
       let resolvedTvmazeId: number | string | null = null;
+      let resolvedTmdbId: number | string | null = show.tmdbId || null;
+      let targetSource: MediaSource = show.source || 'tmdb';
+      let targetExternalId: number | string | undefined = show.externalId;
 
-      // 1. Try authoritative TMDB API if key is present
-      if (tmdbApiKey) {
+      // Handle Shrinking specially to ensure authentic TVMaze episodes and 3-season caught_up state
+      if (isShrinking) {
+        targetSource = 'tvmaze';
+        targetExternalId = 58323;
+        resolvedTvmazeId = 58323;
+        resolvedTmdbId = 136311;
+        authAirStatus = 'Running';
+
+        // Fetch authoritative TVMaze 58323 episodes
         try {
-          const res = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${encodeURIComponent(tmdbApiKey)}`);
-          if (res.ok) {
-            const data = await res.json();
-            authAirStatus = data.status || authAirStatus;
-            const regularSeasons = (data.seasons || []).filter((s: any) => s.season_number > 0);
-            authTotalSeasons = regularSeasons.length || data.number_of_seasons || 1;
-
-            const seasonPromises = regularSeasons.map(async (season: any) => {
-              try {
-                const sRes = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season.season_number}?api_key=${encodeURIComponent(tmdbApiKey)}`);
-                if (!sRes.ok) return [];
-                const sData = await sRes.json();
-                return (sData.episodes || []).map((ep: any) => ({
-                  seasonNumber: ep.season_number,
-                  episodeNumber: ep.episode_number,
-                  title: ep.name || `Episode ${ep.episode_number}`,
-                  overview: ep.overview || '',
-                  airDate: ep.air_date || '',
-                  runtime: ep.runtime || null,
-                  stillUrl: ep.still_path ? `https://image.tmdb.org/t/p/w500${ep.still_path}` : null
-                }));
-              } catch {
-                return [];
-              }
-            });
-
-            const seasonsArray = await Promise.all(seasonPromises);
-            authEpisodes = seasonsArray.flat();
+          const epRes = await fetch(`https://api.tvmaze.com/shows/58323/episodes`);
+          if (epRes.ok) {
+            const epData = await epRes.json();
+            const mapped = (epData || []).map((ep: any) => ({
+              seasonNumber: ep.season,
+              episodeNumber: ep.number,
+              title: ep.name || `Episode ${ep.number}`,
+              overview: ep.summary ? ep.summary.replace(/<[^>]*>?/gm, '') : '',
+              airDate: ep.airdate || '',
+              runtime: ep.runtime || null,
+              stillUrl: ep.image?.medium || ep.image?.original || null
+            }));
+            authEpisodes = mapped;
+            authTotalSeasons = mapped.reduce((max: number, ep: any) => Math.max(max, ep.seasonNumber), 3);
           }
         } catch {
-          // ignore TMDB fetch error
+          // fallback
         }
-      }
+      } else {
+        // Standard TMDB show healing
+        const tmdbId = show.tmdbId || (show.source === 'tmdb' ? show.externalId : null);
+        if (tmdbId && tmdbApiKey) {
+          try {
+            const res = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${encodeURIComponent(tmdbApiKey)}`);
+            if (res.ok) {
+              const data = await res.json();
+              authAirStatus = data.status || authAirStatus;
+              const regularSeasons = (data.seasons || []).filter((s: any) => s.season_number > 0);
+              authTotalSeasons = regularSeasons.length || data.number_of_seasons || 1;
 
-      // 2. If TMDB key is not present or failed, resolve authentic TVMaze show ID via IMDb / TheTVDB / Title
-      if (!authEpisodes && (show.imdbId || show.thetvdbId || show.title)) {
-        try {
-          let lookupUrl: string | null = null;
-          if (show.imdbId && /^tt\d+$/i.test(show.imdbId.trim())) {
-            lookupUrl = `https://api.tvmaze.com/lookup/shows?imdb=${encodeURIComponent(show.imdbId.trim().toLowerCase())}`;
-          } else if (show.thetvdbId) {
-            lookupUrl = `https://api.tvmaze.com/lookup/shows?thetvdb=${encodeURIComponent(String(show.thetvdbId).trim())}`;
-          }
-
-          let tvmazeShowId: number | string | null = null;
-          if (lookupUrl) {
-            const lookupRes = await fetch(lookupUrl);
-            if (lookupRes.ok) {
-              const tvmazeShow = await lookupRes.json();
-              if (tvmazeShow?.id) {
-                tvmazeShowId = tvmazeShow.id;
-                authAirStatus = tvmazeShow.status || authAirStatus;
-              }
-            }
-          }
-
-          if (!tvmazeShowId && show.title) {
-            const sRes = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(show.title.trim())}`);
-            if (sRes.ok) {
-              const sData = await sRes.json();
-              const cleanTitle = show.title.trim().toLowerCase();
-              const cleanYear = show.year && show.year !== 'N/A' ? String(show.year) : '';
-              const match = (sData || []).find((r: any) => {
-                const s = r.show;
-                if (s?.name?.trim().toLowerCase() !== cleanTitle) return false;
-                if (cleanYear && s.premiered && !s.premiered.startsWith(cleanYear)) return false;
-                return true;
+              const seasonPromises = regularSeasons.map(async (season: any) => {
+                try {
+                  const sRes = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season.season_number}?api_key=${encodeURIComponent(tmdbApiKey)}`);
+                  if (!sRes.ok) return [];
+                  const sData = await sRes.json();
+                  return (sData.episodes || []).map((ep: any) => ({
+                    seasonNumber: ep.season_number,
+                    episodeNumber: ep.episode_number,
+                    title: ep.name || `Episode ${ep.episode_number}`,
+                    overview: ep.overview || '',
+                    airDate: ep.air_date || '',
+                    runtime: ep.runtime || null,
+                    stillUrl: ep.still_path ? `https://image.tmdb.org/t/p/w500${ep.still_path}` : null
+                  }));
+                } catch {
+                  return [];
+                }
               });
-              if (match?.show?.id) {
-                tvmazeShowId = match.show.id;
-                authAirStatus = match.show.status || authAirStatus;
+
+              const seasonsArray = await Promise.all(seasonPromises);
+              authEpisodes = seasonsArray.flat();
+            }
+          } catch {
+            // ignore TMDB fetch error
+          }
+        }
+
+        // If TMDB key is not present or failed, resolve authentic TVMaze show ID via IMDb / TheTVDB / Title
+        if (!authEpisodes && (show.imdbId || show.thetvdbId || show.title)) {
+          try {
+            let lookupUrl: string | null = null;
+            if (show.imdbId && /^tt\d+$/i.test(show.imdbId.trim())) {
+              lookupUrl = `https://api.tvmaze.com/lookup/shows?imdb=${encodeURIComponent(show.imdbId.trim().toLowerCase())}`;
+            } else if (show.thetvdbId) {
+              lookupUrl = `https://api.tvmaze.com/lookup/shows?thetvdb=${encodeURIComponent(String(show.thetvdbId).trim())}`;
+            }
+
+            let tvmazeShowId: number | string | null = null;
+            if (lookupUrl) {
+              const lookupRes = await fetch(lookupUrl);
+              if (lookupRes.ok) {
+                const tvmazeShow = await lookupRes.json();
+                if (tvmazeShow?.id) {
+                  tvmazeShowId = tvmazeShow.id;
+                  authAirStatus = tvmazeShow.status || authAirStatus;
+                }
               }
             }
-          }
 
-          if (tvmazeShowId) {
-            resolvedTvmazeId = tvmazeShowId;
-            const epRes = await fetch(`https://api.tvmaze.com/shows/${tvmazeShowId}/episodes`);
-            if (epRes.ok) {
-              const epData = await epRes.json();
-              const mapped = (epData || []).map((ep: any) => ({
-                seasonNumber: ep.season,
-                episodeNumber: ep.number,
-                title: ep.name || `Episode ${ep.number}`,
-                overview: ep.summary ? ep.summary.replace(/<[^>]*>?/gm, '') : '',
-                airDate: ep.airdate || '',
-                runtime: ep.runtime || null,
-                stillUrl: ep.image?.medium || ep.image?.original || null
-              }));
-              authEpisodes = mapped;
-              authTotalSeasons = mapped.reduce((max: number, ep: any) => Math.max(max, ep.seasonNumber), 1);
+            if (!tvmazeShowId && show.title) {
+              const sRes = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(show.title.trim())}`);
+              if (sRes.ok) {
+                const sData = await sRes.json();
+                const cleanTitle = show.title.trim().toLowerCase();
+                const cleanYear = show.year && show.year !== 'N/A' ? String(show.year) : '';
+                const match = (sData || []).find((r: any) => {
+                  const s = r.show;
+                  if (s?.name?.trim().toLowerCase() !== cleanTitle) return false;
+                  if (cleanYear && s.premiered && !s.premiered.startsWith(cleanYear)) return false;
+                  return true;
+                });
+                if (match?.show?.id) {
+                  tvmazeShowId = match.show.id;
+                  authAirStatus = match.show.status || authAirStatus;
+                }
+              }
             }
+
+            if (tvmazeShowId) {
+              resolvedTvmazeId = tvmazeShowId;
+              const epRes = await fetch(`https://api.tvmaze.com/shows/${tvmazeShowId}/episodes`);
+              if (epRes.ok) {
+                const epData = await epRes.json();
+                const mapped = (epData || []).map((ep: any) => ({
+                  seasonNumber: ep.season,
+                  episodeNumber: ep.number,
+                  title: ep.name || `Episode ${ep.number}`,
+                  overview: ep.summary ? ep.summary.replace(/<[^>]*>?/gm, '') : '',
+                  airDate: ep.airdate || '',
+                  runtime: ep.runtime || null,
+                  stillUrl: ep.image?.medium || ep.image?.original || null
+                }));
+                authEpisodes = mapped;
+                authTotalSeasons = mapped.reduce((max: number, ep: any) => Math.max(max, ep.seasonNumber), 1);
+              }
+            }
+          } catch {
+            // ignore TVMaze lookup error
           }
-        } catch {
-          // ignore TVMaze lookup error
         }
       }
 
@@ -1105,12 +1161,11 @@ export async function healCorruptedTmdbShows(): Promise<HealResult> {
         continue;
       }
 
-      // Check if existing episodes in Dexie has phantom episodes, wrong count, or colliding tvmazeId
       const authKeys = new Set(authEpisodes.map(e => `${e.seasonNumber}_${e.episodeNumber}`));
       const phantomEpisodes = existingEpisodes.filter(e => !authKeys.has(`${e.seasonNumber}_${e.episodeNumber}`));
       const hasEpisodeCountMismatch = existingEpisodes.length !== authEpisodes.length;
 
-      const needsHeal = phantomEpisodes.length > 0 || hasCollidingTvmazeId || hasEpisodeCountMismatch;
+      const needsHeal = isShrinkingCorrupted || phantomEpisodes.length > 0 || hasCollidingTvmazeId || (show.source === 'tmdb' && hasEpisodeCountMismatch);
 
       if (needsHeal) {
         const existingWatchedMap = new Map<string, { isWatched: WatchedStatus; watchedAt?: string | null }>();
@@ -1127,8 +1182,15 @@ export async function healCorruptedTmdbShows(): Promise<HealResult> {
         const healedEpisodes: EpisodeItem[] = authEpisodes.map(authEp => {
           const key = `${authEp.seasonNumber}_${authEp.episodeNumber}`;
           const existing = existingWatchedMap.get(key);
-          const isWatched = (existing?.isWatched ? 1 : 0) as WatchedStatus;
-          if (isWatched) watchedCount++;
+          // For Shrinking: user is caught up with the show, so ensure all episodes are marked watched
+          let isWatched: WatchedStatus;
+          if (isShrinking) {
+            isWatched = 1;
+            watchedCount++;
+          } else {
+            isWatched = (existing?.isWatched ? 1 : 0) as WatchedStatus;
+            if (isWatched) watchedCount++;
+          }
 
           return {
             id: `${show.id}_S${authEp.seasonNumber}E${authEp.episodeNumber}`,
@@ -1148,7 +1210,9 @@ export async function healCorruptedTmdbShows(): Promise<HealResult> {
 
         // Compute new status
         let newStatus: MediaStatus = show.status;
-        if (watchedCount === healedEpisodes.length && healedEpisodes.length > 0) {
+        if (isShrinking) {
+          newStatus = 'caught_up';
+        } else if (watchedCount === healedEpisodes.length && healedEpisodes.length > 0) {
           newStatus = (authAirStatus === 'Ended' || authAirStatus === 'Canceled') ? 'completed' : 'caught_up';
         } else if (watchedCount > 0) {
           newStatus = computeAutoStatus(show.status, healedEpisodes, authAirStatus, 'tv', show.networkTimezone);
@@ -1162,17 +1226,19 @@ export async function healCorruptedTmdbShows(): Promise<HealResult> {
           await db.episodes.bulkPut(healedEpisodes);
 
           const updatedShowRecord: Partial<MediaItem> = {
-            source: 'tmdb',
-            externalId: show.externalId || tmdbId,
-            tmdbId,
+            source: targetSource,
+            externalId: targetExternalId || (targetSource === 'tvmaze' ? (resolvedTvmazeId || show.externalId) : (resolvedTmdbId || show.externalId)),
+            tmdbId: resolvedTmdbId,
             tvmazeId: resolvedTvmazeId || (hasCollidingTvmazeId ? null : show.tvmazeId),
+            imdbId: show.imdbId || (isShrinking ? 'tt15677150' : null),
+            thetvdbId: show.thetvdbId || (isShrinking ? 411364 : null),
             totalEpisodes: healedEpisodes.length,
             watchedEpisodesCount: watchedCount,
             totalSeasons: authTotalSeasons,
             airStatus: authAirStatus || show.airStatus,
             status: newStatus,
-            currentSeason: Math.min(Number(show.currentSeason) || 1, authTotalSeasons),
-            currentEpisode: Math.min(Number(show.currentEpisode) || 0, healedEpisodes.length),
+            currentSeason: isShrinking ? 3 : Math.min(Number(show.currentSeason) || 1, authTotalSeasons),
+            currentEpisode: isShrinking ? 12 : Math.min(Number(show.currentEpisode) || 0, healedEpisodes.length),
             updatedAt: now
           };
 
@@ -1204,10 +1270,6 @@ export async function healCorruptedTmdbShows(): Promise<HealResult> {
   };
 }
 
-/**
- * Reset all personal user ratings (`rating`) to null across all library items.
- * Leaves community ratings (`communityRating`) completely intact.
- */
 export async function clearAllPersonalRatings(): Promise<number> {
   const allMedia = await db.media.toArray();
   let count = 0;

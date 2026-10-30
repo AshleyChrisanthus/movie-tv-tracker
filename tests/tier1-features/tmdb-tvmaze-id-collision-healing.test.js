@@ -338,4 +338,142 @@ describe('Tier 1: TMDB -> TVMaze ID Collision Protection & Automatic Library Sel
     assert.equal(payload.settings.tmdb_api_key, 'test_tmdb_key_12345', 'tmdb_api_key must be synced so paired PWA/secondary devices have it');
     assert.equal(payload.settings.google_books_api_key, 'test_gb_key_67890', 'google_books_api_key must be synced');
   });
+
+  test('healCorruptedTmdbShows should detect and heal Shrinking when corrupted by Bruce Forsyth 14-episode collision', async () => {
+    const { db, saveMediaItem, healCorruptedTmdbShows, setSetting } = await getDbModule();
+
+    await setSetting('tmdb_api_key', 'mock_api_key');
+
+    // 1. Seed database with corrupted Shrinking (14 episodes from Bruce Forsyth TMDB 58323 collision)
+    const corruptedShrinking = {
+      id: 'media_shrinking_corrupted',
+      title: 'Shrinking',
+      type: 'tv',
+      source: 'tmdb',
+      externalId: 58323,
+      tvmazeId: 58323,
+      tmdbId: 136311,
+      imdbId: 'tt15677150',
+      thetvdbId: 411364,
+      totalSeasons: 1,
+      totalEpisodes: 14,
+      watchedEpisodesCount: 14,
+      status: 'watching'
+    };
+
+    await saveMediaItem(corruptedShrinking);
+
+    // Seed 14 corrupted episodes
+    const corruptedEpisodes = [];
+    for (let i = 1; i <= 14; i++) {
+      corruptedEpisodes.push({
+        id: `media_shrinking_corrupted_S1E${i}`,
+        mediaId: 'media_shrinking_corrupted',
+        seasonNumber: 1,
+        episodeNumber: i,
+        title: i <= 10 ? `Episode ${i}` : `Bruce Forsyth Extra ${i}`,
+        isWatched: 1,
+        watchedAt: '2026-09-14T03:05:00.000Z'
+      });
+    }
+    await db.episodes.bulkPut(corruptedEpisodes);
+
+    // Mock TVMaze 58323 episodes endpoint returning the 34 authentic Shrinking episodes across 3 seasons
+    const mockTvmazeEpisodes = [];
+    // Season 1: 10 episodes
+    for (let e = 1; e <= 10; e++) {
+      mockTvmazeEpisodes.push({ season: 1, number: e, name: `S1 Episode ${e}`, airdate: '2023-01-27' });
+    }
+    // Season 2: 12 episodes
+    for (let e = 1; e <= 12; e++) {
+      mockTvmazeEpisodes.push({ season: 2, number: e, name: `S2 Episode ${e}`, airdate: '2024-10-16' });
+    }
+    // Season 3: 12 episodes
+    for (let e = 1; e <= 12; e++) {
+      mockTvmazeEpisodes.push({ season: 3, number: e, name: `S3 Episode ${e}`, airdate: '2026-01-28' });
+    }
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/shows/58323/episodes')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => mockTvmazeEpisodes
+        };
+      }
+      return { ok: false, status: 404 };
+    };
+
+    try {
+      const healResult = await healCorruptedTmdbShows();
+
+      assert.equal(healResult.healedCount, 1, 'Should heal the corrupted Shrinking show');
+      const healedShowInfo = healResult.healedShows.find(s => s.title === 'Shrinking');
+      assert.ok(healedShowInfo, 'Shrinking should be in healed list');
+      assert.equal(healedShowInfo.previousEpisodesCount, 14);
+      assert.equal(healedShowInfo.healedEpisodesCount, 34);
+
+      // Verify database record post-heal
+      const healedMedia = await db.media.get('media_shrinking_corrupted');
+      assert.equal(healedMedia.source, 'tvmaze', 'Source must be restored to tvmaze');
+      assert.equal(healedMedia.externalId, 58323, 'External ID must be 58323');
+      assert.equal(healedMedia.tvmazeId, 58323, 'TVMaze ID must be 58323');
+      assert.equal(healedMedia.tmdbId, 136311, 'True TMDB ID 136311 must be preserved');
+      assert.equal(healedMedia.totalSeasons, 3, 'Total seasons must be restored to 3');
+      assert.equal(healedMedia.totalEpisodes, 34, 'Total episodes must be restored to 34');
+      assert.equal(healedMedia.watchedEpisodesCount, 34, 'User is caught up, watched count must be 34');
+      assert.equal(healedMedia.status, 'caught_up', 'Status must be restored to caught_up');
+      assert.equal(healedMedia.currentSeason, 3);
+      assert.equal(healedMedia.currentEpisode, 12);
+
+      const afterEps = await db.episodes.where('mediaId').equals('media_shrinking_corrupted').toArray();
+      assert.equal(afterEps.length, 34, 'All 34 episodes across 3 seasons must be in database');
+      assert.ok(afterEps.every(e => e.isWatched === 1), 'All episodes must be marked watched since user is caught up');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('healCorruptedTmdbShows should never convert legitimate TVMaze shows to TMDB', async () => {
+    const { db, saveMediaItem, healCorruptedTmdbShows } = await getDbModule();
+
+    // Seed Abbott Elementary as a normal TVMaze show
+    const abbott = {
+      id: 'media_abbott',
+      title: 'Abbott Elementary',
+      type: 'tv',
+      source: 'tvmaze',
+      externalId: 55350,
+      tvmazeId: 55350,
+      tmdbId: 125935,
+      totalSeasons: 4,
+      totalEpisodes: 50,
+      watchedEpisodesCount: 50,
+      status: 'caught_up'
+    };
+    await saveMediaItem(abbott);
+
+    const abbottEps = [];
+    for (let i = 1; i <= 50; i++) {
+      abbottEps.push({
+        id: `media_abbott_S1E${i}`,
+        mediaId: 'media_abbott',
+        seasonNumber: 1,
+        episodeNumber: i,
+        title: `Abbott Ep ${i}`,
+        isWatched: 1
+      });
+    }
+    await db.episodes.bulkPut(abbottEps);
+
+    const healResult = await healCorruptedTmdbShows();
+
+    // Abbott should NOT be healed or modified
+    const abbottAfter = await db.media.get('media_abbott');
+    assert.equal(abbottAfter.source, 'tvmaze', 'Abbott Elementary must remain tvmaze source');
+    assert.equal(abbottAfter.externalId, 55350, 'Abbott Elementary externalId must remain 55350');
+    assert.equal(abbottAfter.totalEpisodes, 50);
+  });
 });

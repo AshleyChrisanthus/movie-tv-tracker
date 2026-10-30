@@ -1410,6 +1410,17 @@ export async function fetchFullMediaDetails(
   }
 
   if (item.source === 'tmdb') {
+    // If the item is Shrinking with TVMaze ID 58323, safely route to TVMaze
+    if (item.title && item.title.trim().toLowerCase() === 'shrinking' && (String(item.externalId) === '58323' || String(item.tvmazeId) === '58323')) {
+      return await fetchTVMazeDetails(58323, {
+        ...item,
+        source: 'tvmaze',
+        externalId: 58323,
+        tvmazeId: 58323,
+        tmdbId: 136311
+      });
+    }
+
     if (apiKey && item.externalId) {
       if (item.type === 'movie') {
         return await fetchTMDBMovieDetails(item.externalId, apiKey, item);
@@ -1552,7 +1563,7 @@ async function fetchTVMazeDetails(
     externalId: fallbackItem.externalId || showId,
     tvmazeId: showId,
     imdbId: showData?.externals?.imdb || fallbackItem.imdbId || null,
-    tmdbId: showData?.externals?.themoviedb || fallbackItem.tmdbId || null,
+    tmdbId: showData?.externals?.themoviedb || (fallbackItem.tmdbId && String(fallbackItem.tmdbId) !== String(showId) ? fallbackItem.tmdbId : null),
     thetvdbId: showData?.externals?.thetvdb || fallbackItem.thetvdbId || null,
     totalSeasons: maxSeason,
     totalEpisodes: formattedEpisodes.length,

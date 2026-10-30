@@ -193,7 +193,7 @@ export default function MediaCard({
               } ${
                 item.isPinned
                   ? 'opacity-100 bg-[var(--accent)] text-white shadow-md shadow-[var(--accent)]/30 ring-1 ring-white/20'
-                  : 'opacity-0 group-hover:opacity-100 sm:opacity-0 focus:opacity-100 bg-black/60 hover:bg-black/80 text-white/90 border border-white/20 hover:scale-105'
+                  : 'opacity-100 bg-black/50 hover:bg-black/80 text-white/70 hover:text-white border border-white/15 hover:border-white/30 hover:scale-105'
               }`}
               title={item.isPinned ? 'Unpin from top' : 'Pin to top of library'}
             >

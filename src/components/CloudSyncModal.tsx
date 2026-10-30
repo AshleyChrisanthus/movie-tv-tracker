@@ -18,7 +18,9 @@ import {
   Key,
   Smartphone,
   Eye,
-  EyeOff
+  EyeOff,
+  UploadCloud,
+  DownloadCloud
 } from 'lucide-react';
 import {
   syncManager,
@@ -239,6 +241,58 @@ export default function CloudSyncModal({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setNotice({ type: 'error', message: `Sync error: ${msg}` });
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const handlePushToCloud = async () => {
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        '⚠️ Overwrite Cloud Vault?\n\nThis will push your current local library to the cloud vault, completely overwriting remote data. Any other devices paired to this vault will receive this clean state on their next sync.\n\nProceed?'
+      )
+    ) {
+      return;
+    }
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      await syncManager.pushToCloud({ forceOverwrite: true });
+      setNotice({
+        type: 'success',
+        message: '☁️ Cloud vault successfully overwritten with your current local library! Other devices will receive this clean state.'
+      });
+      onSynced?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setNotice({ type: 'error', message: `Push to cloud failed: ${msg}` });
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const handlePullFromCloud = async () => {
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        '⚠️ Overwrite Local Library?\n\nThis will download the data currently stored in your cloud vault and replace your local library on this device. Any unsynced local changes will be replaced.\n\nProceed?'
+      )
+    ) {
+      return;
+    }
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      await syncManager.pullFromCloud({ forceOverwrite: true });
+      setNotice({
+        type: 'success',
+        message: '📥 Local library successfully overwritten with cloud vault data!'
+      });
+      onSynced?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setNotice({ type: 'error', message: `Pull from cloud failed: ${msg}` });
     } finally {
       setIsWorking(false);
     }
@@ -669,8 +723,54 @@ export default function CloudSyncModal({
                       status.state === 'syncing' || isWorking ? 'animate-spin' : ''
                     }`}
                   />
-                  <span>{status.state === 'syncing' || isWorking ? 'Syncing...' : 'Sync Now'}</span>
+                  <span>{status.state === 'syncing' || isWorking ? 'Syncing...' : 'Sync (Merge)'}</span>
                 </button>
+              </div>
+
+              {/* Explicit Directional Sync Controls (Issue #54) */}
+              <div className="p-4 rounded-2xl bg-[var(--bg-primary)] border border-[var(--border-light)] space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">
+                    Vault Directional Controls
+                  </h4>
+                  <span className="text-[11px] text-[var(--text-secondary)]">
+                    Push / Pull Overwrites
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Push to Cloud Button */}
+                  <button
+                    type="button"
+                    disabled={status.state === 'syncing' || isWorking}
+                    onClick={handlePushToCloud}
+                    className="p-3.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 hover:border-sky-500/60 transition-all flex flex-col items-start gap-1.5 text-left cursor-pointer disabled:opacity-50 group"
+                  >
+                    <div className="flex items-center gap-2 font-bold text-xs text-sky-400 group-hover:text-sky-300">
+                      <UploadCloud className="w-4 h-4 shrink-0" />
+                      <span>Push to Cloud (Overwrite Vault)</span>
+                    </div>
+                    <span className="text-[11px] text-[var(--text-secondary)] group-hover:text-sky-200/80 leading-relaxed">
+                      Uploads this device&apos;s current local library directly to the cloud vault, overwriting remote data.
+                    </span>
+                  </button>
+
+                  {/* Pull from Cloud Button */}
+                  <button
+                    type="button"
+                    disabled={status.state === 'syncing' || isWorking}
+                    onClick={handlePullFromCloud}
+                    className="p-3.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/60 transition-all flex flex-col items-start gap-1.5 text-left cursor-pointer disabled:opacity-50 group"
+                  >
+                    <div className="flex items-center gap-2 font-bold text-xs text-amber-400 group-hover:text-amber-300">
+                      <DownloadCloud className="w-4 h-4 shrink-0" />
+                      <span>Pull from Cloud (Overwrite Local)</span>
+                    </div>
+                    <span className="text-[11px] text-[var(--text-secondary)] group-hover:text-amber-200/80 leading-relaxed">
+                      Downloads the cloud vault and replaces this device&apos;s local library with the cloud snapshot.
+                    </span>
+                  </button>
+                </div>
               </div>
 
               {/* Collapsible QR Code & Device Pairing Section */}

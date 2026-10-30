@@ -26,7 +26,7 @@ import { initTheme, toggleThemeMode } from './styles/theme';
 import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
 import { isAudiobookItem } from './utils/audioDuration';
 import { consumeShareTargetFromWindow } from './utils/shareTarget';
-import { Film, Plus, Search, Sparkles, X, Pin, ChevronUp, RefreshCw, QrCode, LayoutGrid, List } from 'lucide-react';
+import { Film, Plus, Search, Sparkles, X, Pin, ChevronUp, RefreshCw, QrCode, LayoutGrid, List, UploadCloud, DownloadCloud } from 'lucide-react';
 import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, GridColumns, UpcomingFilter, BookFormatFilter, SyncStatus } from './types';
 
 export default function App(): React.JSX.Element {
@@ -302,6 +302,13 @@ export default function App(): React.JSX.Element {
               message: `🛡️ Repaired ${healedTmdb.healedCount} show(s) affected by cross-provider episode collision (${sample.title}: restored ${sample.healedEpisodesCount} episodes, pruned ${sample.removedPhantomCount} phantom episodes).`
             }
           ]);
+
+          // Automatically push the clean healed library to the cloud vault if configured (Issue #54)
+          if (syncManager.isConfigured()) {
+            syncManager.pushToCloud({ forceOverwrite: true }).catch(err => {
+              console.warn('[CloudSync] Post-heal auto-push to cloud warning:', err);
+            });
+          }
         }
 
         // One-time housekeeping: reset legacy user ratings that were cloned from community ratings
@@ -783,6 +790,65 @@ export default function App(): React.JSX.Element {
     }));
   };
 
+  const handleDirectPushToCloud = async (): Promise<void> => {
+    if (!syncManager.isConfigured()) {
+      setIsCloudSyncOpen(true);
+      return;
+    }
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        '⚠️ Overwrite Cloud Vault?\n\nThis will push your current local library to the cloud vault, overwriting any remote data. All your paired devices will receive this clean state.'
+      )
+    ) {
+      return;
+    }
+    try {
+      await syncManager.pushToCloud({ forceOverwrite: true });
+      setSyncAlerts(prev => [
+        ...prev,
+        {
+          id: `push_cloud_${Date.now()}`,
+          title: 'Pushed to Cloud',
+          message: '☁️ Cloud vault successfully overwritten with your current local library!'
+        }
+      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Push to cloud failed: ${msg}`);
+    }
+  };
+
+  const handleDirectPullFromCloud = async (): Promise<void> => {
+    if (!syncManager.isConfigured()) {
+      setIsCloudSyncOpen(true);
+      return;
+    }
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        '⚠️ Overwrite Local Library?\n\nThis will download the data currently stored in your cloud vault and replace your local library on this device. Any un-synced local changes will be replaced.'
+      )
+    ) {
+      return;
+    }
+    try {
+      await syncManager.pullFromCloud({ forceOverwrite: true });
+      await refreshLibrary();
+      setSyncAlerts(prev => [
+        ...prev,
+        {
+          id: `pull_cloud_${Date.now()}`,
+          title: 'Pulled from Cloud',
+          message: '📥 Local library successfully overwritten with cloud vault data!'
+        }
+      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Pull from cloud failed: ${msg}`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex flex-col selection:bg-[var(--accent)] selection:text-white transition-colors duration-200">
       {/* Mobile Header Bar (Issue #50) */}
@@ -883,17 +949,42 @@ export default function App(): React.JSX.Element {
 
               <div className="flex items-center gap-2 shrink-0">
                 {syncManager.isConfigured() ? (
-                  <button
-                    type="button"
-                    disabled={cloudSyncStatus.state === 'syncing'}
-                    onClick={() => {
-                      syncManager.syncNow().catch(err => console.warn('[CloudSync] Manual sync error:', err));
-                    }}
-                    className="flex items-center gap-1 font-bold text-[var(--accent)] hover:brightness-110 disabled:opacity-50 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${cloudSyncStatus.state === 'syncing' ? 'animate-spin' : ''}`} />
-                    <span>{cloudSyncStatus.state === 'syncing' ? 'SYNCING...' : 'SYNC NOW'}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={cloudSyncStatus.state === 'syncing'}
+                      onClick={() => {
+                        syncManager.syncNow().catch(err => console.warn('[CloudSync] Manual sync error:', err));
+                      }}
+                      className="flex items-center gap-1 font-bold text-xs text-[var(--accent)] hover:brightness-110 disabled:opacity-50 cursor-pointer px-1.5 py-0.5 rounded-lg hover:bg-[var(--accent)]/10 transition-colors"
+                      title="Bi-directional Sync (Merge local and cloud)"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${cloudSyncStatus.state === 'syncing' ? 'animate-spin' : ''}`} />
+                      <span>{cloudSyncStatus.state === 'syncing' ? 'SYNCING...' : 'SYNC'}</span>
+                    </button>
+                    <span className="text-[var(--border-light)] text-xs">|</span>
+                    <button
+                      type="button"
+                      disabled={cloudSyncStatus.state === 'syncing'}
+                      onClick={handleDirectPushToCloud}
+                      className="flex items-center gap-1 font-bold text-xs text-sky-400 hover:text-sky-300 disabled:opacity-50 cursor-pointer px-1.5 py-0.5 rounded-lg hover:bg-sky-500/10 transition-colors"
+                      title="Push to Cloud (Overwrite Cloud Vault with Local Data)"
+                    >
+                      <UploadCloud className="w-3 h-3" />
+                      <span>PUSH</span>
+                    </button>
+                    <span className="text-[var(--border-light)] text-xs">|</span>
+                    <button
+                      type="button"
+                      disabled={cloudSyncStatus.state === 'syncing'}
+                      onClick={handleDirectPullFromCloud}
+                      className="flex items-center gap-1 font-bold text-xs text-amber-400 hover:text-amber-300 disabled:opacity-50 cursor-pointer px-1.5 py-0.5 rounded-lg hover:bg-amber-500/10 transition-colors"
+                      title="Pull from Cloud (Overwrite Local Library with Cloud Vault)"
+                    >
+                      <DownloadCloud className="w-3 h-3" />
+                      <span>PULL</span>
+                    </button>
+                  </div>
                 ) : (
                   <button
                     type="button"
@@ -907,7 +998,7 @@ export default function App(): React.JSX.Element {
               </div>
             </div>
 
-            {/* Mobile Stitch Search Bar & Offline/Sync Status Strip (Issue #50) */}
+            {/* Mobile Stitch Search Bar & Offline/Sync Status Strip (Issue #50 & #54) */}
             <MobileSearchStrip
               searchQuery={librarySearch}
               onSearchChange={setLibrarySearch}
@@ -918,6 +1009,8 @@ export default function App(): React.JSX.Element {
               onTriggerSync={() => {
                 syncManager.syncNow().catch(err => console.warn('[CloudSync] Manual sync error:', err));
               }}
+              onPushToCloud={handleDirectPushToCloud}
+              onPullFromCloud={handleDirectPullFromCloud}
               isSyncing={cloudSyncStatus.state === 'syncing' || syncState.isActive}
               isConfigured={syncManager.isConfigured()}
               lastSyncedTimeAgo={formatSyncRelativeTime(cloudSyncStatus.lastSyncedAt || syncManager.getConfig()?.lastSyncedAt)}

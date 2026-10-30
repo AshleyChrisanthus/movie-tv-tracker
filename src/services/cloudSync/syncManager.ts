@@ -1,4 +1,5 @@
 import { db, getCustomLists, saveCustomLists } from '../../db';
+import type { EpisodeItem } from '../../types';
 import type {
   SyncConfig,
   SyncProviderType,
@@ -507,6 +508,213 @@ export class SyncManager {
 
   checkUrlHashForPairing(): Promise<boolean> {
     return this.checkUrlPairing();
+  }
+
+  // ── Explicit Directional Cloud Controls (Issue #54) ─────────
+  /**
+   * Explicitly push current local IndexedDB library to cloud vault.
+   * When forceOverwrite is true (default), this bypasses remote merging completely and overwrites
+   * the cloud vault envelope with the exact local library state.
+   */
+  async pushToCloud(options: { forceOverwrite?: boolean } = { forceOverwrite: true }): Promise<boolean> {
+    if (!this.isConfigured() || !this.config) return false;
+    if (this.isSyncing) return false;
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      this.setStatus(
+        'offline',
+        this.config.lastSyncedAt ? new Date(this.config.lastSyncedAt) : null
+      );
+      return false;
+    }
+
+    this.isSyncing = true;
+    this.setStatus(
+      'syncing',
+      this.config.lastSyncedAt ? new Date(this.config.lastSyncedAt) : null
+    );
+
+    try {
+      const adapter = createLockerAdapter(this.config);
+      const nowIso = new Date().toISOString();
+
+      if (options.forceOverwrite) {
+        // Bump timestamps locally under suppression so other devices treat this push as authoritative
+        await withSyncSuppressMutations(async () => {
+          await db.transaction('rw', db.media, db.episodes, async () => {
+            const allMedia = await db.media.toArray();
+            for (const m of allMedia) {
+              m.updatedAt = nowIso;
+            }
+            if (allMedia.length > 0) {
+              await db.media.bulkPut(allMedia);
+            }
+
+            const allEpisodes = await db.episodes.toArray();
+            for (const ep of allEpisodes) {
+              ep.updatedAt = nowIso;
+            }
+            if (allEpisodes.length > 0) {
+              await db.episodes.bulkPut(allEpisodes);
+            }
+          });
+        });
+      }
+
+      const payload = await this.buildLocalPayload();
+      payload.updatedAt = nowIso;
+      payload.deviceId = this.config.deviceId;
+
+      const encryptedEnvelope = await encryptPayload(
+        payload,
+        this.config.secretKey,
+        this.config.deviceId
+      );
+
+      await adapter.put(this.config.vaultId, encryptedEnvelope);
+
+      const now = new Date();
+      this.config.lastSyncedAt = now.toISOString();
+      this.saveConfig(this.config);
+      this.setStatus('synced', now, undefined, payload.media.length);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Push to cloud failed';
+      console.warn('[CloudSync] Push to cloud failed:', msg);
+      this.setStatus(
+        'error',
+        this.config.lastSyncedAt ? new Date(this.config.lastSyncedAt) : null,
+        msg
+      );
+      throw err;
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Explicitly pull from the cloud vault into local IndexedDB.
+   * When forceOverwrite is true (default), this replaces the local library completely
+   * with the cloud vault payload.
+   */
+  async pullFromCloud(options: { forceOverwrite?: boolean } = { forceOverwrite: true }): Promise<boolean> {
+    if (!this.isConfigured() || !this.config) return false;
+    if (this.isSyncing) return false;
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      this.setStatus(
+        'offline',
+        this.config.lastSyncedAt ? new Date(this.config.lastSyncedAt) : null
+      );
+      return false;
+    }
+
+    if (!options.forceOverwrite) {
+      return await this.syncNow();
+    }
+
+    this.isSyncing = true;
+    this.setStatus(
+      'syncing',
+      this.config.lastSyncedAt ? new Date(this.config.lastSyncedAt) : null
+    );
+
+    try {
+      const adapter = createLockerAdapter(this.config);
+      const remoteEnvelope = await adapter.get(this.config.vaultId);
+
+      if (!remoteEnvelope) {
+        throw new Error('Cloud vault is empty or could not be found.');
+      }
+
+      let remotePayload: DecryptedSyncPayload;
+      try {
+        remotePayload = await decryptPayload(remoteEnvelope, this.config.secretKey);
+      } catch (decryptErr: unknown) {
+        const msg = decryptErr instanceof Error ? decryptErr.message : String(decryptErr);
+        throw new Error(`Decryption failed: Incorrect secret key or corrupted data. (${msg})`);
+      }
+
+      const fullEpisodes: EpisodeItem[] = (remotePayload.episodes || []).map((ep) => ({
+        id: ep.id,
+        mediaId: ep.mediaId,
+        seasonNumber: Number(ep.seasonNumber) || 1,
+        episodeNumber: Number(ep.episodeNumber) || 1,
+        title: ep.title || `Episode ${ep.episodeNumber}`,
+        overview: '',
+        airDate: ep.airDate || '',
+        airstamp: ep.airstamp || null,
+        runtime: ep.runtime ?? null,
+        stillUrl: '',
+        isWatched: ep.isWatched,
+        watchedAt: ep.watchedAt || null,
+        updatedAt: ep.updatedAt || ep.watchedAt || null
+      }));
+
+      await withSyncSuppressMutations(async () => {
+        await db.transaction(
+          'rw',
+          db.media,
+          db.episodes,
+          db.settings,
+          db.canvases,
+          async () => {
+            await db.media.clear();
+            await db.episodes.clear();
+            if (db.canvases) await db.canvases.clear();
+
+            const mediaToPut = (remotePayload.media || []).map((m) => ({
+              ...m,
+              updatedAt: m.updatedAt || remotePayload.updatedAt || new Date().toISOString()
+            }));
+
+            if (mediaToPut.length > 0) {
+              await db.media.bulkPut(mediaToPut);
+            }
+            if (fullEpisodes.length > 0) {
+              await db.episodes.bulkPut(fullEpisodes);
+            }
+            if (remotePayload.canvases && remotePayload.canvases.length > 0 && db.canvases) {
+              await db.canvases.bulkPut(remotePayload.canvases);
+            }
+
+            if (remotePayload.customLists) {
+              await saveCustomLists(remotePayload.customLists);
+            }
+
+            if (remotePayload.settings) {
+              for (const [k, v] of Object.entries(remotePayload.settings)) {
+                if (v !== undefined) {
+                  await db.settings.put({ key: k, value: v });
+                }
+              }
+            }
+          }
+        );
+      });
+
+      if (remotePayload.tombstones) {
+        this.saveLocalTombstones(remotePayload.tombstones);
+      }
+
+      const now = new Date();
+      this.config.lastSyncedAt = now.toISOString();
+      this.saveConfig(this.config);
+      this.setStatus('synced', now, undefined, remotePayload.media ? remotePayload.media.length : 0);
+      this.notifyDataSynced();
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Pull from cloud failed';
+      console.warn('[CloudSync] Pull from cloud failed:', msg);
+      this.setStatus(
+        'error',
+        this.config.lastSyncedAt ? new Date(this.config.lastSyncedAt) : null,
+        msg
+      );
+      throw err;
+    } finally {
+      this.isSyncing = false;
+    }
   }
 
   // ── Bi-Directional E2EE Sync Engine ────────────────────────

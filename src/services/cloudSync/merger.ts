@@ -505,9 +505,17 @@ export function mergeSyncPayload(
     const remoteMediaTime = remoteMediaTimeMap.get(mediaId) || 0;
     const localKeys = localEpKeysByMedia.get(mediaId);
 
-    // If local state is strictly newer for this media and has episodes, and this remote episode was deleted locally, do not resurrect it
-    if (localKeys && localKeys.size > 0 && localMediaTime > remoteMediaTime && !localKeys.has(epKey)) {
+    // If local state is at least as new as remote for this media and has episodes, and this remote episode was deleted locally, do not resurrect it
+    if (localKeys && localKeys.size > 0 && localMediaTime >= remoteMediaTime && !localKeys.has(epKey)) {
       continue;
+    }
+
+    // Safety: If local media has known total seasons and remote episode belongs to a non-existent season, do not resurrect
+    const localMediaObj = mediaMap.get(mediaId);
+    if (localMediaObj && localKeys && localKeys.size > 0) {
+      if (localMediaObj.totalSeasons && s > localMediaObj.totalSeasons) {
+        continue;
+      }
     }
 
     const remoteEp = toFullEpisode(rawRemoteEp, mediaId);

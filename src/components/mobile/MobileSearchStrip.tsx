@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Plus, RefreshCw, QrCode, X } from 'lucide-react';
+import { Search, Plus, RefreshCw, QrCode, X, UploadCloud, DownloadCloud } from 'lucide-react';
 import type { SyncStatus } from '../../types';
 
 export interface MobileSearchStripProps {
@@ -10,6 +10,8 @@ export interface MobileSearchStripProps {
   cloudSyncStatus?: SyncStatus;
   onOpenCloudSync?: () => void;
   onTriggerSync?: () => void;
+  onPushToCloud?: () => void;
+  onPullFromCloud?: () => void;
   isSyncing?: boolean;
   isConfigured?: boolean;
   lastSyncedTimeAgo?: string;
@@ -23,6 +25,8 @@ export default function MobileSearchStrip({
   cloudSyncStatus,
   onOpenCloudSync,
   onTriggerSync,
+  onPushToCloud,
+  onPullFromCloud,
   isSyncing = false,
   isConfigured = false,
   lastSyncedTimeAgo = 'Just now'
@@ -94,19 +98,52 @@ export default function MobileSearchStrip({
           </span>
         </button>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {isConfigured ? (
-            <button
-              type="button"
-              disabled={isSyncing || syncState === 'syncing'}
-              onClick={onTriggerSync}
-              className="flex items-center gap-1 font-bold text-[var(--accent)] hover:brightness-110 disabled:opacity-50 cursor-pointer text-[10px] tracking-wide"
-            >
-              <RefreshCw
-                className={`w-3 h-3 ${isSyncing || syncState === 'syncing' ? 'animate-spin' : ''}`}
-              />
-              <span>{isSyncing || syncState === 'syncing' ? 'SYNCING...' : 'SYNC NOW'}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                disabled={isSyncing || syncState === 'syncing'}
+                onClick={onTriggerSync}
+                className="flex items-center gap-0.5 font-bold text-[var(--accent)] hover:brightness-110 disabled:opacity-50 cursor-pointer text-[10px] tracking-wide px-1 py-0.5 rounded"
+                title="Bi-directional Sync (Merge)"
+              >
+                <RefreshCw
+                  className={`w-2.5 h-2.5 ${isSyncing || syncState === 'syncing' ? 'animate-spin' : ''}`}
+                />
+                <span>{isSyncing || syncState === 'syncing' ? 'SYNCING...' : onPushToCloud ? 'SYNC' : 'SYNC NOW'}</span>
+              </button>
+              {onPushToCloud && (
+                <>
+                  <span className="text-[var(--border-light)] text-[10px]">|</span>
+                  <button
+                    type="button"
+                    disabled={isSyncing || syncState === 'syncing'}
+                    onClick={onPushToCloud}
+                    className="flex items-center gap-0.5 font-bold text-sky-400 hover:text-sky-300 disabled:opacity-50 cursor-pointer text-[10px] tracking-wide px-1 py-0.5 rounded hover:bg-sky-500/10"
+                    title="Push to Cloud (Overwrite Cloud Vault)"
+                  >
+                    <UploadCloud className="w-2.5 h-2.5" />
+                    <span>PUSH</span>
+                  </button>
+                </>
+              )}
+              {onPullFromCloud && (
+                <>
+                  <span className="text-[var(--border-light)] text-[10px]">|</span>
+                  <button
+                    type="button"
+                    disabled={isSyncing || syncState === 'syncing'}
+                    onClick={onPullFromCloud}
+                    className="flex items-center gap-0.5 font-bold text-amber-400 hover:text-amber-300 disabled:opacity-50 cursor-pointer text-[10px] tracking-wide px-1 py-0.5 rounded hover:bg-amber-500/10"
+                    title="Pull from Cloud (Overwrite Local Library)"
+                  >
+                    <DownloadCloud className="w-2.5 h-2.5" />
+                    <span>PULL</span>
+                  </button>
+                </>
+              )}
+            </>
           ) : (
             <button
               type="button"

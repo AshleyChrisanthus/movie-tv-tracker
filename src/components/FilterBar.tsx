@@ -18,6 +18,7 @@ import {
   LayoutGrid,
   List,
   Calendar,
+  Pin,
   type LucideIcon
 } from 'lucide-react';
 import type { CustomList, ViewMode, GridDensity, GridColumns, UpcomingFilter, BookFormatFilter } from '../types';
@@ -64,6 +65,9 @@ export interface FilterBarProps {
   upcomingFilter?: UpcomingFilter;
   onUpcomingFilterChange?: (filter: UpcomingFilter) => void;
   upcomingDays?: number;
+  showPinnedView?: boolean;
+  onTogglePinnedView?: () => void;
+  pinnedCount?: number;
 }
 
 export default function FilterBar({
@@ -91,7 +95,10 @@ export default function FilterBar({
   onGridColumnsChange,
   upcomingFilter = 'show_all',
   onUpcomingFilterChange,
-  upcomingDays = 7
+  upcomingDays = 7,
+  showPinnedView = true,
+  onTogglePinnedView,
+  pinnedCount = 0
 }: FilterBarProps): React.JSX.Element {
   const isBookMode = typeFilter === 'book';
   const isTvMode = typeFilter === 'tv';
@@ -338,6 +345,32 @@ export default function FilterBar({
                 </option>
               </select>
             </div>
+          )}
+
+          {/* Pinned View Toggle Button (Issue #47) */}
+          {onTogglePinnedView && (
+            <button
+              type="button"
+              onClick={onTogglePinnedView}
+              title="Show / hide pinned items at top of library"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                showPinnedView
+                  ? 'bg-[var(--accent-bg)] border-[var(--accent)]/50 text-[var(--accent)] shadow-xs'
+                  : 'bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border-[var(--border-light)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Pin className={`w-3.5 h-3.5 ${showPinnedView ? 'fill-current text-[var(--accent)]' : ''}`} />
+              <span>Pinned</span>
+              {pinnedCount !== undefined && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                  showPinnedView
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'bg-[var(--bg-primary)] text-[var(--text-tertiary)]'
+                }`}>
+                  {pinnedCount}
+                </span>
+              )}
+            </button>
           )}
         </div>
 

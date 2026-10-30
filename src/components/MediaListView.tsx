@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones } from 'lucide-react';
+import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones, Pin } from 'lucide-react';
 import type { MediaItem, MediaStatus, RatingScale } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
@@ -42,6 +42,7 @@ export interface MediaListViewProps {
   onClick: (item: MediaItem) => void;
   onQuickIncrement?: (item: MediaItem) => void;
   onQuickToggleMovie?: (item: MediaItem) => void;
+  onTogglePin?: (item: MediaItem) => void;
   ratingScale?: RatingScale;
 }
 
@@ -50,6 +51,7 @@ export default function MediaListView({
   onClick,
   onQuickIncrement,
   onQuickToggleMovie,
+  onTogglePin,
   ratingScale = '10'
 }: MediaListViewProps): React.JSX.Element {
   return (
@@ -239,13 +241,31 @@ export default function MediaListView({
               ) : null}
             </div>
 
-            {/* Quick Action Button */}
-            <div className="shrink-0 flex items-center">
+            {/* Actions: Pin & Quick Action */}
+            <div className="shrink-0 flex items-center gap-1.5">
+              {onTogglePin && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTogglePin(item);
+                  }}
+                  className={`p-1.5 rounded-lg text-xs transition-all active:scale-95 cursor-pointer ${
+                    item.isPinned
+                      ? 'bg-[var(--accent)] text-white shadow-xs'
+                      : 'bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)]'
+                  }`}
+                  title={item.isPinned ? 'Unpin from top' : 'Pin to top of library'}
+                >
+                  <Pin className={`w-3.5 h-3.5 ${item.isPinned ? 'fill-current' : ''}`} />
+                </button>
+              )}
+
               {isTv && !isCompleted && item.status !== 'caught_up' && (
                 <button
                   type="button"
                   onClick={handleQuickAction}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all active:scale-95"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
                   title="Quick mark +1 episode watched"
                 >
                   <Plus className="w-3 h-3" />
@@ -257,7 +277,7 @@ export default function MediaListView({
                 <button
                   type="button"
                   onClick={handleQuickAction}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all active:scale-95"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
                   title={isTimeMode ? 'Quick listen +15 mins' : (isChapters ? 'Quick read +1 chapter' : 'Quick read +10 pages')}
                 >
                   <Plus className="w-3 h-3" />
@@ -269,7 +289,7 @@ export default function MediaListView({
                 <button
                   type="button"
                   onClick={handleQuickAction}
-                  className={`flex items-center gap-1 p-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
+                  className={`flex items-center gap-1 p-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 cursor-pointer ${
                     item.status === 'completed'
                       ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
                       : 'bg-[var(--bg-tertiary)] hover:bg-[var(--accent)] text-[var(--text-secondary)] hover:text-white border border-[var(--border-light)]'

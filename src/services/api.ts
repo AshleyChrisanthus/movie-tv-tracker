@@ -171,6 +171,45 @@ export async function searchMedia(
  * Search TMDB (Movies and TV Shows)
  */
 async function searchTMDB(query: string, apiKey: string): Promise<MediaSearchResult[]> {
+  if (/^tt\d+$/i.test(query.trim())) {
+    const imdbId = query.trim().toLowerCase();
+    const findUrl = `${TMDB_BASE_URL}/find/${encodeURIComponent(imdbId)}?api_key=${encodeURIComponent(apiKey)}&external_source=imdb_id`;
+    const findRes = await fetch(findUrl);
+    if (findRes.ok) {
+      const findData = await findRes.json();
+      const combined = [
+        ...(findData.movie_results || []).map((m: TMDBMovie) => ({ ...m, media_type: 'movie' as const })),
+        ...(findData.tv_results || []).map((t: TMDBTV) => ({ ...t, media_type: 'tv' as const }))
+      ];
+      if (combined.length > 0) {
+        return combined.map((item): MediaSearchResult => {
+          const isTv = item.media_type === 'tv';
+          const title = isTv ? (item as TMDBTV).name : (item as TMDBMovie).title;
+          const releaseDate = isTv ? (item as TMDBTV).first_air_date : (item as TMDBMovie).release_date;
+          const year = releaseDate ? new Date(releaseDate).getFullYear() : 'N/A';
+          const posterUrl = item.poster_path ? `${TMDB_IMAGE_BASE}/w500${item.poster_path}` : null;
+          const backdropUrl = item.backdrop_path ? `${TMDB_IMAGE_BASE}/original${item.backdrop_path}` : null;
+          return {
+            externalId: item.id,
+            tmdbId: item.id,
+            imdbId,
+            source: 'tmdb',
+            type: isTv ? 'tv' : 'movie',
+            title: title || 'Untitled',
+            year,
+            releaseDate: releaseDate || '',
+            overview: item.overview || '',
+            rating: null,
+            communityRating: item.vote_average ? Number(item.vote_average.toFixed(1)) : null,
+            communityRatingCount: item.vote_count || null,
+            posterUrl,
+            backdropUrl,
+            popularity: item.popularity || 0
+          };
+        });
+      }
+    }
+  }
   const url = `${TMDB_BASE_URL}/search/multi?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(query)}&include_adult=false`;
   const res = await fetch(url);
   if (!res.ok) {
@@ -230,6 +269,36 @@ async function searchFreeProviders(query: string): Promise<MediaSearchResult[]> 
  */
 async function searchTVMaze(query: string): Promise<MediaSearchResult[]> {
   try {
+    if (/^tt\d+$/i.test(query.trim())) {
+      const lookupRes = await fetch(`${TVMAZE_BASE_URL}/lookup/shows?imdb=${encodeURIComponent(query.trim().toLowerCase())}`);
+      if (lookupRes.ok) {
+        const show: TVMazeShow = await lookupRes.json();
+        if (show && show.id) {
+          const year = show.premiered ? new Date(show.premiered).getFullYear() : 'N/A';
+          const cleanOverview = show.summary ? show.summary.replace(/<[^>]*>?/gm, '') : '';
+          return [{
+            externalId: show.id,
+            tvmazeId: show.id,
+            source: 'tvmaze',
+            type: 'tv',
+            title: show.name,
+            year,
+            releaseDate: show.premiered || '',
+            overview: cleanOverview,
+            rating: null,
+            communityRating: show.rating?.average ? Number(show.rating.average) : null,
+            communityRatingCount: null,
+            posterUrl: show.image?.medium || show.image?.original || null,
+            backdropUrl: show.image?.original || null,
+            genres: show.genres || [],
+            status: show.status,
+            imdbId: show.externals?.imdb || null,
+            tmdbId: show.externals?.themoviedb || null,
+            thetvdbId: show.externals?.thetvdb || null
+          }];
+        }
+      }
+    }
     const res = await fetch(`${TVMAZE_BASE_URL}/search/shows?q=${encodeURIComponent(query)}`);
     if (!res.ok) return [];
     const data: TVMazeSearchResultItem[] = await res.json();
@@ -1170,6 +1239,75 @@ export async function enrichBookSynopsis(params: {
 }
 
 /**
+ * Safely resolve a TVMaze show ID for a media item.
+ * Never treats a TMDB external ID as a TVMaze ID.
+ */
+export async function resolveTVMazeShowId(item: Partial<MediaItem>): Promise<number | string | null> {
+  // If item's source is explicitly TVMaze and externalId is valid
+  if (item.source === 'tvmaze' && item.externalId && String(item.externalId) !== String(item.tmdbId)) {
+    return item.externalId;
+  }
+
+  // If item has a verified tvmazeId that does not collide with its tmdbId / externalId
+  if (
+    item.tvmazeId &&
+    (!item.tmdbId || String(item.tvmazeId) !== String(item.tmdbId)) &&
+    (!item.externalId || item.source !== 'tmdb' || String(item.tvmazeId) !== String(item.externalId))
+  ) {
+    return item.tvmazeId;
+  }
+
+  // Lookup TVMaze show via IMDb ID
+  if (item.imdbId && /^tt\d+$/i.test(item.imdbId.trim())) {
+    try {
+      const res = await fetch(`${TVMAZE_BASE_URL}/lookup/shows?imdb=${encodeURIComponent(item.imdbId.trim().toLowerCase())}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.id) return data.id;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Lookup TVMaze show via TheTVDB ID
+  if (item.thetvdbId) {
+    try {
+      const res = await fetch(`${TVMAZE_BASE_URL}/lookup/shows?thetvdb=${encodeURIComponent(String(item.thetvdbId).trim())}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.id) return data.id;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Search TVMaze by title & premiere year match
+  if (item.title) {
+    try {
+      const res = await fetch(`${TVMAZE_BASE_URL}/search/shows?q=${encodeURIComponent(item.title.trim())}`);
+      if (res.ok) {
+        const results: TVMazeSearchResultItem[] = await res.json();
+        const cleanTitle = item.title.trim().toLowerCase();
+        const cleanYear = item.year && item.year !== 'N/A' ? String(item.year) : '';
+        const match = results.find(r => {
+          const s = r.show;
+          if (s.name.trim().toLowerCase() !== cleanTitle) return false;
+          if (cleanYear && s.premiered && !s.premiered.startsWith(cleanYear)) return false;
+          return true;
+        });
+        if (match?.show?.id) return match.show.id;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
+/**
  * Fetch complete media details along with full season and episode lists.
  */
 export async function fetchFullMediaDetails(
@@ -1271,16 +1409,68 @@ export async function fetchFullMediaDetails(
     };
   }
 
-  if (item.source === 'tmdb' && apiKey && item.externalId) {
-    if (item.type === 'movie') {
-      return await fetchTMDBMovieDetails(item.externalId, apiKey, item);
-    } else {
-      return await fetchTMDBTVDetails(item.externalId, apiKey, item);
+  if (item.source === 'tmdb') {
+    if (apiKey && item.externalId) {
+      if (item.type === 'movie') {
+        return await fetchTMDBMovieDetails(item.externalId, apiKey, item);
+      } else {
+        return await fetchTMDBTVDetails(item.externalId, apiKey, item);
+      }
     }
+
+    // TMDB item on a device without a configured TMDB API key:
+    if (item.type === 'movie') {
+      return {
+        media: {
+          ...item,
+          totalSeasons: 0,
+          totalEpisodes: 1,
+          watchedEpisodesCount: item.status === 'completed' ? 1 : 0
+        },
+        episodes: []
+      };
+    }
+
+    // For TV shows: safely resolve TVMaze ID via IMDb/TheTVDB/title match
+    const resolvedTvmazeId = await resolveTVMazeShowId(item);
+    if (resolvedTvmazeId) {
+      const tvmazeData = await fetchTVMazeDetails(resolvedTvmazeId, {
+        ...item,
+        source: 'tmdb',
+        externalId: item.externalId,
+        tmdbId: item.tmdbId || item.externalId,
+        tvmazeId: resolvedTvmazeId
+      });
+      return {
+        media: {
+          ...tvmazeData.media,
+          source: 'tmdb',
+          externalId: item.externalId,
+          tmdbId: item.tmdbId || item.externalId,
+          tvmazeId: resolvedTvmazeId
+        },
+        episodes: tvmazeData.episodes
+      };
+    }
+
+    // If TVMaze counterpart cannot be verified safely, DO NOT query TVMaze with TMDB ID!
+    const existingEpisodes = item.id ? await getEpisodesForMedia(item.id) : [];
+    return {
+      media: {
+        ...item,
+        totalSeasons: item.totalSeasons || 1,
+        totalEpisodes: existingEpisodes.length || item.totalEpisodes || 0,
+        watchedEpisodesCount: item.watchedEpisodesCount || 0
+      },
+      episodes: existingEpisodes
+    };
   }
 
   if (item.source === 'tvmaze' || item.type === 'tv') {
-    return await fetchTVMazeDetails(item.externalId || item.id || '', item);
+    const showId = item.source === 'tvmaze' ? (item.externalId || item.id || '') : (item.tvmazeId || item.id || '');
+    if (showId) {
+      return await fetchTVMazeDetails(showId, item);
+    }
   }
 
   // Standalone movie without TMDB key
@@ -1355,20 +1545,20 @@ async function fetchTVMazeDetails(
     posterUrl: showData?.image?.original || showData?.image?.medium || fallbackItem.posterUrl,
     backdropUrl: showData?.image?.original || fallbackItem.backdropUrl,
     type: 'tv',
-    source: 'tvmaze',
+    source: fallbackItem.source || 'tvmaze',
     airStatus: showData?.status || fallbackItem.airStatus,
     networkTimezone: networkTimezone || fallbackItem.networkTimezone,
     schedule: showData?.schedule || fallbackItem.schedule,
-    externalId: showId,
+    externalId: fallbackItem.externalId || showId,
     tvmazeId: showId,
     imdbId: showData?.externals?.imdb || fallbackItem.imdbId || null,
     tmdbId: showData?.externals?.themoviedb || fallbackItem.tmdbId || null,
     thetvdbId: showData?.externals?.thetvdb || fallbackItem.thetvdbId || null,
     totalSeasons: maxSeason,
     totalEpisodes: formattedEpisodes.length,
-    watchedEpisodesCount: 0,
-    currentSeason: 1,
-    currentEpisode: 0
+    watchedEpisodesCount: fallbackItem.watchedEpisodesCount || 0,
+    currentSeason: fallbackItem.currentSeason || 1,
+    currentEpisode: fallbackItem.currentEpisode || 0
   };
 
   return { media, episodes: formattedEpisodes };
@@ -1732,6 +1922,11 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
     const freshData = await fetchFullMediaDetails(mediaItem);
     const existingEpisodes = await getEpisodesForMedia(mediaItem.id);
 
+    // Safeguard: If provider returned 0 episodes but existing episodes exist, abort update to prevent wiping library
+    if ((!freshData.episodes || freshData.episodes.length === 0) && existingEpisodes.length > 0) {
+      return { hasUpdates: false, mediaTitle: mediaItem.title, error: 'Provider returned 0 episodes; preserved existing episodes' };
+    }
+
     const existingMap = new Map<string, EpisodeItem>();
     for (const ep of existingEpisodes) {
       existingMap.set(`${ep.seasonNumber}_${ep.episodeNumber}`, ep);
@@ -1780,7 +1975,8 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
       }
     });
 
-    const hasUpdates = newEpisodesCount > 0 || updatedTitlesCount > 0 || updatedAirstampsCount > 0;
+    const hasPrunedEpisodes = existingEpisodes.length > 0 && mergedEpisodes.length < existingEpisodes.length;
+    const hasUpdates = newEpisodesCount > 0 || updatedTitlesCount > 0 || updatedAirstampsCount > 0 || hasPrunedEpisodes;
 
     if (hasUpdates) {
       const updatedMedia: Partial<MediaItem> = {

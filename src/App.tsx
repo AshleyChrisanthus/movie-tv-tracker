@@ -10,15 +10,24 @@ import SettingsModal from './components/SettingsModal';
 import SyncProgressBar from './components/SyncProgressBar';
 import ThemeModal from './components/ThemeModal';
 import ListManagerModal from './components/ListManagerModal';
+import CloudSyncModal from './components/CloudSyncModal';
+import MobileHeader from './components/mobile/MobileHeader';
+import MobileSearchStrip from './components/mobile/MobileSearchStrip';
+import MobileFilterChips from './components/mobile/MobileFilterChips';
+import NowInProgressCarousel from './components/mobile/NowInProgressCarousel';
+import MobileBottomNav from './components/mobile/MobileBottomNav';
+import MobileFilterSheet from './components/mobile/MobileFilterSheet';
 import { FranchiseCanvasView } from './components/canvas/FranchiseCanvasView';
-import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, clearAllPersonalRatings, getCustomLists, updateBookProgress, getSetting, setSetting, backfillMovieFranchiseCollections } from './db';
+import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, clearAllPersonalRatings, getCustomLists, updateBookProgress, getSetting, setSetting, backfillMovieFranchiseCollections, toggleMediaPinned, unpinAllMedia, healCorruptedTmdbShows } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync, fetchTMDBCollection, runStreamingSyncQueue, getMediaEligibleForStreamingSync } from './services/api';
+import { syncManager, formatSyncRelativeTime } from './services/cloudSync';
 import { getNextFranchiseMovie } from './utils/franchise';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
 import { isAudiobookItem } from './utils/audioDuration';
-import { Film, Plus, Search, Sparkles, X } from 'lucide-react';
-import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, GridColumns, UpcomingFilter, BookFormatFilter } from './types';
+import { consumeShareTargetFromWindow } from './utils/shareTarget';
+import { Film, Plus, Search, Sparkles, X, Pin, ChevronUp, RefreshCw, QrCode, LayoutGrid, List } from 'lucide-react';
+import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, GridColumns, UpcomingFilter, BookFormatFilter, SyncStatus } from './types';
 
 export default function App(): React.JSX.Element {
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
@@ -49,6 +58,22 @@ export default function App(): React.JSX.Element {
   const [upcomingDays, setUpcomingDays] = useState<number>(
     () => parseInt(localStorage.getItem('bingelog_upcoming_days') || '7', 10) || 7
   );
+
+  const [showPinnedView, setShowPinnedView] = useState<boolean>(() => {
+    const saved = localStorage.getItem('bingelog_show_pinned_view');
+    if (saved !== null) {
+      return saved === 'true';
+    }
+    return true;
+  });
+
+  const handleTogglePinnedView = () => {
+    setShowPinnedView(prev => {
+      const next = !prev;
+      localStorage.setItem('bingelog_show_pinned_view', String(next));
+      return next;
+    });
+  };
 
   const handleMainTabChange = (tab: 'library' | 'canvas') => {
     setMainTab(tab);
@@ -87,11 +112,16 @@ export default function App(): React.JSX.Element {
 
   // Modals
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const [sharedSearchQuery, setSharedSearchQuery] = useState<string>('');
+  const [sharedSearchType, setSharedSearchType] = useState<'all' | 'tv' | 'movie' | 'book' | 'audiobook'>('all');
   const [isManualOpen, setIsManualOpen] = useState<boolean>(false);
   const [manualEditItem, setManualEditItem] = useState<MediaItem | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isCloudSyncOpen, setIsCloudSyncOpen] = useState<boolean>(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<SyncStatus>(() => syncManager.getStatus());
   const [isThemeOpen, setIsThemeOpen] = useState<boolean>(false);
   const [isListManagerOpen, setIsListManagerOpen] = useState<boolean>(false);
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState<boolean>(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [syncAlerts, setSyncAlerts] = useState<SyncAlert[]>([]);
@@ -173,11 +203,48 @@ export default function App(): React.JSX.Element {
     }
   };
 
-  // Initialize theme mode on mount
+  // Initialize theme mode, share target, and E2EE Cloud Sync on mount
   useEffect(() => {
     initTheme();
     const currentMode = (document.documentElement.getAttribute('data-theme') || 'dark') as ThemeMode;
     setThemeMode(currentMode);
+
+    // Handle incoming PWA Web Share Target parameters (?share_title=...&share_text=...&share_url=...)
+    const shared = consumeShareTargetFromWindow();
+    if (shared && shared.query) {
+      setSharedSearchQuery(shared.query);
+      setSharedSearchType(shared.mediaType || 'all');
+      setIsSearchOpen(true);
+    }
+
+    const unsubStatus = syncManager.onStatusChange((newStatus) => {
+      setCloudSyncStatus(newStatus);
+    });
+    const unsubSynced = syncManager.onDataSynced(() => {
+      void refreshLibrary();
+    });
+
+    // Check for #sync=v1:... QR pairing hash or run initial E2EE sync
+    syncManager.checkUrlPairing().then((pairedViaHash) => {
+      if (pairedViaHash) {
+        void refreshLibrary();
+        setSyncAlerts(prev => [
+          ...prev,
+          {
+            id: `e2ee_pair_${Date.now()}`,
+            title: 'E2EE Cloud Sync Paired',
+            message: '🔒 Device paired and library decrypted via AES-GCM (256-bit)!'
+          }
+        ]);
+      } else if (syncManager.isConfigured()) {
+        syncManager.syncNow().catch(err => console.warn('[CloudSync] Startup sync warning:', err));
+      }
+    });
+
+    return () => {
+      unsubStatus();
+      unsubSynced();
+    };
   }, []);
 
   const handleToggleTheme = (): void => {
@@ -222,6 +289,19 @@ export default function App(): React.JSX.Element {
         const backfilledRefs = await backfillMediaCrossReferences();
         const backfilledRatings = await backfillCommunityRatings();
         const backfilledCollections = await backfillMovieFranchiseCollections();
+        const healedTmdb = await healCorruptedTmdbShows();
+
+        if (healedTmdb.healedCount > 0) {
+          const sample = healedTmdb.healedShows[0];
+          setSyncAlerts(prev => [
+            ...prev,
+            {
+              id: `healed_tmdb_${Date.now()}`,
+              title: 'Library Auto-Healed',
+              message: `🛡️ Repaired ${healedTmdb.healedCount} show(s) affected by cross-provider episode collision (${sample.title}: restored ${sample.healedEpisodesCount} episodes, pruned ${sample.removedPhantomCount} phantom episodes).`
+            }
+          ]);
+        }
 
         // One-time housekeeping: reset legacy user ratings that were cloned from community ratings
         const ratingsResetDone = await getSetting<boolean>('personal_ratings_cleared_v1', false);
@@ -231,7 +311,7 @@ export default function App(): React.JSX.Element {
           await setSetting('personal_ratings_cleared_v1', true);
         }
 
-        if (healed > 0 || backfilledRefs > 0 || backfilledRatings > 0 || backfilledCollections > 0 || resetRatingsCount > 0) {
+        if (healed > 0 || backfilledRefs > 0 || backfilledRatings > 0 || backfilledCollections > 0 || resetRatingsCount > 0 || healedTmdb.healedCount > 0) {
           await refreshLibrary();
         }
       } catch (err) {
@@ -317,6 +397,39 @@ export default function App(): React.JSX.Element {
     completed: itemCounts.completed,
     total: mediaList.length
   }), [itemCounts, mediaList.length]);
+
+  // Active in-progress items for Mobile Stitch Carousel (Issue #50)
+  const nowInProgressItems = useMemo(() => {
+    return mediaList.filter(item => item.status === 'watching');
+  }, [mediaList]);
+
+  // Mobile Type Counts for Stitch filter chips (Issue #50)
+  const mobileTypeCounts = useMemo(() => {
+    let tv = 0;
+    let movie = 0;
+    let book = 0;
+    let audio = 0;
+    for (const item of mediaList) {
+      if (item.type === 'tv') tv++;
+      else if (item.type === 'movie') movie++;
+      else if (item.type === 'book') {
+        if (isAudiobookItem(item)) audio++;
+        else book++;
+      }
+    }
+    return {
+      all: mediaList.length,
+      tv,
+      movie,
+      book,
+      audio
+    };
+  }, [mediaList]);
+
+  // Upcoming count for Mobile Bottom Nav badge (Issue #50)
+  const upcomingCount = useMemo(() => {
+    return mediaList.filter(item => shouldShowItemForUpcomingFilter(item, 'next_n_days', upcomingDays)).length;
+  }, [mediaList, upcomingDays]);
 
   // Filter and sort items
   const filteredItems = useMemo<MediaItem[]>(() => {
@@ -411,6 +524,28 @@ export default function App(): React.JSX.Element {
       });
   }, [mediaList, statusFilter, typeFilter, bookFormatFilter, listFilter, librarySearch, sortBy, upcomingFilter, upcomingDays]);
 
+  // Total pinned items count across library (Issue #47)
+  const totalPinnedCount = useMemo(() => {
+    return mediaList.filter(item => Boolean(item.isPinned)).length;
+  }, [mediaList]);
+
+  // Filtered pinned items respecting active filters/search (Issue #47)
+  const pinnedItems = useMemo(() => {
+    return filteredItems
+      .filter(item => Boolean(item.isPinned))
+      .sort((a, b) => {
+        const timeA = a.pinnedAt ? new Date(a.pinnedAt).getTime() : new Date(a.updatedAt || 0).getTime();
+        const timeB = b.pinnedAt ? new Date(b.pinnedAt).getTime() : new Date(b.updatedAt || 0).getTime();
+        return timeB - timeA;
+      });
+  }, [filteredItems]);
+
+  // Main list items (excluding pinned items when pinned view is active) (Issue #47)
+  const unpinnedItems = useMemo(() => {
+    if (!showPinnedView) return filteredItems;
+    return filteredItems.filter(item => !item.isPinned);
+  }, [filteredItems, showPinnedView]);
+
   // Quick Action: +1 episode directly from media card (or +10 pages for books)
   const handleQuickIncrement = async (item: MediaItem): Promise<void> => {
     if (item.type === 'tv') {
@@ -474,6 +609,18 @@ export default function App(): React.JSX.Element {
         console.warn('Franchise prompt error:', err);
       }
     }
+  };
+
+  // Quick Action: Toggle pinned state directly from card or modal (Issue #47)
+  const handleTogglePin = async (item: MediaItem): Promise<void> => {
+    await toggleMediaPinned(item.id);
+    await refreshLibrary();
+  };
+
+  // Quick Action: Unpin all items in library (Issue #47)
+  const handleUnpinAll = async (): Promise<void> => {
+    await unpinAllMedia();
+    await refreshLibrary();
   };
 
   // Open Edit Modal for an item
@@ -637,7 +784,16 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex flex-col selection:bg-[var(--accent)] selection:text-white transition-colors duration-200">
-      {/* Top Navbar */}
+      {/* Mobile Header Bar (Issue #50) */}
+      <MobileHeader
+        cloudSyncStatus={cloudSyncStatus}
+        onOpenCloudSync={() => setIsCloudSyncOpen(true)}
+        onOpenTheme={() => setIsThemeOpen(true)}
+        onOpenFilterSheet={() => setIsMobileFilterOpen(true)}
+        onSelectTab={handleMainTabChange}
+      />
+
+      {/* Top Navbar (Desktop >= 768px) */}
       <Navbar
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenManual={() => {
@@ -645,6 +801,8 @@ export default function App(): React.JSX.Element {
           setIsManualOpen(true);
         }}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenCloudSync={() => setIsCloudSyncOpen(true)}
+        cloudSyncStatus={cloudSyncStatus}
         onOpenTheme={() => setIsThemeOpen(true)}
         onToggleTheme={handleToggleTheme}
         themeMode={themeMode}
@@ -693,8 +851,101 @@ export default function App(): React.JSX.Element {
         />
       ) : (
         <>
-          <main className={`flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-8 ${gridDensity === 'compact' ? 'py-3 sm:py-4' : 'py-6'}`}>
+          <main className={`flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-8 pb-28 md:pb-6 ${gridDensity === 'compact' ? 'py-3 sm:py-4' : 'py-4 sm:py-6'}`}>
             
+            {/* Desktop Offline IndexedDB & E2EE Cloud Sync Status Strip (Issue #49) */}
+            <div className="hidden md:flex mb-3 px-3 py-1.5 rounded-xl bg-[var(--bg-secondary)]/70 border border-[var(--border-light)] items-center justify-between gap-2 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setIsCloudSyncOpen(true)}
+                className="flex items-center gap-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors truncate cursor-pointer"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    cloudSyncStatus.state === 'synced'
+                      ? 'bg-emerald-400'
+                      : cloudSyncStatus.state === 'syncing'
+                      ? 'bg-sky-400 animate-ping'
+                      : cloudSyncStatus.state === 'error'
+                      ? 'bg-rose-400'
+                      : cloudSyncStatus.state === 'offline'
+                      ? 'bg-amber-400'
+                      : 'bg-emerald-500/70'
+                  }`}
+                />
+                <span className="truncate font-medium">
+                  {syncManager.isConfigured()
+                    ? `Offline IndexedDB • Synced ${formatSyncRelativeTime(cloudSyncStatus.lastSyncedAt || syncManager.getConfig()?.lastSyncedAt)}`
+                    : `Offline IndexedDB • ${mediaList.length} items local`}
+                </span>
+              </button>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {syncManager.isConfigured() ? (
+                  <button
+                    type="button"
+                    disabled={cloudSyncStatus.state === 'syncing'}
+                    onClick={() => {
+                      syncManager.syncNow().catch(err => console.warn('[CloudSync] Manual sync error:', err));
+                    }}
+                    className="flex items-center gap-1 font-bold text-[var(--accent)] hover:brightness-110 disabled:opacity-50 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${cloudSyncStatus.state === 'syncing' ? 'animate-spin' : ''}`} />
+                    <span>{cloudSyncStatus.state === 'syncing' ? 'SYNCING...' : 'SYNC NOW'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsCloudSyncOpen(true)}
+                    className="flex items-center gap-1 font-bold text-[var(--accent)] hover:brightness-110 cursor-pointer"
+                  >
+                    <QrCode className="w-3 h-3" />
+                    <span>PAIR DEVICE</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Mobile Stitch Search Bar & Offline/Sync Status Strip (Issue #50) */}
+            <MobileSearchStrip
+              searchQuery={librarySearch}
+              onSearchChange={setLibrarySearch}
+              totalItemsCount={mediaList.length}
+              onOpenSearchModal={() => setIsSearchOpen(true)}
+              cloudSyncStatus={cloudSyncStatus}
+              onOpenCloudSync={() => setIsCloudSyncOpen(true)}
+              onTriggerSync={() => {
+                syncManager.syncNow().catch(err => console.warn('[CloudSync] Manual sync error:', err));
+              }}
+              isSyncing={cloudSyncStatus.state === 'syncing' || syncState.isActive}
+              isConfigured={syncManager.isConfigured()}
+              lastSyncedTimeAgo={formatSyncRelativeTime(cloudSyncStatus.lastSyncedAt || syncManager.getConfig()?.lastSyncedAt)}
+            />
+
+            {/* Mobile Dual-Row Horizontally Scrollable Filter Chips (Issue #50) */}
+            <MobileFilterChips
+              typeFilter={typeFilter}
+              onTypeChange={handleTypeChange}
+              bookFormatFilter={bookFormatFilter}
+              onBookFormatChange={handleBookFormatChange}
+              statusFilter={statusFilter}
+              onStatusChange={handleStatusChange}
+              itemCounts={itemCounts}
+              typeCounts={mobileTypeCounts}
+            />
+
+            {/* Mobile "Now In Progress" Horizontal Carousel (Issue #50) */}
+            {nowInProgressItems.length > 0 && (
+              <NowInProgressCarousel
+                items={nowInProgressItems}
+                onClick={(clicked) => setSelectedMedia(clicked)}
+                onQuickIncrement={handleQuickIncrement}
+                onQuickToggleMovie={handleQuickToggleMovie}
+                ratingScale={ratingScale}
+                onSeeAllWatching={() => handleStatusChange('watching')}
+              />
+            )}
+
             {/* Live Progress Bar for Library Sync */}
             <SyncProgressBar
               syncState={syncState}
@@ -702,43 +953,177 @@ export default function App(): React.JSX.Element {
               onDismiss={handleDismissSync}
             />
 
-            {/* Filter and Search Bar */}
-            <FilterBar
-              statusFilter={statusFilter}
-              onStatusChange={handleStatusChange}
-              typeFilter={typeFilter}
-              onTypeChange={handleTypeChange}
-              bookFormatFilter={bookFormatFilter}
-              onBookFormatChange={handleBookFormatChange}
-              bookCounts={bookCounts}
-              listFilter={listFilter}
-              onListChange={handleListChange}
-              customLists={customLists}
-              onOpenListManager={() => setIsListManagerOpen(true)}
-              librarySearch={librarySearch}
-              onLibrarySearchChange={setLibrarySearch}
-              sortBy={sortBy}
-              onSortChange={handleSortChange}
-              itemCounts={itemCounts}
-              viewMode={viewMode}
-              onViewModeChange={handleViewModeChange}
-              gridDensity={gridDensity}
-              onGridDensityChange={handleGridDensityChange}
-              gridColumns={gridColumns}
-              onGridColumnsChange={handleGridColumnsChange}
-              upcomingFilter={upcomingFilter}
-              onUpcomingFilterChange={handleUpcomingFilterChange}
-              upcomingDays={upcomingDays}
-            />
+            {/* Desktop Filter and Search Bar (>= 768px) */}
+            <div className="hidden md:block">
+              <FilterBar
+                statusFilter={statusFilter}
+                onStatusChange={handleStatusChange}
+                typeFilter={typeFilter}
+                onTypeChange={handleTypeChange}
+                bookFormatFilter={bookFormatFilter}
+                onBookFormatChange={handleBookFormatChange}
+                bookCounts={bookCounts}
+                listFilter={listFilter}
+                onListChange={handleListChange}
+                customLists={customLists}
+                onOpenListManager={() => setIsListManagerOpen(true)}
+                librarySearch={librarySearch}
+                onLibrarySearchChange={setLibrarySearch}
+                sortBy={sortBy}
+                onSortChange={handleSortChange}
+                itemCounts={itemCounts}
+                viewMode={viewMode}
+                onViewModeChange={handleViewModeChange}
+                gridDensity={gridDensity}
+                onGridDensityChange={handleGridDensityChange}
+                gridColumns={gridColumns}
+                onGridColumnsChange={handleGridColumnsChange}
+                upcomingFilter={upcomingFilter}
+                onUpcomingFilterChange={handleUpcomingFilterChange}
+                upcomingDays={upcomingDays}
+                showPinnedView={showPinnedView}
+                onTogglePinnedView={handleTogglePinnedView}
+                pinnedCount={totalPinnedCount}
+              />
+            </div>
+
+            {/* Pinned Cards Section (Issue #47) */}
+            {showPinnedView && (
+              <section className="mb-6 animate-fadeIn transition-all">
+                <div className="flex items-center justify-between pb-2 mb-3.5 border-b border-[var(--border-light)]">
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-[var(--text-primary)]">
+                      <Pin className="w-3.5 h-3.5 text-[var(--accent)] fill-current" />
+                      <span>Pinned</span>
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-[var(--accent)]/15 text-[var(--accent)] border border-[var(--accent)]/30">
+                      {pinnedItems.length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {pinnedItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleUnpinAll}
+                        className="text-[11px] text-[var(--text-secondary)] hover:text-red-400 px-2 py-1 rounded-lg hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+                        title="Unpin all items in library"
+                      >
+                        Unpin all
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleTogglePinnedView}
+                      className="flex items-center gap-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] px-2.5 py-1 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-light)] transition-all cursor-pointer"
+                      title="Collapse pinned section"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Hide</span>
+                    </button>
+                  </div>
+                </div>
+
+                {pinnedItems.length > 0 ? (
+                  viewMode === 'list' ? (
+                    <MediaListView
+                      items={pinnedItems}
+                      onClick={(clicked) => setSelectedMedia(clicked)}
+                      onQuickIncrement={handleQuickIncrement}
+                      onQuickToggleMovie={handleQuickToggleMovie}
+                      onTogglePin={handleTogglePin}
+                      ratingScale={ratingScale}
+                    />
+                  ) : (
+                    <div
+                      data-cols={gridColumns}
+                      className={`bingelog-media-grid ${
+                        gridDensity === 'compact'
+                          ? 'gap-2 sm:gap-2.5'
+                          : 'gap-3.5 sm:gap-4 lg:gap-5'
+                      } ${
+                        gridColumns === 'auto'
+                          ? gridDensity === 'compact'
+                            ? 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8'
+                            : 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+                          : ''
+                      }`}
+                    >
+                      {pinnedItems.map(item => (
+                        <MediaCard
+                          key={`pinned_${item.id}`}
+                          item={item}
+                          onClick={(clicked) => setSelectedMedia(clicked)}
+                          onQuickIncrement={handleQuickIncrement}
+                          onQuickToggleMovie={handleQuickToggleMovie}
+                          onTogglePin={handleTogglePin}
+                          ratingScale={ratingScale}
+                          density={gridDensity}
+                        />
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <div className="flex items-center justify-center py-6 px-4 text-center border border-dashed border-[var(--border-light)] rounded-2xl bg-[var(--bg-secondary)]/30 text-xs text-[var(--text-secondary)]">
+                    <span>No pinned items yet. Click the pin icon on any card to keep it here.</span>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* Mobile "Your Media Collection" Section Header (Issue #50) */}
+            <div className="md:hidden flex items-center justify-between pb-2 mb-3 border-b border-[var(--border-light)]">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-[var(--accent)]/15 text-[var(--accent)] flex items-center justify-center">
+                  <Film className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-xs sm:text-sm font-bold text-[var(--text-primary)]">
+                    Your Media Collection
+                  </h2>
+                  <p className="text-[10px] text-[var(--text-secondary)]">
+                    {filteredItems.length} items • {mediaList.length} total
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center p-0.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-light)]">
+                <button
+                  type="button"
+                  onClick={() => handleViewModeChange('grid')}
+                  className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    viewMode === 'grid'
+                      ? 'bg-[var(--accent)] text-white shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Grid View"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleViewModeChange('list')}
+                  className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    viewMode === 'list'
+                      ? 'bg-[var(--accent)] text-white shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="List View"
+                >
+                  <List className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
 
             {/* Media Content (Grid or List View) */}
-            {filteredItems.length > 0 ? (
+            {unpinnedItems.length > 0 ? (
               viewMode === 'list' ? (
                 <MediaListView
-                  items={filteredItems}
+                  items={unpinnedItems}
                   onClick={(clicked) => setSelectedMedia(clicked)}
                   onQuickIncrement={handleQuickIncrement}
                   onQuickToggleMovie={handleQuickToggleMovie}
+                  onTogglePin={handleTogglePin}
                   ratingScale={ratingScale}
                 />
               ) : (
@@ -747,7 +1132,7 @@ export default function App(): React.JSX.Element {
                   className={`bingelog-media-grid ${
                     gridDensity === 'compact'
                       ? 'gap-2 sm:gap-2.5'
-                      : 'gap-3.5 sm:gap-4 lg:gap-5'
+                      : 'gap-3 sm:gap-4 lg:gap-5'
                   } ${
                     gridColumns === 'auto'
                       ? gridDensity === 'compact'
@@ -756,20 +1141,21 @@ export default function App(): React.JSX.Element {
                       : ''
                   }`}
                 >
-                  {filteredItems.map(item => (
+                  {unpinnedItems.map(item => (
                     <MediaCard
                       key={item.id}
                       item={item}
                       onClick={(clicked) => setSelectedMedia(clicked)}
                       onQuickIncrement={handleQuickIncrement}
                       onQuickToggleMovie={handleQuickToggleMovie}
+                      onTogglePin={handleTogglePin}
                       ratingScale={ratingScale}
                       density={gridDensity}
                     />
                   ))}
                 </div>
               )
-            ) : (
+            ) : pinnedItems.length === 0 ? (
               /* Empty State */
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-dashed border-[var(--border-light)] rounded-3xl bg-[var(--bg-secondary)]/40 my-8">
                 <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] mb-4">
@@ -830,21 +1216,62 @@ export default function App(): React.JSX.Element {
                   </div>
                 )}
               </div>
-            )}
+            ) : null}
 
           </main>
 
           {/* Footer */}
-          <footer className="border-t border-[var(--border-light)] py-6 text-center text-xs text-[var(--text-tertiary)]">
+          <footer className="mb-20 md:mb-0 border-t border-[var(--border-light)] py-6 text-center text-xs text-[var(--text-tertiary)]">
             <p>BingeLog • Unlimited IndexedDB Storage • Metadata via TMDB & TVMaze</p>
           </footer>
         </>
       )}
 
+      {/* Mobile Bottom Navigation Bar (Issue #50) */}
+      <MobileBottomNav
+        currentTab={mainTab}
+        onSelectTab={handleMainTabChange}
+        onOpenSearch={() => setIsSearchOpen(true)}
+        isUpcomingActive={upcomingFilter === 'next_n_days'}
+        onToggleUpcoming={() => {
+          handleUpcomingFilterChange(upcomingFilter === 'next_n_days' ? 'show_all' : 'next_n_days');
+        }}
+        upcomingCount={upcomingCount}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+      />
+
+      {/* Mobile Filter Sheet (Issue #50) */}
+      <MobileFilterSheet
+        isOpen={isMobileFilterOpen}
+        onClose={() => setIsMobileFilterOpen(false)}
+        sortBy={sortBy}
+        onSortChange={handleSortChange}
+        listFilter={listFilter}
+        onListChange={handleListChange}
+        customLists={customLists}
+        onOpenListManager={() => setIsListManagerOpen(true)}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
+        gridDensity={gridDensity}
+        onGridDensityChange={handleGridDensityChange}
+        showPinnedView={showPinnedView}
+        onTogglePinnedView={handleTogglePinnedView}
+        upcomingFilter={upcomingFilter}
+        onUpcomingFilterChange={handleUpcomingFilterChange}
+        upcomingDays={upcomingDays}
+        onUpcomingDaysChange={handleUpcomingDaysChange}
+      />
+
       {/* Search Modal */}
       <SearchModal
         isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
+        onClose={() => {
+          setIsSearchOpen(false);
+          setSharedSearchQuery('');
+          setSharedSearchType('all');
+        }}
+        initialQuery={sharedSearchQuery}
+        initialTypeTab={sharedSearchType}
         onItemAdded={refreshLibrary}
         onSelectExisting={(item) => {
           setSelectedMedia(item);
@@ -892,12 +1319,20 @@ export default function App(): React.JSX.Element {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        onOpenCloudSync={() => setIsCloudSyncOpen(true)}
         onDataRestored={refreshLibrary}
         onStreamingUpdated={refreshLibrary}
         ratingScale={ratingScale}
         onRatingScaleChange={setRatingScale}
         upcomingDays={upcomingDays}
         onUpcomingDaysChange={handleUpcomingDaysChange}
+      />
+
+      {/* E2EE Cloud Sync & QR Device Pairing Modal */}
+      <CloudSyncModal
+        isOpen={isCloudSyncOpen}
+        onClose={() => setIsCloudSyncOpen(false)}
+        onSynced={refreshLibrary}
       />
 
       {/* Theme Customizer & Presets Modal */}

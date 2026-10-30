@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && node scripts/make-standalone.js",
+    "build": "tsc --noEmit && node scripts/generate-pwa-icons.js && vite build && node scripts/make-standalone.js && node scripts/cache-bust.js",
+    "icons:pwa": "node scripts/generate-pwa-icons.js",
+    "cache:bust": "node scripts/cache-bust.js",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "test": "node tests/run-all.js",

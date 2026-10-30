@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones, Play } from 'lucide-react';
+import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones, Play, Pin } from 'lucide-react';
 import type { MediaItem, MediaStatus, RatingScale, GridDensity } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
@@ -43,6 +43,7 @@ export interface MediaCardProps {
   onClick: (item: MediaItem) => void;
   onQuickIncrement?: (item: MediaItem) => void;
   onQuickToggleMovie?: (item: MediaItem) => void;
+  onTogglePin?: (item: MediaItem) => void;
   ratingScale?: RatingScale;
   density?: GridDensity;
 }
@@ -52,6 +53,7 @@ export default function MediaCard({
   onClick,
   onQuickIncrement,
   onQuickToggleMovie,
+  onTogglePin,
   ratingScale = '10',
   density = 'comfortable'
 }: MediaCardProps): React.JSX.Element {
@@ -159,6 +161,47 @@ export default function MediaCard({
           </span>
         </div>
 
+        {/* Pin / Unpin Button overlay & Rating overlay at top right of poster (Issue #47, #50) */}
+        <div className={`absolute z-10 ${
+          density === 'compact' ? 'top-1.5 right-1.5' : 'top-2.5 right-2.5'
+        } flex items-center gap-1`}>
+          {(formatRating(item.rating, ratingScale) || formatRating(item.communityRating, ratingScale)) && (
+            <span
+              className={`flex items-center gap-0.5 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 font-bold text-white ${
+                density === 'compact' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]'
+              }`}
+              title={item.rating ? `My Rating: ${formatRating(item.rating, ratingScale)}` : `Community Rating: ${formatRating(item.communityRating, ratingScale)}`}
+            >
+              {item.rating ? (
+                <Star className="w-2.5 h-2.5 fill-[#ffd60a] text-[#ffd60a]" />
+              ) : (
+                <Globe className="w-2.5 h-2.5 text-sky-400" />
+              )}
+              <span>{formatRating(item.rating, ratingScale) || formatRating(item.communityRating, ratingScale)}</span>
+            </span>
+          )}
+
+          {onTogglePin && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePin(item);
+              }}
+              className={`rounded-full backdrop-blur-md transition-all active:scale-90 cursor-pointer ${
+                density === 'compact' ? 'p-1' : 'p-1.5'
+              } ${
+                item.isPinned
+                  ? 'opacity-100 bg-[var(--accent)] text-white shadow-md shadow-[var(--accent)]/30 ring-1 ring-white/20'
+                  : 'opacity-0 group-hover:opacity-100 sm:opacity-0 focus:opacity-100 bg-black/60 hover:bg-black/80 text-white/90 border border-white/20 hover:scale-105'
+              }`}
+              title={item.isPinned ? 'Unpin from top' : 'Pin to top of library'}
+            >
+              <Pin className={`${density === 'compact' ? 'w-2.5 h-2.5' : 'w-3.5 h-3.5'} ${item.isPinned ? 'fill-current' : ''}`} />
+            </button>
+          )}
+        </div>
+
         {/* Quick Action Button overlay at bottom right of poster */}
         <div className={`absolute z-10 ${density === 'compact' ? 'bottom-1.5 right-1.5' : 'bottom-2.5 right-2.5'}`}>
           {isTv && !isCompleted && item.status !== 'caught_up' && (
@@ -173,6 +216,18 @@ export default function MediaCard({
               <Plus className={density === 'compact' ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
               <span>+1 Ep</span>
             </button>
+          )}
+
+          {isTv && item.status === 'caught_up' && (
+            <span
+              className={`flex items-center gap-1 rounded-xl bg-emerald-600/90 text-white font-bold shadow-lg shadow-emerald-500/20 backdrop-blur-sm ${
+                density === 'compact' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs'
+              }`}
+              title="Caught Up with all released episodes"
+            >
+              <span>📈</span>
+              <span>{watchedEps}/{totalEps}</span>
+            </span>
           )}
 
           {isBook && !isCompleted && (
@@ -193,12 +248,12 @@ export default function MediaCard({
             <button
               type="button"
               onClick={handleQuickAction}
-              className={`flex items-center gap-1 rounded-xl font-bold shadow-lg backdrop-blur-sm transition-all active:scale-95 ${
-                density === 'compact' ? 'p-1.5 text-[11px]' : 'p-2 text-xs'
+              className={`flex items-center justify-center rounded-full font-bold shadow-lg backdrop-blur-sm transition-all active:scale-95 ${
+                density === 'compact' ? 'w-6 h-6 text-[11px]' : 'w-7 h-7 text-xs'
               } ${
                 item.status === 'completed'
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                  : 'bg-[var(--card-bg)]/90 hover:bg-[var(--accent)] text-[var(--text-primary)] hover:text-white border border-white/15'
+                  ? 'bg-[#10b981] hover:bg-emerald-500 text-white shadow-emerald-500/30'
+                  : 'bg-black/60 hover:bg-[var(--accent)] text-white/90 hover:text-white border border-white/20'
               }`}
               title={item.status === 'completed' ? 'Mark as Unwatched' : 'Mark as Watched'}
             >

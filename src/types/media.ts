@@ -128,6 +128,8 @@ export interface MediaItem {
   theatricalReleaseDate?: string | null;    // Official theatrical premiere or release date (YYYY-MM-DD)
   digitalReleaseDate?: string | null;       // Digital / streaming drop date (YYYY-MM-DD or ISO)
   streamingProviders?: WatchProvider[];     // Subscription / flatrate streaming platforms available in region
+  isPinned?: boolean;                       // Pinned to top of library (Issue #47)
+  pinnedAt?: string;                        // ISO timestamp when item was pinned
   lastSyncedAt?: string;                    // ISO timestamp of last successful sync
   createdAt: string;                        // ISO creation timestamp
   updatedAt: string;                        // ISO modification timestamp
@@ -152,6 +154,7 @@ export interface CustomList {
   color?: string;
   description?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 /**
@@ -170,6 +173,7 @@ export interface EpisodeItem {
   stillUrl?: string | null;                 // Screenshot thumbnail URL
   isWatched: WatchedStatus;                 // 1 if watched, 0 if unwatched
   watchedAt?: string | null;                // ISO timestamp when marked watched
+  updatedAt?: string | null;                // ISO timestamp of last watched/unwatched toggle
 }
 
 /**
@@ -186,4 +190,5 @@ export interface CompactEpisodeItem {
   runtime?: number | null;
   isWatched: WatchedStatus;
   watchedAt?: string | null;
+  updatedAt?: string | null;
 }

@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import { isEpisodeAired } from '../utils/timezone';
 import { isMediaMatch } from '../utils/mediaMatch';
+import { recordSyncTombstone, notifyLocalMutation } from '../services/cloudSync/merger';
 import type {
   MediaItem,
   EpisodeItem,
@@ -38,6 +39,9 @@ export class BingeLogDatabase extends Dexie {
     });
     this.version(3).stores({
       collections: 'id, name, updatedAt'
+    });
+    this.version(4).stores({
+      media: 'id, type, status, title, updatedAt, createdAt, isPinned'
     });
   }
 }
@@ -254,12 +258,15 @@ export async function saveMediaItem(
       rating: mediaItem.rating !== undefined ? mediaItem.rating : (existingMedia?.rating ?? null),
       communityRating: mediaItem.communityRating !== undefined ? mediaItem.communityRating : (existingMedia?.communityRating ?? null),
       communityRatingCount: mediaItem.communityRatingCount !== undefined ? mediaItem.communityRatingCount : (existingMedia?.communityRatingCount ?? null),
+      isPinned: mediaItem.isPinned !== undefined ? mediaItem.isPinned : (existingMedia?.isPinned ?? false),
+      pinnedAt: mediaItem.pinnedAt !== undefined ? mediaItem.pinnedAt : existingMedia?.pinnedAt,
       updatedAt: now,
       createdAt: existingMedia?.createdAt || now,
       year: mediaItem.year ?? existingMedia?.year ?? 'N/A'
     };
 
     await db.media.put(payload);
+    notifyLocalMutation();
     return payload;
   });
 }
@@ -270,6 +277,59 @@ export async function saveMediaItem(
 export async function touchMediaSyncedAt(id: string): Promise<void> {
   const now = new Date().toISOString();
   await db.media.update(id, { lastSyncedAt: now });
+}
+
+/**
+ * Toggle the pinned status of a media item (Issue #47).
+ * Returns the new pinned boolean state.
+ */
+export async function toggleMediaPinned(id: string): Promise<boolean> {
+  const item = await db.media.get(id);
+  if (!item) {
+    throw new Error(`MediaItem with id "${id}" not found.`);
+  }
+
+  const nextPinned = !item.isPinned;
+  const now = new Date().toISOString();
+  await db.media.update(id, {
+    isPinned: nextPinned,
+    pinnedAt: nextPinned ? now : undefined,
+    updatedAt: now
+  });
+
+  notifyLocalMutation();
+  return nextPinned;
+}
+
+/**
+ * Fetch all pinned media items, sorted by pin date descending.
+ */
+export async function getPinnedMedia(): Promise<MediaItem[]> {
+  const all = await db.media.toArray();
+  return all
+    .filter(item => Boolean(item.isPinned))
+    .sort((a, b) => {
+      const timeA = a.pinnedAt ? new Date(a.pinnedAt).getTime() : new Date(a.updatedAt || 0).getTime();
+      const timeB = b.pinnedAt ? new Date(b.pinnedAt).getTime() : new Date(b.updatedAt || 0).getTime();
+      return timeB - timeA;
+    });
+}
+
+/**
+ * Unpin all media items in the library.
+ */
+export async function unpinAllMedia(): Promise<number> {
+  const pinned = await db.media.filter(item => Boolean(item.isPinned)).toArray();
+  const now = new Date().toISOString();
+  for (const item of pinned) {
+    await db.media.update(item.id, {
+      isPinned: false,
+      pinnedAt: undefined,
+      updatedAt: now
+    });
+  }
+  if (pinned.length > 0) notifyLocalMutation();
+  return pinned.length;
 }
 
 /**
@@ -405,7 +465,8 @@ export async function toggleEpisodeWatched(
 
     await db.episodes.update(episodeId, {
       isWatched: newWatched,
-      watchedAt: newWatched ? now : null
+      watchedAt: newWatched ? now : null,
+      updatedAt: now
     });
 
     // Update media watched counter & current pointers
@@ -436,6 +497,7 @@ export async function toggleEpisodeWatched(
       });
     }
 
+    notifyLocalMutation();
     return { episodeId, isWatched: newWatched };
   });
 }
@@ -462,7 +524,8 @@ export async function setExactProgress(
 
         await db.episodes.update(ep.id, {
           isWatched: (isPastOrEqual ? 1 : 0) as WatchedStatus,
-          watchedAt: isPastOrEqual ? (ep.watchedAt || now) : null
+          watchedAt: isPastOrEqual ? (ep.watchedAt || now) : null,
+          updatedAt: now
         });
       }
     }
@@ -485,6 +548,7 @@ export async function setExactProgress(
         updatedAt: now
       });
     }
+    notifyLocalMutation();
   });
 }
 
@@ -509,7 +573,8 @@ export async function markEpisodesUpToWatched(
       if (isPastOrEqual && ep.isWatched !== 1) {
         await db.episodes.update(ep.id, {
           isWatched: 1,
-          watchedAt: now
+          watchedAt: now,
+          updatedAt: now
         });
       }
     }
@@ -532,6 +597,7 @@ export async function markEpisodesUpToWatched(
         updatedAt: now
       });
     }
+    notifyLocalMutation();
   });
 }
 
@@ -554,7 +620,8 @@ export async function setSeasonWatched(
     for (const ep of episodes) {
       await db.episodes.update(ep.id, {
         isWatched: (isWatched ? 1 : 0) as WatchedStatus,
-        watchedAt: isWatched ? (ep.watchedAt || now) : null
+        watchedAt: isWatched ? (ep.watchedAt || now) : null,
+        updatedAt: now
       });
     }
 
@@ -583,6 +650,7 @@ export async function setSeasonWatched(
         updatedAt: now
       });
     }
+    notifyLocalMutation();
   });
 }
 
@@ -633,6 +701,8 @@ export async function backfillMissingMediaMetadata(): Promise<number> {
   return updatedCount;
 }
 
+
+
 /**
  * Backfill missing cross-reference IDs (IMDb ID, TMDB ID, TheTVDB ID) for existing library items (Issue #37).
  */
@@ -641,6 +711,13 @@ export async function backfillMediaCrossReferences(): Promise<number> {
   let updatedCount = 0;
 
   for (const item of allMedia) {
+    // If it has a colliding tvmazeId that equals tmdbId, clear it
+    if (item.type === 'tv' && item.tvmazeId && (String(item.tvmazeId) === String(item.tmdbId) || (item.source === 'tmdb' && String(item.tvmazeId) === String(item.externalId)))) {
+      await db.media.update(item.id, { tvmazeId: null });
+      item.tvmazeId = null;
+      updatedCount++;
+    }
+
     // If it's a TV show from TVMaze missing IMDb or TheTVDB ID, fetch its externals from TVMaze
     if (item.type === 'tv' && item.source === 'tvmaze' && item.externalId && (!item.imdbId || !item.thetvdbId || !item.tmdbId)) {
       try {
@@ -665,11 +742,31 @@ export async function backfillMediaCrossReferences(): Promise<number> {
       } catch (err) {
         console.warn('Failed to backfill cross-references for', item.title, err);
       }
+    } else if (item.type === 'tv' && item.source === 'tmdb' && item.imdbId && !item.tvmazeId) {
+      // Try resolving clean TVMaze ID for TMDB shows via IMDb ID
+      try {
+        const lookupRes = await fetch(`https://api.tvmaze.com/lookup/shows?imdb=${encodeURIComponent(item.imdbId.trim().toLowerCase())}`).catch(() => null);
+        if (lookupRes && lookupRes.ok) {
+          const showData = await lookupRes.json();
+          if (showData?.id) {
+            await db.media.update(item.id, {
+              tvmazeId: showData.id,
+              thetvdbId: item.thetvdbId || showData?.externals?.thetvdb || null,
+              updatedAt: new Date().toISOString()
+            });
+            updatedCount++;
+          }
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 
   return updatedCount;
 }
+
+
 
 /**
  * Backfill missing community ratings (Open Library for books, TVMaze / TMDB for TV & Movies).
@@ -722,7 +819,8 @@ export async function backfillCommunityRatings(): Promise<number> {
           updatedCount++;
         }
       } else if (item.type === 'tv') {
-        const tvmazeId = item.tvmazeId || (item.source === 'tvmaze' ? item.externalId : null);
+        const isCorruptedTvmazeId = Boolean(item.tvmazeId && (String(item.tvmazeId) === String(item.tmdbId) || (item.source === 'tmdb' && String(item.tvmazeId) === String(item.externalId))));
+        const tvmazeId = isCorruptedTvmazeId ? null : (item.tvmazeId || (item.source === 'tvmaze' ? item.externalId : null));
         if (tvmazeId) {
           const res = await fetch(`https://api.tvmaze.com/shows/${tvmazeId}`).catch(() => null);
           if (res && res.ok) {
@@ -788,6 +886,8 @@ export async function backfillCommunityRatings(): Promise<number> {
   return updatedCount;
 }
 
+
+
 /**
  * Backfill missing franchise collection metadata (collectionId, collectionName) for existing movies (Issue #34).
  */
@@ -844,6 +944,266 @@ export async function backfillMovieFranchiseCollections(): Promise<number> {
   return updatedCount;
 }
 
+export interface HealResult {
+  checkedCount: number;
+  healedCount: number;
+  healedShows: Array<{
+    id: string;
+    title: string;
+    previousEpisodesCount: number;
+    healedEpisodesCount: number;
+    removedPhantomCount: number;
+  }>;
+}
+
+/**
+ * Automatically inspect and heal TV shows that were corrupted by cross-provider
+ * TMDB -> TVMaze ID collisions (Issue #53), such as Ms. Marvel receiving 150 episodes.
+ *
+ * Removes phantom episodes, restores authentic episode titles/metadata,
+ * preserves watched status, repairs status ('completed' / 'caught_up'),
+ * and cleans up corrupted tvmazeId cross-references.
+ */
+export async function healCorruptedTmdbShows(): Promise<HealResult> {
+  const allMedia = await db.media.toArray();
+  const tmdbTvShows = allMedia.filter(m => m.type === 'tv' && (m.source === 'tmdb' || Boolean(m.tmdbId)));
+  const tmdbApiKey = (await getSetting<string>('tmdb_api_key', '')) || (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_TMDB_API_KEY || '' : '');
+
+  const healedShows: HealResult['healedShows'] = [];
+  let checkedCount = 0;
+  let healedCount = 0;
+
+  for (const show of tmdbTvShows) {
+    checkedCount++;
+    const tmdbId = show.tmdbId || (show.source === 'tmdb' ? show.externalId : null);
+    if (!tmdbId) continue;
+
+    const existingEpisodes = await db.episodes.where('mediaId').equals(show.id).toArray();
+    const hasCollidingTvmazeId = Boolean(
+      show.tvmazeId && (String(show.tvmazeId) === String(tmdbId) || (show.source === 'tmdb' && String(show.tvmazeId) === String(show.externalId)))
+    );
+
+    // If show has no episodes in DB yet, nothing to repair
+    if (existingEpisodes.length === 0) continue;
+
+    try {
+      let authEpisodes: Array<{
+        seasonNumber: number;
+        episodeNumber: number;
+        title: string;
+        overview: string;
+        airDate: string;
+        runtime: number | null;
+        stillUrl: string | null;
+      }> | null = null;
+      let authTotalSeasons = show.totalSeasons || 1;
+      let authAirStatus = show.airStatus;
+      let resolvedTvmazeId: number | string | null = null;
+
+      // 1. Try authoritative TMDB API if key is present
+      if (tmdbApiKey) {
+        try {
+          const res = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${encodeURIComponent(tmdbApiKey)}`);
+          if (res.ok) {
+            const data = await res.json();
+            authAirStatus = data.status || authAirStatus;
+            const regularSeasons = (data.seasons || []).filter((s: any) => s.season_number > 0);
+            authTotalSeasons = regularSeasons.length || data.number_of_seasons || 1;
+
+            const seasonPromises = regularSeasons.map(async (season: any) => {
+              try {
+                const sRes = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season.season_number}?api_key=${encodeURIComponent(tmdbApiKey)}`);
+                if (!sRes.ok) return [];
+                const sData = await sRes.json();
+                return (sData.episodes || []).map((ep: any) => ({
+                  seasonNumber: ep.season_number,
+                  episodeNumber: ep.episode_number,
+                  title: ep.name || `Episode ${ep.episode_number}`,
+                  overview: ep.overview || '',
+                  airDate: ep.air_date || '',
+                  runtime: ep.runtime || null,
+                  stillUrl: ep.still_path ? `https://image.tmdb.org/t/p/w500${ep.still_path}` : null
+                }));
+              } catch {
+                return [];
+              }
+            });
+
+            const seasonsArray = await Promise.all(seasonPromises);
+            authEpisodes = seasonsArray.flat();
+          }
+        } catch {
+          // ignore TMDB fetch error
+        }
+      }
+
+      // 2. If TMDB key is not present or failed, resolve authentic TVMaze show ID via IMDb / TheTVDB / Title
+      if (!authEpisodes && (show.imdbId || show.thetvdbId || show.title)) {
+        try {
+          let lookupUrl: string | null = null;
+          if (show.imdbId && /^tt\d+$/i.test(show.imdbId.trim())) {
+            lookupUrl = `https://api.tvmaze.com/lookup/shows?imdb=${encodeURIComponent(show.imdbId.trim().toLowerCase())}`;
+          } else if (show.thetvdbId) {
+            lookupUrl = `https://api.tvmaze.com/lookup/shows?thetvdb=${encodeURIComponent(String(show.thetvdbId).trim())}`;
+          }
+
+          let tvmazeShowId: number | string | null = null;
+          if (lookupUrl) {
+            const lookupRes = await fetch(lookupUrl);
+            if (lookupRes.ok) {
+              const tvmazeShow = await lookupRes.json();
+              if (tvmazeShow?.id) {
+                tvmazeShowId = tvmazeShow.id;
+                authAirStatus = tvmazeShow.status || authAirStatus;
+              }
+            }
+          }
+
+          if (!tvmazeShowId && show.title) {
+            const sRes = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(show.title.trim())}`);
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              const cleanTitle = show.title.trim().toLowerCase();
+              const cleanYear = show.year && show.year !== 'N/A' ? String(show.year) : '';
+              const match = (sData || []).find((r: any) => {
+                const s = r.show;
+                if (s?.name?.trim().toLowerCase() !== cleanTitle) return false;
+                if (cleanYear && s.premiered && !s.premiered.startsWith(cleanYear)) return false;
+                return true;
+              });
+              if (match?.show?.id) {
+                tvmazeShowId = match.show.id;
+                authAirStatus = match.show.status || authAirStatus;
+              }
+            }
+          }
+
+          if (tvmazeShowId) {
+            resolvedTvmazeId = tvmazeShowId;
+            const epRes = await fetch(`https://api.tvmaze.com/shows/${tvmazeShowId}/episodes`);
+            if (epRes.ok) {
+              const epData = await epRes.json();
+              const mapped = (epData || []).map((ep: any) => ({
+                seasonNumber: ep.season,
+                episodeNumber: ep.number,
+                title: ep.name || `Episode ${ep.number}`,
+                overview: ep.summary ? ep.summary.replace(/<[^>]*>?/gm, '') : '',
+                airDate: ep.airdate || '',
+                runtime: ep.runtime || null,
+                stillUrl: ep.image?.medium || ep.image?.original || null
+              }));
+              authEpisodes = mapped;
+              authTotalSeasons = mapped.reduce((max: number, ep: any) => Math.max(max, ep.seasonNumber), 1);
+            }
+          }
+        } catch {
+          // ignore TVMaze lookup error
+        }
+      }
+
+      if (!authEpisodes || authEpisodes.length === 0) {
+        continue;
+      }
+
+      // Check if existing episodes in Dexie has phantom episodes, wrong count, or colliding tvmazeId
+      const authKeys = new Set(authEpisodes.map(e => `${e.seasonNumber}_${e.episodeNumber}`));
+      const phantomEpisodes = existingEpisodes.filter(e => !authKeys.has(`${e.seasonNumber}_${e.episodeNumber}`));
+      const hasEpisodeCountMismatch = existingEpisodes.length !== authEpisodes.length;
+
+      const needsHeal = phantomEpisodes.length > 0 || hasCollidingTvmazeId || hasEpisodeCountMismatch;
+
+      if (needsHeal) {
+        const existingWatchedMap = new Map<string, { isWatched: WatchedStatus; watchedAt?: string | null }>();
+        for (const ep of existingEpisodes) {
+          existingWatchedMap.set(`${ep.seasonNumber}_${ep.episodeNumber}`, {
+            isWatched: ep.isWatched,
+            watchedAt: ep.watchedAt
+          });
+        }
+
+        let watchedCount = 0;
+        const now = new Date().toISOString();
+
+        const healedEpisodes: EpisodeItem[] = authEpisodes.map(authEp => {
+          const key = `${authEp.seasonNumber}_${authEp.episodeNumber}`;
+          const existing = existingWatchedMap.get(key);
+          const isWatched = (existing?.isWatched ? 1 : 0) as WatchedStatus;
+          if (isWatched) watchedCount++;
+
+          return {
+            id: `${show.id}_S${authEp.seasonNumber}E${authEp.episodeNumber}`,
+            mediaId: show.id,
+            seasonNumber: authEp.seasonNumber,
+            episodeNumber: authEp.episodeNumber,
+            title: authEp.title,
+            overview: authEp.overview,
+            airDate: authEp.airDate,
+            runtime: authEp.runtime,
+            stillUrl: authEp.stillUrl,
+            isWatched,
+            watchedAt: existing?.watchedAt || (isWatched ? now : null),
+            updatedAt: now
+          };
+        });
+
+        // Compute new status
+        let newStatus: MediaStatus = show.status;
+        if (watchedCount === healedEpisodes.length && healedEpisodes.length > 0) {
+          newStatus = (authAirStatus === 'Ended' || authAirStatus === 'Canceled') ? 'completed' : 'caught_up';
+        } else if (watchedCount > 0) {
+          newStatus = computeAutoStatus(show.status, healedEpisodes, authAirStatus, 'tv', show.networkTimezone);
+        } else {
+          newStatus = 'plan_to_watch';
+        }
+
+        // Wipe old/phantom episodes and replace with clean authoritative episodes
+        await db.transaction('rw', db.media, db.episodes, async () => {
+          await db.episodes.where('mediaId').equals(show.id).delete();
+          await db.episodes.bulkPut(healedEpisodes);
+
+          const updatedShowRecord: Partial<MediaItem> = {
+            source: 'tmdb',
+            externalId: show.externalId || tmdbId,
+            tmdbId,
+            tvmazeId: resolvedTvmazeId || (hasCollidingTvmazeId ? null : show.tvmazeId),
+            totalEpisodes: healedEpisodes.length,
+            watchedEpisodesCount: watchedCount,
+            totalSeasons: authTotalSeasons,
+            airStatus: authAirStatus || show.airStatus,
+            status: newStatus,
+            currentSeason: Math.min(Number(show.currentSeason) || 1, authTotalSeasons),
+            currentEpisode: Math.min(Number(show.currentEpisode) || 0, healedEpisodes.length),
+            updatedAt: now
+          };
+
+          await db.media.update(show.id, updatedShowRecord);
+        });
+
+        healedCount++;
+        healedShows.push({
+          id: show.id,
+          title: show.title,
+          previousEpisodesCount: existingEpisodes.length,
+          healedEpisodesCount: healedEpisodes.length,
+          removedPhantomCount: phantomEpisodes.length
+        });
+      }
+    } catch (err) {
+      console.warn(`Failed to inspect/heal show "${show.title}":`, err);
+    }
+  }
+
+  if (healedCount > 0) {
+    notifyLocalMutation();
+  }
+
+  return {
+    checkedCount,
+    healedCount,
+    healedShows
+  };
+}
+
 /**
  * Reset all personal user ratings (`rating`) to null across all library items.
  * Leaves community ratings (`communityRating`) completely intact.
@@ -876,17 +1236,18 @@ if (typeof globalThis !== 'undefined') {
  * Delete a media item and all associated episodes.
  */
 export async function deleteMediaItem(id: string): Promise<void> {
-  return await db.transaction('rw', db.media, db.episodes, async () => {
+  await db.transaction('rw', db.media, db.episodes, async () => {
     await db.episodes.where('mediaId').equals(id).delete();
     await db.media.delete(id);
   });
+  recordSyncTombstone(id, 'media');
 }
 
 /**
  * Update media status (e.g. 'watching', 'completed', 'plan_to_watch', 'dropped', 'on_hold').
  */
 export async function updateMediaStatus(id: string, status: MediaStatus): Promise<void> {
-  return await db.transaction('rw', db.media, db.episodes, async () => {
+  await db.transaction('rw', db.media, db.episodes, async () => {
     const now = new Date().toISOString();
     const media = await db.media.get(id);
     if (!media) return;
@@ -895,7 +1256,7 @@ export async function updateMediaStatus(id: string, status: MediaStatus): Promis
     if (status === 'completed' && media.type === 'tv') {
       const episodes = await db.episodes.where('mediaId').equals(id).toArray();
       for (const ep of episodes) {
-        await db.episodes.update(ep.id, { isWatched: 1, watchedAt: ep.watchedAt || now });
+        await db.episodes.update(ep.id, { isWatched: 1, watchedAt: ep.watchedAt || now, updatedAt: now });
       }
       await db.media.update(id, {
         status,
@@ -917,6 +1278,7 @@ export async function updateMediaStatus(id: string, status: MediaStatus): Promis
       await db.media.update(id, { status, updatedAt: now });
     }
   });
+  notifyLocalMutation();
 }
 
 /**
@@ -927,11 +1289,13 @@ export async function updateMediaRatingAndNotes(
   rating: number | string,
   notes: string
 ): Promise<number> {
-  return await db.media.update(id, {
+  const res = await db.media.update(id, {
     rating: Number(rating),
     notes,
     updatedAt: new Date().toISOString()
   });
+  notifyLocalMutation();
+  return res;
 }
 
 /**
@@ -1149,6 +1513,7 @@ export async function saveCanvas(
   };
 
   await db.canvases.put(fullCanvas);
+  notifyLocalMutation();
   return fullCanvas;
 }
 
@@ -1157,6 +1522,7 @@ export async function saveCanvas(
  */
 export async function deleteCanvas(id: string): Promise<void> {
   await db.canvases.delete(id);
+  recordSyncTombstone(id, 'canvas');
 }
 
 /**
@@ -1209,7 +1575,8 @@ export async function saveCustomList(
     name: list.name.trim(),
     color: list.color || '#3b82f6',
     description: list.description || '',
-    createdAt: list.createdAt || now
+    createdAt: list.createdAt || (existingIndex >= 0 ? current[existingIndex].createdAt : now),
+    updatedAt: now
   };
 
   if (existingIndex >= 0) {
@@ -1219,6 +1586,7 @@ export async function saveCustomList(
   }
 
   await saveCustomLists(current);
+  notifyLocalMutation();
   return fullList;
 }
 
@@ -1241,6 +1609,7 @@ export async function deleteCustomList(listId: string): Promise<void> {
       await db.media.update(item.id, { lists: updatedLists, updatedAt: new Date().toISOString() });
     }
   }
+  recordSyncTombstone(listId, 'list');
 }
 
 /**
@@ -1263,6 +1632,7 @@ export async function toggleMediaList(mediaId: string, listName: string): Promis
     updatedAt: new Date().toISOString()
   });
 
+  notifyLocalMutation();
   return updatedLists;
 }
 
@@ -1274,6 +1644,7 @@ export async function updateMediaLists(mediaId: string, lists: string[]): Promis
     lists,
     updatedAt: new Date().toISOString()
   });
+  notifyLocalMutation();
 }
 
 /**
@@ -1403,6 +1774,7 @@ export async function updateBookProgress(
   }
 
   await db.media.update(mediaId, updates);
+  notifyLocalMutation();
   return (await db.media.get(mediaId)) || null;
 }
 
@@ -1479,6 +1851,7 @@ export async function changeBookEdition(
   if (edition.narrator) updates.narrator = edition.narrator;
 
   await db.media.update(mediaId, updates);
+  notifyLocalMutation();
   return (await db.media.get(mediaId)) || null;
 }
 

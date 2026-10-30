@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Key, Download, Upload, Folder, FolderCheck, CheckCircle, 
   AlertCircle, ExternalLink, HardDrive, RefreshCw, FileText, Link2, Unlink,
-  Zap, Archive, Sparkles, Globe, Clock, Star, Calendar, BookOpen, Tv, Play
+  Zap, Archive, Sparkles, Globe, Clock, Star, Calendar, BookOpen, Tv, Play, Cloud, QrCode
 } from 'lucide-react';
 import { getSetting, setSetting, clearAllPersonalRatings, getAllMedia } from '../db';
 import { 
@@ -22,6 +22,7 @@ import type { BackupMode, ExportFileInfo, RatingScale, BookSearchProvider } from
 export interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenCloudSync?: () => void;
   onDataRestored?: () => void;
   onStreamingUpdated?: () => void;
   ratingScale?: RatingScale;
@@ -38,6 +39,7 @@ interface NoticeStatus {
 export default function SettingsModal({
   isOpen,
   onClose,
+  onOpenCloudSync,
   onDataRestored,
   onStreamingUpdated,
   ratingScale: propRatingScale,
@@ -430,6 +432,35 @@ export default function SettingsModal({
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           
+          {/* E2EE CLOUD SYNC & QR PAIRING SECTION (Issue #49) */}
+          {onOpenCloudSync && (
+            <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Cloud className="w-4 h-4 text-[var(--accent)]" />
+                  <h3 className="text-sm font-bold text-[var(--text-primary)]">E2EE Cloud Sync & QR Device Pairing</h3>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold">
+                    AES-GCM 256
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                  Link your Desktop browser and Mobile PWA in 1 second via QR code with zero-knowledge client-side encryption.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenCloudSync();
+                }}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs font-bold shadow-md shadow-[var(--accent)]/25 transition-all active:scale-95 shrink-0 cursor-pointer"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>Configure Cloud Sync</span>
+              </button>
+            </div>
+          )}
+
           {/* TMDB API KEY SECTION */}
           <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
             <div className="flex items-center justify-between">

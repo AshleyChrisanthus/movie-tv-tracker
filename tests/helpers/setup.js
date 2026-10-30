@@ -131,6 +131,14 @@ export async function getRegionModule() {
   return await import('../../src/utils/region.js');
 }
 
+export async function getCloudSyncModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/services/cloudSync/index.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/services/cloudSync/index.ts');
+  }
+  return await import('../../src/services/cloudSync/index.js');
+}
+
 // Reset database tables between tests
 export async function resetDatabase() {
   const { db } = await getDbModule();

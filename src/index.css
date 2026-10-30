@@ -269,3 +269,12 @@ body {
   .bingelog-media-grid[data-cols="8"] { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 }
 
+
+/* No scrollbar utility */
+.no-scrollbar::-webkit-scrollbar, .scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar, .scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

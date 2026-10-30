@@ -2,14 +2,14 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   X, Star, Film, Tv, ChevronDown, ChevronUp, PlayCircle, Eye, RefreshCw,
   CheckCheck, CheckCircle2, Edit3, Trash2, Folder, Plus, Check, BookOpen, Globe,
-  Network, Sparkles, Percent, Search, Headphones, Volume2, VolumeX, Play, Pause, Clock
+  Network, Sparkles, Percent, Search, Headphones, Volume2, VolumeX, Play, Pause, Clock, Pin
 } from 'lucide-react';
 import { 
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress, 
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes, 
   deleteMediaItem, getMediaById, markEpisodesUpToWatched,
   getCustomLists, toggleMediaList, saveCustomList, updateBookProgress,
-  changeBookEdition, setSetting, getAllMedia, saveMediaItem, db
+  changeBookEdition, setSetting, getAllMedia, saveMediaItem, toggleMediaPinned, db
 } from '../db';
 import { syncMediaEpisodes, syncMovieStreamingDetails, fetchTMDBCollection, getTmdbApiKey, fetchOpenLibraryEditions, enrichBookSynopsis, fetchBookEditionByIsbn } from '../services/api';
 import { getMovieStreamingStatus } from '../utils/region';
@@ -68,6 +68,7 @@ export default function MediaDetailModal({
   const [notesSavedNotice, setNotesSavedNotice] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncNotice, setSyncNotice] = useState<NoticeStatus | null>(null);
+  const [isPinned, setIsPinned] = useState<boolean>(Boolean(media?.isPinned));
 
   useEffect(() => {
     if (ratingScale) {
@@ -213,8 +214,9 @@ export default function MediaDetailModal({
       }
       setInputPercentage('');
       setIsPlayingSample(false);
+      setIsPinned(Boolean(media.isPinned));
     }
-  }, [media?.id, media?.currentPage, media?.totalPages, media?.currentChapter, media?.totalChapters, media?.currentDurationSeconds, media?.totalDurationSeconds, media?.progressMode]);
+  }, [media?.id, media?.currentPage, media?.totalPages, media?.currentChapter, media?.totalChapters, media?.currentDurationSeconds, media?.totalDurationSeconds, media?.progressMode, media?.isPinned]);
 
   const handleApplyBookProgress = async (options: {
     currentPage?: number;
@@ -835,6 +837,20 @@ export default function MediaDetailModal({
     }
   };
 
+  // Toggle pinned status (Issue #47)
+  const handleTogglePin = async () => {
+    if (!media) return;
+    const next = await toggleMediaPinned(media.id);
+    setIsPinned(next);
+    const updatedMedia: MediaItem = {
+      ...media,
+      isPinned: next,
+      pinnedAt: next ? new Date().toISOString() : undefined
+    };
+    if (onUpdated) onUpdated();
+    if (onUpdate) onUpdate(updatedMedia);
+  };
+
   // Delete media item
   const handleDelete = async () => {
     if (window.confirm(`Are you sure you want to remove "${media.title}" from your library?`)) {
@@ -1380,6 +1396,21 @@ export default function MediaDetailModal({
                   <span>{isSyncing ? 'Checking...' : 'Sync Streaming'}</span>
                 </button>
               )}
+
+              {/* Pin / Unpin Action (Issue #47) */}
+              <button
+                type="button"
+                onClick={handleTogglePin}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  isPinned
+                    ? 'bg-[var(--accent)] text-white shadow-xs hover:brightness-110'
+                    : 'bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-light)]'
+                }`}
+                title={isPinned ? 'Unpin from top of library' : 'Pin to top of library'}
+              >
+                <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current text-white' : 'text-[var(--accent)]'}`} />
+                <span>{isPinned ? 'Unpin' : 'Pin to Top'}</span>
+              </button>
 
               {onEditCustom && (
                 <button

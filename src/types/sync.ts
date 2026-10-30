@@ -48,3 +48,14 @@ export interface SyncAlert {
   title: string;
   message: string;
 }
+
+export type {
+  SyncProviderType,
+  SyncConfig,
+  EncryptedVaultEnvelope,
+  SyncTombstoneType,
+  SyncTombstone,
+  DecryptedSyncPayload,
+  SyncStatusState,
+  SyncStatus
+} from '../services/cloudSync/types';

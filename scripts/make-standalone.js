@@ -29,6 +29,8 @@ let html = fs.readFileSync(distPath, 'utf8');
 
 // Clean up any modulepreload links
 html = html.replace(/<link\s+rel="modulepreload"[^>]*>/gi, '');
+html = html.replace(/href="\.\/manifest\.webmanifest"/g, 'href="/manifest.webmanifest"');
+html = html.replace(/href="\.\/icons\//g, 'href="/icons/');
 
 // Find <script...> and </script> using index positions to avoid regex string-replace $ hazards
 const scriptStartIdx = html.indexOf('<script');

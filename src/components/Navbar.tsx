@@ -1,11 +1,13 @@
 import React from 'react';
-import { Film, Plus, Settings, Search, RefreshCw, Palette, Sun, Moon, Network, Tv } from 'lucide-react';
-import type { ThemeMode } from '../types';
+import { Film, Plus, Settings, Search, RefreshCw, Palette, Sun, Moon, Network, Tv, Cloud } from 'lucide-react';
+import type { ThemeMode, SyncStatus } from '../types';
 
 export interface NavbarProps {
   onOpenSearch: () => void;
   onOpenManual: () => void;
   onOpenSettings: () => void;
+  onOpenCloudSync?: () => void;
+  cloudSyncStatus?: SyncStatus;
   onStartSyncAll: () => void;
   isSyncing: boolean;
   onStartStreamingSync?: () => void;
@@ -27,6 +29,8 @@ export default function Navbar({
   onOpenSearch,
   onOpenManual,
   onOpenSettings,
+  onOpenCloudSync,
+  cloudSyncStatus,
   onStartSyncAll,
   isSyncing,
   onStartStreamingSync,
@@ -39,7 +43,7 @@ export default function Navbar({
   stats
 }: NavbarProps): React.JSX.Element {
   return (
-    <header className="sticky top-0 z-30 bg-[var(--bg-secondary)]/85 backdrop-blur-xl border-b border-[var(--border-light)] px-4 lg:px-8 py-3 transition-all">
+    <header className="hidden md:block sticky top-0 z-30 bg-[var(--bg-secondary)]/85 backdrop-blur-xl border-b border-[var(--border-light)] px-4 lg:px-8 py-3 transition-all">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
         
         {/* Brand */}
@@ -160,6 +164,53 @@ export default function Navbar({
             >
               <Tv className={`w-3.5 h-3.5 text-emerald-400 ${isSyncingStreaming ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">{isSyncingStreaming ? 'Syncing...' : 'Sync Streaming'}</span>
+            </button>
+          )}
+
+          {/* E2EE Cloud Sync & QR Pairing Button */}
+          {onOpenCloudSync && (
+            <button
+              type="button"
+              onClick={onOpenCloudSync}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl border text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer ${
+                cloudSyncStatus?.state === 'synced'
+                  ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  : cloudSyncStatus?.state === 'syncing'
+                  ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                  : cloudSyncStatus?.state === 'error'
+                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                  : cloudSyncStatus?.state === 'offline'
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  : 'bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border-[var(--border-light)]'
+              }`}
+              title="End-to-End Encrypted (E2EE) Cloud Sync & QR Device Pairing"
+            >
+              {cloudSyncStatus?.state === 'syncing' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span className="hidden md:inline">↻ SYNCING</span>
+                </>
+              ) : cloudSyncStatus?.state === 'synced' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[11px] tracking-wide">SYNCED</span>
+                </>
+              ) : cloudSyncStatus?.state === 'offline' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  <span className="text-[11px] tracking-wide">OFFLINE</span>
+                </>
+              ) : cloudSyncStatus?.state === 'error' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-rose-400" />
+                  <span className="text-[11px] tracking-wide">SYNC ERR</span>
+                </>
+              ) : (
+                <>
+                  <Cloud className="w-3.5 h-3.5 text-[var(--accent)]" />
+                  <span className="hidden md:inline">Cloud Sync</span>
+                </>
+              )}
             </button>
           )}
 

@@ -32,6 +32,11 @@ const testFiles = [
   'path:/tier1-features/book-editions-percentage-search.test.js',
   'path:/tier1-features/audiobooks-support.test.js',
   'path:/tier1-features/movie-streaming-releases.test.js',
+  'path:/tier1-features/pinned-cards.test.js',
+  'path:/tier1-features/pwa-share-target-deploy.test.js',
+  'path:/tier1-features/e2ee-cloud-sync-qr-pairing.test.js',
+  'path:/tier1-features/mobile-pwa-library-stitch.test.js',
+  'path:/tier1-features/tmdb-tvmaze-id-collision-healing.test.js',
 
   // Tier 2: Boundary & Corner Cases
   'path:/tier2-boundary/empty-and-edge-items.test.js',

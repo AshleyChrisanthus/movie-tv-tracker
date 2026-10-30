@@ -13,6 +13,8 @@ export interface SearchModalProps {
   onItemAdded?: (item: Partial<MediaItem>) => void;
   onSelectExisting?: (item: MediaItem) => void;
   onOpenSettings?: () => void;
+  initialQuery?: string;
+  initialTypeTab?: 'all' | 'tv' | 'movie' | 'book' | 'audiobook';
 }
 
 export default function SearchModal({
@@ -20,7 +22,9 @@ export default function SearchModal({
   onClose,
   onItemAdded,
   onSelectExisting,
-  onOpenSettings
+  onOpenSettings,
+  initialQuery = '',
+  initialTypeTab = 'all'
 }: SearchModalProps): React.JSX.Element | null {
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<MediaSearchResult[]>([]);
@@ -50,6 +54,12 @@ export default function SearchModal({
       getSetting<BookSearchProvider>('default_book_provider', 'openlibrary').then(p => {
         if (p) setBookProvider(p);
       });
+      if (initialQuery && initialQuery.trim()) {
+        setQuery(initialQuery.trim());
+      }
+      if (initialTypeTab) {
+        setSearchTypeTab(initialTypeTab);
+      }
       setTimeout(() => inputRef.current?.focus(), 50);
     } else {
       setQuery('');
@@ -57,7 +67,7 @@ export default function SearchModal({
       setExpandedWorkId(null);
       setFallbackNotice(null);
     }
-  }, [isOpen]);
+  }, [isOpen, initialQuery, initialTypeTab]);
 
   // Handle Escape key to exit search mode
   useEffect(() => {

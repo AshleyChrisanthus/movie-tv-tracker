@@ -17,13 +17,15 @@ import MobileFilterChips from './components/mobile/MobileFilterChips';
 import NowInProgressCarousel from './components/mobile/NowInProgressCarousel';
 import MobileBottomNav from './components/mobile/MobileBottomNav';
 import MobileFilterSheet from './components/mobile/MobileFilterSheet';
+import MobileUpcomingView from './components/mobile/MobileUpcomingView';
 import { FranchiseCanvasView } from './components/canvas/FranchiseCanvasView';
 import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, clearAllPersonalRatings, getCustomLists, updateBookProgress, getSetting, setSetting, backfillMovieFranchiseCollections, toggleMediaPinned, unpinAllMedia, healCorruptedTmdbShows } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync, fetchTMDBCollection, runStreamingSyncQueue, getMediaEligibleForStreamingSync } from './services/api';
 import { syncManager, formatSyncRelativeTime } from './services/cloudSync';
 import { getNextFranchiseMovie } from './utils/franchise';
 import { initTheme, toggleThemeMode } from './styles/theme';
-import { shouldShowItemForUpcomingFilter } from './utils/upcoming';
+import { shouldShowItemForUpcomingFilter, isItemUpcoming } from './utils/upcoming';
+import { getEpisodeCountdown } from './utils/timezone';
 import { isAudiobookItem } from './utils/audioDuration';
 import { consumeShareTargetFromWindow } from './utils/shareTarget';
 import { Film, Plus, Search, Sparkles, X, Pin, ChevronUp, RefreshCw, QrCode, LayoutGrid, List, UploadCloud, DownloadCloud } from 'lucide-react';
@@ -58,6 +60,8 @@ export default function App(): React.JSX.Element {
   const [upcomingDays, setUpcomingDays] = useState<number>(
     () => parseInt(localStorage.getItem('bingelog_upcoming_days') || '7', 10) || 7
   );
+  // Dedicated Mobile Upcoming Tab view (Issue #52)
+  const [isMobileUpcomingView, setIsMobileUpcomingView] = useState<boolean>(false);
 
   const [showPinnedView, setShowPinnedView] = useState<boolean>(() => {
     const saved = localStorage.getItem('bingelog_show_pinned_view');
@@ -78,6 +82,7 @@ export default function App(): React.JSX.Element {
   const handleMainTabChange = (tab: 'library' | 'canvas') => {
     setMainTab(tab);
     localStorage.setItem('bingelog_main_tab', tab);
+    setIsMobileUpcomingView(false);
   };
 
   const handleStatusChange = (status: string) => {
@@ -434,9 +439,46 @@ export default function App(): React.JSX.Element {
     };
   }, [mediaList]);
 
-  // Upcoming count for Mobile Bottom Nav badge (Issue #50)
+  // Upcoming count for Mobile Bottom Nav badge (Issue #50 & #52)
   const upcomingCount = useMemo(() => {
-    return mediaList.filter(item => shouldShowItemForUpcomingFilter(item, 'next_n_days', upcomingDays)).length;
+    const now = new Date();
+    const nowMs = now.getTime();
+    const maxMs = upcomingDays * 24 * 60 * 60 * 1000;
+
+    return mediaList.filter(item => {
+      if (item.status === 'completed') return false;
+
+      // 1. Airing TV episodes
+      if (item.type === 'tv' && (item.nextAirDate || item.nextAirstamp)) {
+        const cd = getEpisodeCountdown(item.nextAirDate || undefined, item.nextAirstamp, item.networkTimezone);
+        if (!cd.isAired) {
+          let dropTime: number | null = null;
+          if (item.nextAirstamp) {
+            const t = new Date(item.nextAirstamp).getTime();
+            if (!isNaN(t)) dropTime = t;
+          }
+          if (dropTime === null && item.nextAirDate) {
+            const [y, m, d] = item.nextAirDate.split('-').map(Number);
+            if (y && m && d) dropTime = Date.UTC(y, m - 1, d, 20, 0, 0);
+          }
+          if (dropTime !== null) {
+            const diff = dropTime - nowMs;
+            if (diff >= -12 * 60 * 60 * 1000 && diff <= maxMs) {
+              return true;
+            }
+          }
+        }
+      }
+
+      // 2. Unreleased titles (movies, books, new TV series)
+      const { isUpcoming, releaseDate } = isItemUpcoming(item, now);
+      if (isUpcoming && releaseDate) {
+        const diff = releaseDate.getTime() - nowMs;
+        return diff >= 0 && diff <= maxMs;
+      }
+
+      return false;
+    }).length;
   }, [mediaList, upcomingDays]);
 
   // Filter and sort items
@@ -462,7 +504,7 @@ export default function App(): React.JSX.Element {
         return true;
       })
       .sort((a, b) => {
-        if (sortBy === 'release_desc') {
+        if (sortBy === 'release_desc' || sortBy === 'release') {
           const getReleaseTime = (item: MediaItem) => {
             if (item.releaseDate) {
               const t = new Date(item.releaseDate).getTime();
@@ -517,7 +559,12 @@ export default function App(): React.JSX.Element {
         if (sortBy === 'title') {
           return (a.title || '').localeCompare(b.title || '');
         }
-        if (sortBy === 'rating') {
+        if (sortBy === 'my_rating') {
+          const ratingA = (a.rating !== null && a.rating !== undefined) ? a.rating : -1;
+          const ratingB = (b.rating !== null && b.rating !== undefined) ? b.rating : -1;
+          return ratingB - ratingA;
+        }
+        if (sortBy === 'rating' || sortBy === 'community_rating') {
           const ratingA = (a.rating !== null && a.rating !== undefined && a.rating > 0) ? a.rating : (a.communityRating || 0);
           const ratingB = (b.rating !== null && b.rating !== undefined && b.rating > 0) ? b.rating : (b.communityRating || 0);
           return ratingB - ratingA;
@@ -998,46 +1045,63 @@ export default function App(): React.JSX.Element {
               </div>
             </div>
 
-            {/* Mobile Stitch Search Bar & Offline/Sync Status Strip (Issue #50 & #54) */}
-            <MobileSearchStrip
-              searchQuery={librarySearch}
-              onSearchChange={setLibrarySearch}
-              totalItemsCount={mediaList.length}
-              onOpenSearchModal={() => setIsSearchOpen(true)}
-              cloudSyncStatus={cloudSyncStatus}
-              onOpenCloudSync={() => setIsCloudSyncOpen(true)}
-              onTriggerSync={() => {
-                syncManager.syncNow().catch(err => console.warn('[CloudSync] Manual sync error:', err));
-              }}
-              onPushToCloud={handleDirectPushToCloud}
-              onPullFromCloud={handleDirectPullFromCloud}
-              isSyncing={cloudSyncStatus.state === 'syncing' || syncState.isActive}
-              isConfigured={syncManager.isConfigured()}
-              lastSyncedTimeAgo={formatSyncRelativeTime(cloudSyncStatus.lastSyncedAt || syncManager.getConfig()?.lastSyncedAt)}
-            />
-
-            {/* Mobile Dual-Row Horizontally Scrollable Filter Chips (Issue #50) */}
-            <MobileFilterChips
-              typeFilter={typeFilter}
-              onTypeChange={handleTypeChange}
-              bookFormatFilter={bookFormatFilter}
-              onBookFormatChange={handleBookFormatChange}
-              statusFilter={statusFilter}
-              onStatusChange={handleStatusChange}
-              itemCounts={itemCounts}
-              typeCounts={mobileTypeCounts}
-            />
-
-            {/* Mobile "Now In Progress" Horizontal Carousel (Issue #50) */}
-            {nowInProgressItems.length > 0 && (
-              <NowInProgressCarousel
-                items={nowInProgressItems}
-                onClick={(clicked) => setSelectedMedia(clicked)}
-                onQuickIncrement={handleQuickIncrement}
-                onQuickToggleMovie={handleQuickToggleMovie}
+            {/* Mobile View: Dedicated Upcoming View or Library View (Issue #52) */}
+            {isMobileUpcomingView ? (
+              <MobileUpcomingView
+                items={mediaList}
+                upcomingDays={upcomingDays}
+                onUpcomingDaysChange={handleUpcomingDaysChange}
+                upcomingFilter={upcomingFilter}
+                onUpcomingFilterChange={handleUpcomingFilterChange}
+                onItemClick={(clicked) => setSelectedMedia(clicked)}
+                onOpenSearch={() => setIsSearchOpen(true)}
                 ratingScale={ratingScale}
-                onSeeAllWatching={() => handleStatusChange('watching')}
               />
+            ) : (
+              <div className="md:hidden">
+                {/* Mobile Stitch Search Bar & Offline/Sync Status Strip (Issue #50 & #54) */}
+                <MobileSearchStrip
+                  searchQuery={librarySearch}
+                  onSearchChange={setLibrarySearch}
+                  totalItemsCount={mediaList.length}
+                  onOpenSearchModal={() => setIsSearchOpen(true)}
+                  onOpenFilterSheet={() => setIsMobileFilterOpen(true)}
+                  cloudSyncStatus={cloudSyncStatus}
+                  onOpenCloudSync={() => setIsCloudSyncOpen(true)}
+                  onTriggerSync={() => {
+                    syncManager.syncNow().catch(err => console.warn('[CloudSync] Manual sync error:', err));
+                  }}
+                  onPushToCloud={handleDirectPushToCloud}
+                  onPullFromCloud={handleDirectPullFromCloud}
+                  isSyncing={cloudSyncStatus.state === 'syncing' || syncState.isActive}
+                  isConfigured={syncManager.isConfigured()}
+                  lastSyncedTimeAgo={formatSyncRelativeTime(cloudSyncStatus.lastSyncedAt || syncManager.getConfig()?.lastSyncedAt)}
+                />
+
+                {/* Mobile Dual-Row Horizontally Scrollable Filter Chips (Issue #50) */}
+                <MobileFilterChips
+                  typeFilter={typeFilter}
+                  onTypeChange={handleTypeChange}
+                  bookFormatFilter={bookFormatFilter}
+                  onBookFormatChange={handleBookFormatChange}
+                  statusFilter={statusFilter}
+                  onStatusChange={handleStatusChange}
+                  itemCounts={itemCounts}
+                  typeCounts={mobileTypeCounts}
+                />
+
+                {/* Mobile "Now In Progress" Horizontal Carousel (Issue #50) */}
+                {nowInProgressItems.length > 0 && (
+                  <NowInProgressCarousel
+                    items={nowInProgressItems}
+                    onClick={(clicked) => setSelectedMedia(clicked)}
+                    onQuickIncrement={handleQuickIncrement}
+                    onQuickToggleMovie={handleQuickToggleMovie}
+                    ratingScale={ratingScale}
+                    onSeeAllWatching={() => handleStatusChange('watching')}
+                  />
+                )}
+              </div>
             )}
 
             {/* Live Progress Bar for Library Sync */}
@@ -1083,7 +1147,7 @@ export default function App(): React.JSX.Element {
 
             {/* Pinned Cards Section (Issue #47) */}
             {showPinnedView && (
-              <section className="mb-6 animate-fadeIn transition-all">
+              <section className={`mb-6 animate-fadeIn transition-all ${isMobileUpcomingView ? 'hidden md:block' : ''}`}>
                 <div className="flex items-center justify-between pb-2 mb-3.5 border-b border-[var(--border-light)]">
                   <div className="flex items-center gap-2">
                     <span className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-[var(--text-primary)]">
@@ -1166,151 +1230,155 @@ export default function App(): React.JSX.Element {
             )}
 
             {/* Mobile "Your Media Collection" Section Header (Issue #50) */}
-            <div className="md:hidden flex items-center justify-between pb-2 mb-3 border-b border-[var(--border-light)]">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-[var(--accent)]/15 text-[var(--accent)] flex items-center justify-center">
-                  <Film className="w-4 h-4" />
+            {!isMobileUpcomingView && (
+              <div className="md:hidden flex items-center justify-between pb-2 mb-3 border-b border-[var(--border-light)]">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-[var(--accent)]/15 text-[var(--accent)] flex items-center justify-center">
+                    <Film className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-xs sm:text-sm font-bold text-[var(--text-primary)]">
+                      Your Media Collection
+                    </h2>
+                    <p className="text-[10px] text-[var(--text-secondary)]">
+                      {filteredItems.length} items • {mediaList.length} total
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xs sm:text-sm font-bold text-[var(--text-primary)]">
-                    Your Media Collection
-                  </h2>
-                  <p className="text-[10px] text-[var(--text-secondary)]">
-                    {filteredItems.length} items • {mediaList.length} total
-                  </p>
-                </div>
-              </div>
 
-              <div className="flex items-center p-0.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-light)]">
-                <button
-                  type="button"
-                  onClick={() => handleViewModeChange('grid')}
-                  className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    viewMode === 'grid'
-                      ? 'bg-[var(--accent)] text-white shadow-xs'
-                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                  }`}
-                  title="Grid View"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleViewModeChange('list')}
-                  className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    viewMode === 'list'
-                      ? 'bg-[var(--accent)] text-white shadow-xs'
-                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                  }`}
-                  title="List View"
-                >
-                  <List className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center p-0.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-light)]">
+                  <button
+                    type="button"
+                    onClick={() => handleViewModeChange('grid')}
+                    className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      viewMode === 'grid'
+                        ? 'bg-[var(--accent)] text-white shadow-xs'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                    title="Grid View"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleViewModeChange('list')}
+                    className={`p-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      viewMode === 'list'
+                        ? 'bg-[var(--accent)] text-white shadow-xs'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                    title="List View"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Media Content (Grid or List View) */}
-            {unpinnedItems.length > 0 ? (
-              viewMode === 'list' ? (
-                <MediaListView
-                  items={unpinnedItems}
-                  onClick={(clicked) => setSelectedMedia(clicked)}
-                  onQuickIncrement={handleQuickIncrement}
-                  onQuickToggleMovie={handleQuickToggleMovie}
-                  onTogglePin={handleTogglePin}
-                  ratingScale={ratingScale}
-                />
-              ) : (
-                <div
-                  data-cols={gridColumns}
-                  className={`bingelog-media-grid ${
-                    gridDensity === 'compact'
-                      ? 'gap-2 sm:gap-2.5'
-                      : 'gap-3 sm:gap-4 lg:gap-5'
-                  } ${
-                    gridColumns === 'auto'
-                      ? gridDensity === 'compact'
-                        ? 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8'
-                        : 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
-                      : ''
-                  }`}
-                >
-                  {unpinnedItems.map(item => (
-                    <MediaCard
-                      key={item.id}
-                      item={item}
-                      onClick={(clicked) => setSelectedMedia(clicked)}
-                      onQuickIncrement={handleQuickIncrement}
-                      onQuickToggleMovie={handleQuickToggleMovie}
-                      onTogglePin={handleTogglePin}
-                      ratingScale={ratingScale}
-                      density={gridDensity}
-                    />
-                  ))}
-                </div>
-              )
-            ) : pinnedItems.length === 0 ? (
-              /* Empty State */
-              <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-dashed border-[var(--border-light)] rounded-3xl bg-[var(--bg-secondary)]/40 my-8">
-                <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] mb-4">
-                  <Film className="w-7 h-7" />
-                </div>
+            <div className={isMobileUpcomingView ? 'hidden md:block' : ''}>
+              {unpinnedItems.length > 0 ? (
+                viewMode === 'list' ? (
+                  <MediaListView
+                    items={unpinnedItems}
+                    onClick={(clicked) => setSelectedMedia(clicked)}
+                    onQuickIncrement={handleQuickIncrement}
+                    onQuickToggleMovie={handleQuickToggleMovie}
+                    onTogglePin={handleTogglePin}
+                    ratingScale={ratingScale}
+                  />
+                ) : (
+                  <div
+                    data-cols={gridColumns}
+                    className={`bingelog-media-grid ${
+                      gridDensity === 'compact'
+                        ? 'gap-2 sm:gap-2.5'
+                        : 'gap-3 sm:gap-4 lg:gap-5'
+                    } ${
+                      gridColumns === 'auto'
+                        ? gridDensity === 'compact'
+                          ? 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8'
+                          : 'grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+                        : ''
+                    }`}
+                  >
+                    {unpinnedItems.map(item => (
+                      <MediaCard
+                        key={item.id}
+                        item={item}
+                        onClick={(clicked) => setSelectedMedia(clicked)}
+                        onQuickIncrement={handleQuickIncrement}
+                        onQuickToggleMovie={handleQuickToggleMovie}
+                        onTogglePin={handleTogglePin}
+                        ratingScale={ratingScale}
+                        density={gridDensity}
+                      />
+                    ))}
+                  </div>
+                )
+              ) : pinnedItems.length === 0 ? (
+                /* Empty State */
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center border border-dashed border-[var(--border-light)] rounded-3xl bg-[var(--bg-secondary)]/40 my-8">
+                  <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] mb-4">
+                    <Film className="w-7 h-7" />
+                  </div>
 
-                {mediaList.length === 0 ? (
-                  <div className="max-w-md">
-                    <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">
-                      Your Watch Library is Empty
-                    </h2>
-                    <p className="text-xs sm:text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
-                      Start tracking movies and TV shows! Type a name into the search bar to automatically fetch seasons, episode titles, and poster artwork.
-                    </p>
+                  {mediaList.length === 0 ? (
+                    <div className="max-w-md">
+                      <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">
+                        Your Watch Library is Empty
+                      </h2>
+                      <p className="text-xs sm:text-sm text-[var(--text-secondary)] mb-6 leading-relaxed">
+                        Start tracking movies and TV shows! Type a name into the search bar to automatically fetch seasons, episode titles, and poster artwork.
+                      </p>
 
-                    <div className="flex flex-wrap items-center justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setIsSearchOpen(true)}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs sm:text-sm font-bold shadow-lg shadow-[var(--accent)]/30 transition-all active:scale-95"
-                      >
-                        <Search className="w-4 h-4" />
-                        <span>Search Series & Movies</span>
-                      </button>
+                      <div className="flex flex-wrap items-center justify-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setIsSearchOpen(true)}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--accent)] hover:brightness-110 text-white text-xs sm:text-sm font-bold shadow-lg shadow-[var(--accent)]/30 transition-all active:scale-95"
+                        >
+                          <Search className="w-4 h-4" />
+                          <span>Search Series & Movies</span>
+                        </button>
 
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setManualEditItem(null);
+                            setIsManualOpen(true);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs sm:text-sm font-semibold transition-all border border-[var(--border-light)]"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Add Custom Entry</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="max-w-sm">
+                      <h3 className="text-base font-semibold text-[var(--text-primary)] mb-1">
+                        No matches found
+                      </h3>
+                      <p className="text-xs text-[var(--text-secondary)] mb-4">
+                        No items in your library match the current filters or search query.
+                      </p>
                       <button
                         type="button"
                         onClick={() => {
-                          setManualEditItem(null);
-                          setIsManualOpen(true);
+                          setStatusFilter('all');
+                          setTypeFilter('all');
+                          setLibrarySearch('');
                         }}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs sm:text-sm font-semibold transition-all border border-[var(--border-light)]"
+                        className="px-3.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium transition-all border border-[var(--border-light)]"
                       >
-                        <Plus className="w-4 h-4" />
-                        <span>Add Custom Entry</span>
+                        Clear Filters
                       </button>
                     </div>
-                  </div>
-                ) : (
-                  <div className="max-w-sm">
-                    <h3 className="text-base font-semibold text-[var(--text-primary)] mb-1">
-                      No matches found
-                    </h3>
-                    <p className="text-xs text-[var(--text-secondary)] mb-4">
-                      No items in your library match the current filters or search query.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStatusFilter('all');
-                        setTypeFilter('all');
-                        setLibrarySearch('');
-                      }}
-                      className="px-3.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-xs font-medium transition-all border border-[var(--border-light)]"
-                    >
-                      Clear Filters
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : null}
+                  )}
+                </div>
+              ) : null}
+            </div>
 
           </main>
 
@@ -1321,20 +1389,20 @@ export default function App(): React.JSX.Element {
         </>
       )}
 
-      {/* Mobile Bottom Navigation Bar (Issue #50) */}
+      {/* Mobile Bottom Navigation Bar (Issue #50 & #52) */}
       <MobileBottomNav
         currentTab={mainTab}
         onSelectTab={handleMainTabChange}
         onOpenSearch={() => setIsSearchOpen(true)}
-        isUpcomingActive={upcomingFilter === 'next_n_days'}
+        isUpcomingActive={isMobileUpcomingView}
         onToggleUpcoming={() => {
-          handleUpcomingFilterChange(upcomingFilter === 'next_n_days' ? 'show_all' : 'next_n_days');
+          setIsMobileUpcomingView(prev => !prev);
         }}
         upcomingCount={upcomingCount}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* Mobile Filter Sheet (Issue #50) */}
+      {/* Mobile Filter Sheet (Issue #50 & #52) */}
       <MobileFilterSheet
         isOpen={isMobileFilterOpen}
         onClose={() => setIsMobileFilterOpen(false)}
@@ -1350,10 +1418,15 @@ export default function App(): React.JSX.Element {
         onGridDensityChange={handleGridDensityChange}
         showPinnedView={showPinnedView}
         onTogglePinnedView={handleTogglePinnedView}
+        pinnedCount={totalPinnedCount}
         upcomingFilter={upcomingFilter}
         onUpcomingFilterChange={handleUpcomingFilterChange}
         upcomingDays={upcomingDays}
         onUpcomingDaysChange={handleUpcomingDaysChange}
+        typeFilter={typeFilter}
+        bookFormatFilter={bookFormatFilter}
+        onBookFormatChange={handleBookFormatChange}
+        items={mediaList}
       />
 
       {/* Search Modal */}

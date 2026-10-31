@@ -278,3 +278,12 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* ========================================
+   Issue #52: Mobile Navigation Polish
+   ======================================== */
+.nav-hidden {
+  transform: translateY(120%) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

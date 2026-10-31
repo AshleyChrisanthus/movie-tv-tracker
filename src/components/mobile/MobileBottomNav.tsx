@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Film, Network, Plus, Calendar, Settings } from 'lucide-react';
 
 export interface MobileBottomNavProps {
@@ -24,9 +24,67 @@ export default function MobileBottomNav({
   const isLibraryActive = currentTab === 'library' && !isUpcomingActive;
   const isCanvasActive = currentTab === 'canvas';
 
+  // Scroll-aware auto-hiding (Issue #52 & App-Directory #70)
+  const [isHidden, setIsHidden] = useState(false);
+  const lastScrollY = useRef(0);
+  const ticking = useRef(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!ticking.current) {
+        window.requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+          const deltaY = currentScrollY - lastScrollY.current;
+          const windowHeight = window.innerHeight;
+          const docHeight = Math.max(
+            document.body.scrollHeight,
+            document.documentElement.scrollHeight,
+            document.body.offsetHeight,
+            document.documentElement.offsetHeight
+          );
+
+          // Hide Condition: Scrolling down with deltaY > 10px once scrollY > 60px
+          if (deltaY > 10 && currentScrollY > 60) {
+            setIsHidden(true);
+          }
+          // Reveal Condition: Scrolling up (deltaY < -8px), reaching the top (scrollY <= 40px), or reaching the bottom of the page
+          else if (
+            deltaY < -8 ||
+            currentScrollY <= 40 ||
+            windowHeight + currentScrollY >= docHeight - 20
+          ) {
+            setIsHidden(false);
+          }
+
+          lastScrollY.current = Math.max(0, currentScrollY);
+          ticking.current = false;
+        });
+        ticking.current = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, []);
+
+  // When tabs change or upcoming view toggles, ensure nav is revealed
+  useEffect(() => {
+    setIsHidden(false);
+  }, [currentTab, isUpcomingActive]);
+
   return (
     <nav
-      className="fixed bottom-0 inset-x-0 z-40 md:hidden bg-[#0d0d0f]/90 dark:bg-[#0d0d0f]/90 bg-opacity-90 backdrop-blur-2xl border-t border-[var(--border-light)] pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1.5 transition-all select-none"
+      className={`fixed bottom-0 inset-x-0 z-40 md:hidden bg-[#0d0d0f]/90 dark:bg-[#0d0d0f]/90 bg-opacity-90 backdrop-blur-2xl border-t border-[var(--border-light)] pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1.5 select-none transition-all duration-[250ms] [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] ${
+        isHidden ? 'nav-hidden translate-y-[120%] opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'
+      }`}
+      style={{
+        transition: 'transform 250ms cubic-bezier(0.22, 1, 0.36, 1), opacity 250ms cubic-bezier(0.22, 1, 0.36, 1)'
+      }}
       aria-label="Mobile Navigation"
     >
       <div className="max-w-md mx-auto px-4 flex items-center justify-between relative">

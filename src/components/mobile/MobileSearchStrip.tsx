@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Plus, RefreshCw, QrCode, X, UploadCloud, DownloadCloud } from 'lucide-react';
+import { Search, Plus, RefreshCw, QrCode, X, UploadCloud, DownloadCloud, SlidersHorizontal } from 'lucide-react';
 import type { SyncStatus } from '../../types';
 
 export interface MobileSearchStripProps {
@@ -7,6 +7,7 @@ export interface MobileSearchStripProps {
   onSearchChange: (query: string) => void;
   totalItemsCount: number;
   onOpenSearchModal: () => void;
+  onOpenFilterSheet?: () => void;
   cloudSyncStatus?: SyncStatus;
   onOpenCloudSync?: () => void;
   onTriggerSync?: () => void;
@@ -22,6 +23,7 @@ export default function MobileSearchStrip({
   onSearchChange,
   totalItemsCount,
   onOpenSearchModal,
+  onOpenFilterSheet,
   cloudSyncStatus,
   onOpenCloudSync,
   onTriggerSync,
@@ -57,6 +59,17 @@ export default function MobileSearchStrip({
             title="Clear search"
           >
             <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {onOpenFilterSheet && (
+          <button
+            type="button"
+            onClick={onOpenFilterSheet}
+            className="p-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors mr-1 cursor-pointer"
+            title="Filter and Sort options"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>
         )}
 

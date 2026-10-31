@@ -1,5 +1,5 @@
 // Service Worker for BingeLog PWA
-const CACHE_NAME = 'bingelog-56c314de-97e72e';
+const CACHE_NAME = 'bingelog-1f2004a1-97e72e';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',

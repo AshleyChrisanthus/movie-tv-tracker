@@ -40,6 +40,7 @@ const testFiles = [
   'path:/tier1-features/mobile-nav-upcoming-filtersheet.test.js',
   'path:/tier1-features/tmdb-tvmaze-id-collision-healing.test.js',
   'path:/tier1-features/cloud-sync-push-pull.test.js',
+  'path:/tier1-features/live-countdown-ticker.test.js',
 
   // Tier 2: Boundary & Corner Cases
   'path:/tier2-boundary/empty-and-edge-items.test.js',

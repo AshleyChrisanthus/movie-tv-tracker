@@ -13,6 +13,7 @@ import {
 } from '../../db';
 import { syncMediaEpisodes, syncMovieStreamingDetails } from '../../services/api';
 import { formatEpisodeAirDate, getEpisodeCountdown, isEpisodeAired } from '../../utils/timezone';
+import { useLiveTicker } from '../../hooks/useLiveTicker';
 import { formatRating, normalizeRating, denormalizeRating } from '../../utils/rating';
 import { formatAudioDuration, isAudiobookItem } from '../../utils/audioDuration';
 
@@ -77,6 +78,9 @@ export default function MobileMediaDetailSheet({
   onRatingCommit: propsOnRatingCommit
 }: MobileMediaDetailSheetProps): React.JSX.Element | null {
   if (!isOpen || !media) return null;
+
+  // Live episode countdown ticker & tab wake listener (Issue #55)
+  useLiveTicker();
 
   const isTv = media.type === 'tv';
   const isBook = media.type === 'book';

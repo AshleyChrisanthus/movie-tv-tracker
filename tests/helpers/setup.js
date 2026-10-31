@@ -99,6 +99,14 @@ export async function getTimezoneModule() {
   return await import('../../src/utils/timezone.js');
 }
 
+
+export async function getLiveTickerModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/hooks/useLiveTicker.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/hooks/useLiveTicker.ts');
+  }
+  return await import('../../src/hooks/useLiveTicker.js');
+}
 export async function getUpcomingModule() {
   const tsPath = path.resolve(process.cwd(), 'src/utils/upcoming.ts');
   if (fs.existsSync(tsPath)) {

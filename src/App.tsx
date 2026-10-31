@@ -26,12 +26,16 @@ import { getNextFranchiseMovie } from './utils/franchise';
 import { initTheme, toggleThemeMode } from './styles/theme';
 import { shouldShowItemForUpcomingFilter, isItemUpcoming } from './utils/upcoming';
 import { getEpisodeCountdown } from './utils/timezone';
+import { useLiveTicker } from './hooks/useLiveTicker';
 import { isAudiobookItem } from './utils/audioDuration';
 import { consumeShareTargetFromWindow } from './utils/shareTarget';
 import { Film, Plus, Search, Sparkles, X, Pin, ChevronUp, RefreshCw, QrCode, LayoutGrid, List, UploadCloud, DownloadCloud } from 'lucide-react';
 import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, GridColumns, UpcomingFilter, BookFormatFilter, SyncStatus } from './types';
 
 export default function App(): React.JSX.Element {
+  // Live ticker for episode countdowns & upcoming releases (Issue #55)
+  const liveTick = useLiveTicker();
+
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [customLists, setCustomLists] = useState<CustomList[]>([]);
   const [mainTab, setMainTab] = useState<'library' | 'canvas'>(
@@ -439,9 +443,9 @@ export default function App(): React.JSX.Element {
     };
   }, [mediaList]);
 
-  // Upcoming count for Mobile Bottom Nav badge (Issue #50 & #52)
+  // Upcoming count for Mobile Bottom Nav badge (Issue #50, #52, #55)
   const upcomingCount = useMemo(() => {
-    const now = new Date();
+    const now = new Date(liveTick);
     const nowMs = now.getTime();
     const maxMs = upcomingDays * 24 * 60 * 60 * 1000;
 
@@ -450,7 +454,7 @@ export default function App(): React.JSX.Element {
 
       // 1. Airing TV episodes
       if (item.type === 'tv' && (item.nextAirDate || item.nextAirstamp)) {
-        const cd = getEpisodeCountdown(item.nextAirDate || undefined, item.nextAirstamp, item.networkTimezone);
+        const cd = getEpisodeCountdown(item.nextAirDate || undefined, item.nextAirstamp, item.networkTimezone, nowMs);
         if (!cd.isAired) {
           let dropTime: number | null = null;
           if (item.nextAirstamp) {
@@ -479,10 +483,11 @@ export default function App(): React.JSX.Element {
 
       return false;
     }).length;
-  }, [mediaList, upcomingDays]);
+  }, [mediaList, upcomingDays, liveTick]);
 
   // Filter and sort items
   const filteredItems = useMemo<MediaItem[]>(() => {
+    const now = new Date(liveTick);
     return mediaList
       .filter(item => {
         if (statusFilter !== 'all' && item.status !== statusFilter) return false;
@@ -492,7 +497,7 @@ export default function App(): React.JSX.Element {
           if (bookFormatFilter === 'reading' && isAudiobookItem(item)) return false;
         }
         if (listFilter !== 'all' && (!item.lists || !item.lists.includes(listFilter))) return false;
-        if (!shouldShowItemForUpcomingFilter(item, upcomingFilter, upcomingDays)) return false;
+        if (!shouldShowItemForUpcomingFilter(item, upcomingFilter, upcomingDays, now)) return false;
         if (librarySearch.trim()) {
           const q = librarySearch.trim().toLowerCase();
           const matchTitle = item.title?.toLowerCase().includes(q);
@@ -577,7 +582,7 @@ export default function App(): React.JSX.Element {
         // default 'updated'
         return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
       });
-  }, [mediaList, statusFilter, typeFilter, bookFormatFilter, listFilter, librarySearch, sortBy, upcomingFilter, upcomingDays]);
+  }, [mediaList, statusFilter, typeFilter, bookFormatFilter, listFilter, librarySearch, sortBy, upcomingFilter, upcomingDays, liveTick]);
 
   // Total pinned items count across library (Issue #47)
   const totalPinnedCount = useMemo(() => {

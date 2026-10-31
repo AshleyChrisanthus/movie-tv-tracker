@@ -20,6 +20,7 @@ import {
 import { 
   getUserTimeZone, formatEpisodeAirDate, getEpisodeCountdown, isEpisodeAired 
 } from '../utils/timezone';
+import { useLiveTicker } from '../hooks/useLiveTicker';
 import { normalizeRating, denormalizeRating, formatRating, RATING_SCALE_CONFIG } from '../utils/rating';
 import { parseAudioDuration, formatAudioDuration, formatAudioProgress, secondsToHoursMinutes, hoursMinutesToSeconds, isAudiobookItem } from '../utils/audioDuration';
 import type { MediaItem, EpisodeItem, MediaStatus, CustomList, RatingScale, TMDBCollectionDetail, TMDBCollectionPart, BookEdition } from '../types';
@@ -55,6 +56,9 @@ export default function MediaDetailModal({
   ratingScale = '10',
   onRatingScaleChange
 }: MediaDetailModalProps): React.JSX.Element | null {
+  // Live episode countdown ticker & tab wake listener (Issue #55)
+  useLiveTicker();
+
   const [episodes, setEpisodes] = useState<EpisodeItem[]>([]);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [status, setStatus] = useState<MediaStatus>(media?.status || 'plan_to_watch');

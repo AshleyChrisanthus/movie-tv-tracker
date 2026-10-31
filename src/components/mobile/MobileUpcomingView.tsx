@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Calendar, Clock, Sparkles, Film, Tv, BookOpen, Star, Plus, Flame, ChevronRight } from 'lucide-react';
 import type { MediaItem, UpcomingFilter, RatingScale } from '../../types';
 import { getEpisodeCountdown, formatEpisodeAirDate } from '../../utils/timezone';
+import { useLiveTicker } from '../../hooks/useLiveTicker';
 import { getItemReleaseDate } from '../../utils/upcoming';
 import { formatRating } from '../../utils/rating';
 
@@ -38,7 +39,8 @@ export default function MobileUpcomingView({
   onOpenSearch,
   ratingScale = '10'
 }: MobileUpcomingViewProps): React.JSX.Element {
-  const now = useMemo(() => new Date(), []);
+  const liveTick = useLiveTicker();
+  const now = useMemo(() => new Date(liveTick), [liveTick]);
 
   // Parse all library items and locate unreleased upcoming dates/episodes
   const parsedItems = useMemo<ParsedUpcomingItem[]>(() => {
@@ -55,7 +57,7 @@ export default function MobileUpcomingView({
       if (item.type === 'tv') {
         // 1. Airing episodes
         if (item.nextAirDate || item.nextAirstamp) {
-          const cd = getEpisodeCountdown(item.nextAirDate || undefined, item.nextAirstamp, item.networkTimezone);
+          const cd = getEpisodeCountdown(item.nextAirDate || undefined, item.nextAirstamp, item.networkTimezone, nowMs);
           let dropTime: number | null = null;
           if (item.nextAirstamp) {
             const t = new Date(item.nextAirstamp).getTime();

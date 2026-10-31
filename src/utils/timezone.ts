@@ -72,9 +72,14 @@ export async function setUserTimeZone(tz: string): Promise<void> {
  */
 export function isEpisodeAired(
   episode: { airDate?: string; airstamp?: string | null },
-  networkTz: string = 'America/New_York'
+  networkTz: string = 'America/New_York',
+  nowTime?: number | Date
 ): boolean {
-  const now = Date.now();
+  const now = typeof nowTime === 'number'
+    ? nowTime
+    : nowTime instanceof Date
+    ? nowTime.getTime()
+    : Date.now();
 
   // 1. Direct UTC timestamp comparison
   if (episode.airstamp) {
@@ -182,7 +187,8 @@ export function formatEpisodeAirDate(
 export function getEpisodeCountdown(
   airDate?: string,
   airstamp?: string | null,
-  networkTz: string = 'America/New_York'
+  networkTz: string = 'America/New_York',
+  nowTime?: number | Date
 ): { isAired: boolean; label: string; hoursRemaining: number } {
   let dropTimestamp: number | null = null;
 
@@ -202,7 +208,11 @@ export function getEpisodeCountdown(
     return { isAired: true, label: '', hoursRemaining: 0 };
   }
 
-  const now = Date.now();
+  const now = typeof nowTime === 'number'
+    ? nowTime
+    : nowTime instanceof Date
+    ? nowTime.getTime()
+    : Date.now();
   const diffMs = dropTimestamp - now;
 
   if (diffMs <= 0) {

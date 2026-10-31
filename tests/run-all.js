@@ -36,6 +36,7 @@ const testFiles = [
   'path:/tier1-features/pwa-share-target-deploy.test.js',
   'path:/tier1-features/e2ee-cloud-sync-qr-pairing.test.js',
   'path:/tier1-features/mobile-pwa-library-stitch.test.js',
+  'path:/tier1-features/mobile-pwa-detail-sheet-stitch.test.js',
   'path:/tier1-features/tmdb-tvmaze-id-collision-healing.test.js',
   'path:/tier1-features/cloud-sync-push-pull.test.js',
 

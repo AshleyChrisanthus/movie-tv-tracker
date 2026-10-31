@@ -23,6 +23,7 @@ import {
 import { normalizeRating, denormalizeRating, formatRating, RATING_SCALE_CONFIG } from '../utils/rating';
 import { parseAudioDuration, formatAudioDuration, formatAudioProgress, secondsToHoursMinutes, hoursMinutesToSeconds, isAudiobookItem } from '../utils/audioDuration';
 import type { MediaItem, EpisodeItem, MediaStatus, CustomList, RatingScale, TMDBCollectionDetail, TMDBCollectionPart, BookEdition } from '../types';
+import MobileMediaDetailSheet from './mobile/MobileMediaDetailSheet';
 
 export interface MediaDetailModalProps {
   media: MediaItem | null;
@@ -169,6 +170,7 @@ export default function MediaDetailModal({
 
   const isTv = media?.type === 'tv';
   const isBook = media?.type === 'book';
+  const isMovie = media?.type === 'movie';
 
   const bookCurrentTotal = bookProgressMode === 'chapters'
     ? (Number(media?.totalChapters) || Number(inputBookTotalChapters) || 0)
@@ -873,12 +875,53 @@ export default function MediaDetailModal({
   };
 
   return (
-    <div 
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm overflow-y-auto animate-fadeIn"
-    >
+    <>
+      {/* Mobile Bottom Sheet (< 768px) */}
+      <MobileMediaDetailSheet
+        media={media}
+        isOpen={isOpen}
+        onClose={onClose}
+        onUpdated={onUpdated}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+        onEditCustom={onEditCustom}
+        onOpenInCanvas={onOpenInCanvas}
+        ratingScale={activeScale}
+        onRatingScaleChange={handleScaleChange}
+        episodes={episodes}
+        selectedSeason={selectedSeason}
+        onSelectSeason={setSelectedSeason}
+        onToggleEpisode={handleToggleEpisode}
+        onMarkUpTo={handleMarkUpTo}
+        onToggleSeason={handleToggleSeason}
+        onApplyExactProgress={async (s, e) => {
+          setInputSeason(s);
+          setInputEpisode(e);
+          await setExactProgress(media.id, s, e, true);
+          await loadEpisodes(s);
+          if (onUpdated) onUpdated();
+          if (onUpdate) {
+            const updated = await getMediaById(media.id);
+            if (updated) onUpdate(updated);
+          }
+        }}
+        onStatusChange={handleStatusChange}
+        onTogglePin={handleTogglePin}
+        isPinned={isPinned}
+        onSync={isTv ? () => handleSync(false) : isMovie ? () => handleSyncMovie(false) : undefined}
+        isSyncing={isSyncing}
+        onApplyBookProgress={handleApplyBookProgress}
+        onQuickAudioIncrement={handleQuickAudioIncrement}
+        onRatingCommit={handleRatingCommit}
+      />
+
+      {/* Desktop Modal (>= 768px) */}
+      <div 
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+        className="fixed inset-0 z-50 hidden md:flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm overflow-y-auto animate-fadeIn"
+      >
       <div className="relative w-full max-w-4xl bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[92vh]">
         
         {/* Backdrop & Header Banner */}
@@ -2721,5 +2764,6 @@ export default function MediaDetailModal({
 
       </div>
     </div>
+    </>
   );
 }

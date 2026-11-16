@@ -20,6 +20,7 @@ import {
   ACTIVE_PRESET_KEY,
   CUSTOM_THEME_KEY,
   GENRE_COLORS_KEY,
+  persistThemeSetting,
   getGenreColors,
   setGenreColor,
   getGenreTagStyle,
@@ -139,7 +140,7 @@ export default function ThemeModal({
 
   // Switch preset
   const handleSelectPreset = (preset: ThemePreset) => {
-    localStorage.setItem(ACTIVE_PRESET_KEY, preset.id);
+    void persistThemeSetting(ACTIVE_PRESET_KEY, preset.id);
     setActivePresetId(preset.id);
     applyPresetPaletteForMode(currentMode);
 
@@ -166,7 +167,7 @@ export default function ThemeModal({
       const raw = localStorage.getItem(CUSTOM_THEME_KEY);
       const parsed = raw ? JSON.parse(raw) as Record<string, Record<string, string>> : {};
       parsed[currentMode] = { ...(parsed[currentMode] || {}), [property]: value };
-      localStorage.setItem(CUSTOM_THEME_KEY, JSON.stringify(parsed));
+      void persistThemeSetting(CUSTOM_THEME_KEY, JSON.stringify(parsed));
     } catch {
       // Ignore JSON parse errors
     }
@@ -198,14 +199,14 @@ export default function ThemeModal({
       newColors[g.toLowerCase()] = hslToHex(hue, saturation, lightness);
     });
 
-    localStorage.setItem(GENRE_COLORS_KEY, JSON.stringify(newColors));
+    void persistThemeSetting(GENRE_COLORS_KEY, JSON.stringify(newColors));
     setGenreColorsState(newColors);
     if (onThemeChanged) onThemeChanged();
     showToast(`Auto-colorized ${allGenres.length} genres harmoniously!`);
   };
 
   const handleResetGenres = () => {
-    localStorage.removeItem(GENRE_COLORS_KEY);
+    void persistThemeSetting(GENRE_COLORS_KEY, null);
     setGenreColorsState({});
     if (onThemeChanged) onThemeChanged();
     showToast('Genre tag colors reset to default.');
@@ -213,9 +214,9 @@ export default function ThemeModal({
 
   // Reset all theme customizations
   const handleResetAll = () => {
-    localStorage.removeItem(ACTIVE_PRESET_KEY);
-    localStorage.removeItem(CUSTOM_THEME_KEY);
-    localStorage.removeItem(GENRE_COLORS_KEY);
+    void persistThemeSetting(ACTIVE_PRESET_KEY, null);
+    void persistThemeSetting(CUSTOM_THEME_KEY, null);
+    void persistThemeSetting(GENRE_COLORS_KEY, null);
     clearCustomThemeProperties();
     applyPresetPaletteForMode(currentMode);
     setActivePresetId('default');
@@ -261,18 +262,18 @@ export default function ThemeModal({
       };
       if (config.theme && (config.theme === 'dark' || config.theme === 'light')) {
         document.documentElement.setAttribute('data-theme', config.theme);
-        localStorage.setItem(THEME_KEY, config.theme);
+        void persistThemeSetting(THEME_KEY, config.theme);
         setCurrentMode(config.theme);
       }
       if (config.activePreset) {
-        localStorage.setItem(ACTIVE_PRESET_KEY, config.activePreset);
+        void persistThemeSetting(ACTIVE_PRESET_KEY, config.activePreset);
         setActivePresetId(config.activePreset);
       }
       if (config.customColors) {
-        localStorage.setItem(CUSTOM_THEME_KEY, JSON.stringify(config.customColors));
+        void persistThemeSetting(CUSTOM_THEME_KEY, JSON.stringify(config.customColors));
       }
       if (config.genreColors) {
-        localStorage.setItem(GENRE_COLORS_KEY, JSON.stringify(config.genreColors));
+        void persistThemeSetting(GENRE_COLORS_KEY, JSON.stringify(config.genreColors));
         setGenreColorsState(config.genreColors);
       }
       applyPresetPaletteForMode(config.theme || currentMode);

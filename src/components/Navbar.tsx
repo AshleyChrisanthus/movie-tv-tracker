@@ -15,8 +15,8 @@ export interface NavbarProps {
   onOpenTheme: () => void;
   onToggleTheme: () => void;
   themeMode?: ThemeMode;
-  currentTab?: 'library' | 'canvas';
-  onSelectTab?: (tab: 'library' | 'canvas') => void;
+  currentTab?: 'library' | 'canvas' | 'upcoming';
+  onSelectTab?: (tab: 'library' | 'canvas' | 'upcoming') => void;
   stats?: {
     watching?: number;
     completed?: number;
@@ -143,7 +143,7 @@ export default function Navbar({
                 ? 'bg-[var(--bg-hover)] text-[var(--accent)] border-[var(--accent)] cursor-wait'
                 : 'bg-[var(--card-bg)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border-[var(--border-light)]'
             }`}
-            title="Sync all TV shows to check for new seasons and episode titles"
+            title="Sync all movies and TV shows to update certifications, runtimes, and episodes"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-[var(--accent)] ${isSyncing ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync All'}</span>

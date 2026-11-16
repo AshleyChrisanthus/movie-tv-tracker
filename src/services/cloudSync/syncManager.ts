@@ -31,6 +31,13 @@ import {
   RestfulApiRelayLocker,
   DEFAULT_CLOUDFLARE_WORKER_URL
 } from './backend';
+import {
+  THEME_KEY,
+  ACTIVE_PRESET_KEY,
+  CUSTOM_THEME_KEY,
+  GENRE_COLORS_KEY,
+  applyThemeSettingsFromRecord
+} from '../../styles/theme';
 
 export const CONFIG_STORAGE_KEY = 'bingelog_sync_config_v1';
 export const DEVICE_ID_KEY = 'bingelog_device_id';
@@ -236,14 +243,52 @@ export class SyncManager {
       'grid_density',
       'grid_columns',
       'tmdb_api_key',
-      'google_books_api_key'
+      'google_books_api_key',
+      THEME_KEY,
+      ACTIVE_PRESET_KEY,
+      CUSTOM_THEME_KEY,
+      GENRE_COLORS_KEY
     ];
     const settings: Record<string, unknown> = {};
+    const timestamps: Record<string, string> = {};
+    let latestSettingTime = 0;
+
     for (const k of keys) {
       const rec = await db.settings.get(k);
+      let val: unknown = undefined;
+      let updatedAt: string | undefined = rec?.updatedAt;
+
       if (rec && rec.value !== undefined) {
-        settings[k] = rec.value;
+        val = rec.value;
+      } else if (typeof localStorage !== 'undefined') {
+        const localVal = localStorage.getItem(k);
+        if (localVal !== null) {
+          val = localVal;
+          try {
+            await db.settings.put({ key: k, value: localVal });
+          } catch {
+            // ignore
+          }
+        }
       }
+
+      if (typeof localStorage !== 'undefined' && !updatedAt) {
+        const localTime = localStorage.getItem(`${k}_updated_at`);
+        if (localTime) updatedAt = localTime;
+      }
+
+      if (val !== undefined) {
+        settings[k] = val;
+        if (updatedAt) {
+          timestamps[k] = updatedAt;
+          const t = new Date(updatedAt).getTime();
+          if (!isNaN(t) && t > latestSettingTime) latestSettingTime = t;
+        }
+      }
+    }
+    settings['_settings_timestamps'] = timestamps;
+    if (latestSettingTime > 0) {
+      settings['_settings_updated_at'] = new Date(latestSettingTime).toISOString();
     }
     return settings;
   }
@@ -683,15 +728,25 @@ export class SyncManager {
             }
 
             if (remotePayload.settings) {
+              const timestamps = (remotePayload.settings['_settings_timestamps'] as Record<string, string>) || {};
               for (const [k, v] of Object.entries(remotePayload.settings)) {
+                if (k.startsWith('_')) continue;
                 if (v !== undefined) {
-                  await db.settings.put({ key: k, value: v });
+                  const updatedAt = timestamps[k] || remotePayload.updatedAt;
+                  await db.settings.put({ key: k, value: v, updatedAt });
+                  if (typeof localStorage !== 'undefined' && updatedAt) {
+                    localStorage.setItem(`${k}_updated_at`, updatedAt);
+                  }
                 }
               }
             }
           }
         );
       });
+
+      if (remotePayload.settings) {
+        applyThemeSettingsFromRecord(remotePayload.settings);
+      }
 
       if (remotePayload.tombstones) {
         this.saveLocalTombstones(remotePayload.tombstones);
@@ -841,18 +896,26 @@ export class SyncManager {
                 }
 
                 // Sync settings
+                const mergedTimestamps = (mergedSettings['_settings_timestamps'] as Record<string, string>) || {};
                 for (const [k, v] of Object.entries(mergedSettings)) {
+                  if (k.startsWith('_')) continue;
                   if (v !== undefined) {
-                    await db.settings.put({ key: k, value: v });
+                    const updatedAt = mergedTimestamps[k];
+                    await db.settings.put({ key: k, value: v, updatedAt });
+                    if (typeof localStorage !== 'undefined' && updatedAt) {
+                      localStorage.setItem(`${k}_updated_at`, updatedAt);
+                    }
                   }
                 }
               }
             );
           });
 
+          applyThemeSettingsFromRecord(mergedSettings);
           this.saveLocalTombstones(mergedTombstones);
           this.notifyDataSynced();
         } else {
+          applyThemeSettingsFromRecord(mergedSettings);
           this.saveLocalTombstones(mergedTombstones);
         }
       }

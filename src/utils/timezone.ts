@@ -68,44 +68,37 @@ export async function setUserTimeZone(tz: string): Promise<void> {
 }
 
 /**
- * Determine whether an episode has officially aired, with DST awareness and timezone conversion.
+ * Compute the UTC drop timestamp (ms) for an episode, using `airstamp` when available
+ * or falling back to 20:00 in `networkTz` for date-only `airDate` strings.
  */
-export function isEpisodeAired(
-  episode: { airDate?: string; airstamp?: string | null },
-  networkTz: string = 'America/New_York',
-  nowTime?: number | Date
-): boolean {
-  const now = typeof nowTime === 'number'
-    ? nowTime
-    : nowTime instanceof Date
-    ? nowTime.getTime()
-    : Date.now();
-
-  // 1. Direct UTC timestamp comparison
-  if (episode.airstamp) {
-    const dropTime = new Date(episode.airstamp).getTime();
+export function getEpisodeDropTimestamp(
+  airDate?: string,
+  airstamp?: string | null,
+  networkTz: string = 'America/New_York'
+): number | null {
+  if (airstamp) {
+    const dropTime = new Date(airstamp).getTime();
     if (!Number.isNaN(dropTime)) {
-      return now >= dropTime;
+      return dropTime;
     }
   }
 
-  // 2. Air date fallback (YYYY-MM-DD)
-  if (!episode.airDate) {
-    return true; // Assume aired if no air date is recorded
+  if (!airDate) {
+    return null;
   }
 
+  const [yearStr, monthStr, dayStr] = airDate.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const approxUtcDrop = Date.UTC(year, month - 1, day, 20, 0, 0);
+
   try {
-    const [yearStr, monthStr, dayStr] = episode.airDate.split('-');
-    const year = Number(yearStr);
-    const month = Number(monthStr);
-    const day = Number(dayStr);
-
-    if (!year || !month || !day) return true;
-
-    // Use Date.UTC approximation then adjust for origin timezone offset
-    // Most US prime-time broadcast drops occur at 20:00 (8:00 PM)
-    const approxUtcDrop = Date.UTC(year, month - 1, day, 20, 0, 0);
-
     const testDate = new Date(approxUtcDrop);
     const originFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: networkTz,
@@ -121,13 +114,32 @@ export function isEpisodeAired(
     const parts = originFormatter.formatToParts(testDate);
     const originHour = Number(parts.find(p => p.type === 'hour')?.value || 20);
     const hourDiff = 20 - originHour;
-    const exactDropTime = approxUtcDrop + hourDiff * 60 * 60 * 1000;
-
-    return now >= exactDropTime;
+    return approxUtcDrop + hourDiff * 60 * 60 * 1000;
   } catch {
-    const todayIso = new Date().toISOString().slice(0, 10);
-    return episode.airDate <= todayIso;
+    return approxUtcDrop;
   }
+}
+
+/**
+ * Determine whether an episode has officially aired, with DST awareness and timezone conversion.
+ */
+export function isEpisodeAired(
+  episode: { airDate?: string; airstamp?: string | null },
+  networkTz: string = 'America/New_York',
+  nowTime?: number | Date
+): boolean {
+  const now = typeof nowTime === 'number'
+    ? nowTime
+    : nowTime instanceof Date
+    ? nowTime.getTime()
+    : Date.now();
+
+  const dropTimestamp = getEpisodeDropTimestamp(episode.airDate, episode.airstamp, networkTz);
+  if (dropTimestamp === null) {
+    return true; // Assume aired if no valid air date is recorded
+  }
+
+  return now >= dropTimestamp;
 }
 
 /**
@@ -150,6 +162,7 @@ export function formatEpisodeAirDate(
           weekday: 'short',
           month: 'short',
           day: 'numeric',
+          year: 'numeric',
           hour: 'numeric',
           minute: '2-digit',
           timeZoneName: 'short'
@@ -169,7 +182,8 @@ export function formatEpisodeAirDate(
           timeZone: tz,
           weekday: 'short',
           month: 'short',
-          day: 'numeric'
+          day: 'numeric',
+          year: 'numeric'
         }).format(new Date(utcGuess));
       }
     } catch {
@@ -181,6 +195,97 @@ export function formatEpisodeAirDate(
   return 'TBA';
 }
 
+export interface FormatCountdownOptions {
+  capitalize?: boolean;
+}
+
+/**
+ * Format milliseconds until drop into human-friendly relative units:
+ * - < 1 hour: "in 45m" / "In 45m"
+ * - < 24 hours: "in 5h 20m" / "In 5h 20m"
+ * - 1 to 6 days: "in 1 day 7 hours" / "In 1 day 7 hours"
+ * - 7 to 29 days: "in 1 week 2 days" / "In 1 week 2 days"
+ * - 30 to 364 days: "in 1 month 2 weeks" / "In 1 month 2 weeks"
+ * - >= 365 days: "in 1 year 3 months" / "In 1 year 3 months"
+ */
+export function formatHumanCountdown(diffMs: number, options: FormatCountdownOptions = {}): string {
+  if (diffMs <= 0) return 'Aired';
+
+  const prefix = options.capitalize ? 'In ' : 'in ';
+  const totalMin = Math.floor(diffMs / (60 * 1000));
+  const totalHours = Math.floor(diffMs / (60 * 60 * 1000));
+  const totalDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+
+  // 1. Years tier (>= 365 days)
+  if (totalDays >= 365) {
+    const years = Math.floor(totalDays / 365);
+    const remDays = totalDays % 365;
+    const months = Math.floor(remDays / 30);
+    const yrStr = `${years} ${years === 1 ? 'year' : 'years'}`;
+    if (months > 0) {
+      const moStr = `${months} ${months === 1 ? 'month' : 'months'}`;
+      return `${prefix}${yrStr} ${moStr}`;
+    }
+    return `${prefix}${yrStr}`;
+  }
+
+  // 2. Months tier (>= 30 days)
+  if (totalDays >= 30) {
+    const months = Math.floor(totalDays / 30);
+    const remDays = totalDays % 30;
+    const weeks = Math.floor(remDays / 7);
+    const days = remDays % 7;
+    const moStr = `${months} ${months === 1 ? 'month' : 'months'}`;
+    if (weeks > 0) {
+      const wkStr = `${weeks} ${weeks === 1 ? 'week' : 'weeks'}`;
+      return `${prefix}${moStr} ${wkStr}`;
+    }
+    if (days > 0) {
+      const dayStr = `${days} ${days === 1 ? 'day' : 'days'}`;
+      return `${prefix}${moStr} ${dayStr}`;
+    }
+    return `${prefix}${moStr}`;
+  }
+
+  // 3. Weeks tier (>= 7 days)
+  if (totalDays >= 7) {
+    const weeks = Math.floor(totalDays / 7);
+    const days = totalDays % 7;
+    const wkStr = `${weeks} ${weeks === 1 ? 'week' : 'weeks'}`;
+    if (days > 0) {
+      const dayStr = `${days} ${days === 1 ? 'day' : 'days'}`;
+      return `${prefix}${wkStr} ${dayStr}`;
+    }
+    return `${prefix}${wkStr}`;
+  }
+
+  // 4. Days tier (>= 1 day)
+  if (totalDays >= 1) {
+    const days = totalDays;
+    const remHours = totalHours % 24;
+    const dayStr = `${days} ${days === 1 ? 'day' : 'days'}`;
+    if (remHours > 0) {
+      const hrStr = `${remHours} ${remHours === 1 ? 'hour' : 'hours'}`;
+      return `${prefix}${dayStr} ${hrStr}`;
+    }
+    return `${prefix}${dayStr}`;
+  }
+
+  // 5. Hours tier (>= 1 hour)
+  if (totalHours >= 1) {
+    const hours = totalHours;
+    const remMins = totalMin % 60;
+    if (remMins > 0) {
+      return `${prefix}${hours}h ${remMins}m`;
+    }
+    return `${prefix}${hours}h`;
+  }
+
+  // 6. Minutes tier (< 1 hour)
+  const minutes = Math.max(1, totalMin);
+  return `${prefix}${minutes}m`;
+}
+
 /**
  * Get humanized countdown string for an upcoming un-aired episode.
  */
@@ -190,19 +295,7 @@ export function getEpisodeCountdown(
   networkTz: string = 'America/New_York',
   nowTime?: number | Date
 ): { isAired: boolean; label: string; hoursRemaining: number } {
-  let dropTimestamp: number | null = null;
-
-  if (airstamp) {
-    const t = new Date(airstamp).getTime();
-    if (!Number.isNaN(t)) dropTimestamp = t;
-  }
-
-  if (dropTimestamp === null && airDate) {
-    const [year, month, day] = airDate.split('-').map(Number);
-    if (year && month && day) {
-      dropTimestamp = Date.UTC(year, month - 1, day, 20, 0, 0);
-    }
-  }
+  const dropTimestamp = getEpisodeDropTimestamp(airDate, airstamp, networkTz);
 
   if (dropTimestamp === null) {
     return { isAired: true, label: '', hoursRemaining: 0 };

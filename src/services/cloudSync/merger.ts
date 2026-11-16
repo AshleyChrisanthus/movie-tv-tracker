@@ -1,5 +1,6 @@
 import { isMediaMatch } from '../../utils/mediaMatch';
 import { isEpisodeAired } from '../../utils/timezone';
+import { ACTIVE_PRESET_KEY } from '../../styles/theme';
 import type {
   MediaItem,
   EpisodeItem,
@@ -668,18 +669,92 @@ export function mergeSyncPayload(
 
   const mergedCanvases = Array.from(canvasMap.values());
 
-  // 6. Merge Settings
-  const mergedSettings: Record<string, unknown> = {
-    ...(remotePayload?.settings || {}),
-    ...(localSettings || {})
-  };
-  if (remotePayload?.settings && localSettings) {
-    const remoteUpdated = new Date(remotePayload.updatedAt || 0).getTime();
-    const latestLocalMedia = localMedia.reduce((max, m) => Math.max(max, getMediaTimestamp(m)), 0);
-    if (remoteUpdated >= latestLocalMedia) {
-      Object.assign(mergedSettings, localSettings, remotePayload.settings);
+  // 6. Merge Settings (with per-key LWW timestamps)
+  const localSettingsMap = (localSettings || {}) as Record<string, unknown>;
+  const remoteSettingsMap = (remotePayload?.settings || {}) as Record<string, unknown>;
+
+  const localTimestamps = (localSettingsMap['_settings_timestamps'] as Record<string, string>) || {};
+  const remoteTimestamps = (remoteSettingsMap['_settings_timestamps'] as Record<string, string>) || {};
+
+  const localOverallTime = new Date((localSettingsMap['_settings_updated_at'] as string) || 0).getTime() || 0;
+  const remoteOverallTime = new Date((remoteSettingsMap['_settings_updated_at'] as string) || remotePayload?.updatedAt || 0).getTime() || 0;
+
+  const allSettingKeys = new Set([
+    ...Object.keys(localSettingsMap),
+    ...Object.keys(remoteSettingsMap)
+  ]);
+  allSettingKeys.delete('_settings_timestamps');
+  allSettingKeys.delete('_settings_updated_at');
+
+  const mergedSettings: Record<string, unknown> = {};
+  const mergedTimestamps: Record<string, string> = {};
+
+  for (const key of allSettingKeys) {
+    const hasLocal = Object.prototype.hasOwnProperty.call(localSettingsMap, key) && localSettingsMap[key] !== undefined;
+    const hasRemote = Object.prototype.hasOwnProperty.call(remoteSettingsMap, key) && remoteSettingsMap[key] !== undefined;
+
+    const localTime = localTimestamps[key]
+      ? new Date(localTimestamps[key]).getTime()
+      : (hasLocal ? localOverallTime : 0);
+
+    const remoteTime = remoteTimestamps[key]
+      ? new Date(remoteTimestamps[key]).getTime()
+      : (hasRemote ? remoteOverallTime : 0);
+
+    if (hasLocal && !hasRemote) {
+      mergedSettings[key] = localSettingsMap[key];
+      mergedTimestamps[key] = localTimestamps[key] || new Date(localTime || Date.now()).toISOString();
+    } else if (!hasLocal && hasRemote) {
+      mergedSettings[key] = remoteSettingsMap[key];
+      mergedTimestamps[key] = remoteTimestamps[key] || new Date(remoteTime || Date.now()).toISOString();
+    } else if (hasLocal && hasRemote) {
+      const localVal = localSettingsMap[key];
+      const remoteVal = remoteSettingsMap[key];
+
+      if (JSON.stringify(localVal) === JSON.stringify(remoteVal)) {
+        mergedSettings[key] = localVal;
+        mergedTimestamps[key] = localTime >= remoteTime
+          ? (localTimestamps[key] || new Date(localTime || Date.now()).toISOString())
+          : (remoteTimestamps[key] || new Date(remoteTime || Date.now()).toISOString());
+      } else {
+        // Conflict: values differ. Compare timestamps.
+        if (localTime > remoteTime) {
+          // Local was updated more recently on this device
+          mergedSettings[key] = localVal;
+          mergedTimestamps[key] = localTimestamps[key] || new Date(localTime).toISOString();
+        } else if (remoteTime > localTime) {
+          // Remote was updated more recently on another device
+          mergedSettings[key] = remoteVal;
+          mergedTimestamps[key] = remoteTimestamps[key] || new Date(remoteTime).toISOString();
+        } else {
+          // Tie (e.g. both 0 or identical timestamps)
+          // If remote is not the fallback 'default' and local is 'default', prefer remote custom theme
+          if (key === ACTIVE_PRESET_KEY && localVal === 'default' && remoteVal && remoteVal !== 'default') {
+            mergedSettings[key] = remoteVal;
+            mergedTimestamps[key] = remoteTimestamps[key] || new Date(remoteTime || Date.now()).toISOString();
+          } else {
+            // Default tie-break: remote wins
+            mergedSettings[key] = remoteVal;
+            mergedTimestamps[key] = remoteTimestamps[key] || new Date(remoteTime || Date.now()).toISOString();
+          }
+        }
+      }
     }
   }
+
+  mergedSettings['_settings_timestamps'] = mergedTimestamps;
+  let maxTime = 0;
+  for (const tStr of Object.values(mergedTimestamps)) {
+    const t = new Date(tStr).getTime();
+    if (!isNaN(t) && t > maxTime) maxTime = t;
+  }
+  if (maxTime > 0) {
+    mergedSettings['_settings_updated_at'] = new Date(maxTime).toISOString();
+  }
+
+  const hasSettingsChanged = Array.from(allSettingKeys).some(
+    (k) => JSON.stringify(mergedSettings[k]) !== JSON.stringify(localSettingsMap[k])
+  );
 
   // 7. Determine if local state changed
   const localMediaById = new Map((localMedia || []).map((m) => [m.id, m]));
@@ -744,6 +819,7 @@ export function mergeSyncPayload(
       hasEpisodesChanged ||
       hasListsChanged ||
       hasCanvasesChanged ||
-      hasTombstonesChanged
+      hasTombstonesChanged ||
+      hasSettingsChanged
   };
 }

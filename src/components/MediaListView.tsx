@@ -1,9 +1,10 @@
 import React from 'react';
 import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones, Pin } from 'lucide-react';
-import type { MediaItem, MediaStatus, RatingScale } from '../types';
+import type { MediaItem, MediaStatus, RatingScale, RuntimeDisplayFormat } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
 import { isAudiobookItem, formatAudioDuration } from '../utils/audioDuration';
+import { formatRuntime, isSeasonActivelyAiring } from '../utils/duration';
 
 interface StatusStyle {
   label: string;
@@ -44,6 +45,7 @@ export interface MediaListViewProps {
   onQuickToggleMovie?: (item: MediaItem) => void;
   onTogglePin?: (item: MediaItem) => void;
   ratingScale?: RatingScale;
+  runtimeDisplayFormat?: RuntimeDisplayFormat;
 }
 
 export default function MediaListView({
@@ -52,7 +54,8 @@ export default function MediaListView({
   onQuickIncrement,
   onQuickToggleMovie,
   onTogglePin,
-  ratingScale = '10'
+  ratingScale = '10',
+  runtimeDisplayFormat = 'hours_minutes'
 }: MediaListViewProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-2">
@@ -67,6 +70,12 @@ export default function MediaListView({
         const isChapters = isBook && item.progressMode === 'chapters';
         const isTimeMode = isBook && (item.progressMode === 'time' || isAudio);
         const totalEps = item.totalEpisodes || 0;
+        const airedEps = (item.airedEpisodesCount !== undefined && item.airedEpisodesCount !== null)
+          ? item.airedEpisodesCount
+          : totalEps;
+        const isActivelyAiring = isTv && isSeasonActivelyAiring(item);
+        const hasFutureUnaired = airedEps < totalEps && airedEps > 0;
+        const effectiveTvTarget = (hasFutureUnaired && !isActivelyAiring) ? airedEps : totalEps;
         const watchedEps = item.watchedEpisodesCount || 0;
         const totalPages = item.totalPages || 0;
         const currentPage = item.currentPage || 0;
@@ -76,7 +85,7 @@ export default function MediaListView({
         const currentDuration = item.currentDurationSeconds || 0;
 
         const progressPercent = isTv
-          ? (totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0)
+          ? (effectiveTvTarget > 0 ? Math.min(100, Math.round((watchedEps / effectiveTvTarget) * 100)) : 0)
           : isBook
           ? isTimeMode
             ? (totalDuration > 0 ? Math.min(100, Math.round((currentDuration / totalDuration) * 100)) : 0)
@@ -154,6 +163,17 @@ export default function MediaListView({
                 <span className="text-xs text-[var(--text-secondary)] font-mono shrink-0">
                   ({isAudio && item.narrator ? `🎙️ ${item.narrator}` : (isBook && item.author ? item.author : item.year || 'N/A')})
                 </span>
+                {item.certification && (
+                  <span className="text-[9px] px-1 py-0 rounded font-bold border border-[var(--border-light)] text-[var(--text-secondary)] uppercase tracking-wider shrink-0">
+                    {item.certification}
+                  </span>
+                )}
+                {!isTv && !isBook && item.runtime && item.runtime > 0 && (
+                  <span className="text-xs text-[var(--text-secondary)] font-mono shrink-0 flex items-center gap-0.5">
+                    <Clock className="w-2.5 h-2.5 text-zinc-400" />
+                    <span>{formatRuntime(item.runtime, runtimeDisplayFormat)}</span>
+                  </span>
+                )}
               </div>
 
               {/* Status pill & countdown */}
@@ -222,6 +242,18 @@ export default function MediaListView({
                     }`}
                     style={{ width: `${progressPercent}%` }}
                   />
+                </div>
+              )}
+
+              {isTv && Boolean(item.remainingRuntimeMinutes && item.remainingRuntimeMinutes > 0 && !isCompleted && item.status !== 'caught_up') && (
+                <div className="flex items-center justify-between text-[9px] text-[var(--text-secondary)]">
+                  <span className="flex items-center gap-0.5">
+                    <Clock className="w-2.5 h-2.5 text-sky-400" />
+                    <span>Left:</span>
+                  </span>
+                  <span className="font-mono text-[var(--text-primary)] font-medium">
+                    {formatRuntime(item.remainingRuntimeMinutes, runtimeDisplayFormat)}
+                  </span>
                 </div>
               )}
             </div>

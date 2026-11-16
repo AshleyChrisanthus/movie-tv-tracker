@@ -19,6 +19,8 @@ export interface MediaSearchResult {
   popularity?: number;
   genres?: string[];
   status?: string;
+  runtime?: number | null;
+  certification?: string | null;
   author?: string;
   narrator?: string;
   totalPages?: number;
@@ -132,6 +134,13 @@ export interface TMDBTV {
   status?: string;
   seasons?: TMDBSeasonOverview[];
   media_type?: 'tv';
+  episode_run_time?: number[];
+  content_ratings?: {
+    results?: Array<{
+      iso_3166_1?: string;
+      rating?: string;
+    }>;
+  };
 }
 
 export interface TMDBSeasonOverview {
@@ -178,6 +187,8 @@ export interface TVMazeShow {
   premiered?: string | null;
   genres?: string[];
   status?: string;
+  runtime?: number | null;
+  averageRuntime?: number | null;
   image?: {
     medium?: string;
     original?: string;

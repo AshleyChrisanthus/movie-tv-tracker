@@ -4,6 +4,7 @@ import type { MediaItem, RatingScale } from '../../types';
 import { getEpisodeCountdown } from '../../utils/timezone';
 import { formatRating } from '../../utils/rating';
 import { isAudiobookItem, formatAudioDuration } from '../../utils/audioDuration';
+import { isSeasonActivelyAiring } from '../../utils/duration';
 
 export interface NowInProgressCarouselProps {
   items: MediaItem[];
@@ -58,10 +59,17 @@ export default function NowInProgressCarousel({
           const isTv = item.type === 'tv';
           const isBook = item.type === 'book';
           const isAudio = isAudiobookItem(item);
+          const inProgressTag = isAudio ? 'Listening' : isBook ? 'Reading' : 'Watching';
           const isChapters = isBook && item.progressMode === 'chapters';
           const isTimeMode = isBook && (item.progressMode === 'time' || isAudio);
 
           const totalEps = item.totalEpisodes || 0;
+          const airedEps = (item.airedEpisodesCount !== undefined && item.airedEpisodesCount !== null)
+            ? item.airedEpisodesCount
+            : totalEps;
+          const isActivelyAiring = isTv && isSeasonActivelyAiring(item);
+          const hasFutureUnaired = airedEps < totalEps && airedEps > 0;
+          const effectiveTvTarget = (hasFutureUnaired && !isActivelyAiring) ? airedEps : totalEps;
           const watchedEps = item.watchedEpisodesCount || 0;
           const totalPages = item.totalPages || 0;
           const currentPage = item.currentPage || 0;
@@ -71,7 +79,7 @@ export default function NowInProgressCarousel({
           const currentDuration = item.currentDurationSeconds || 0;
 
           const progressPercent = isTv
-            ? (totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0)
+            ? (effectiveTvTarget > 0 ? Math.min(100, Math.round((watchedEps / effectiveTvTarget) * 100)) : 0)
             : isBook
             ? isTimeMode
               ? (totalDuration > 0 ? Math.min(100, Math.round((currentDuration / totalDuration) * 100)) : 0)
@@ -109,7 +117,9 @@ export default function NowInProgressCarousel({
           // Progress label
           let progressLabel = '';
           if (isTv) {
-            progressLabel = `${watchedEps} / ${totalEps} eps`;
+            progressLabel = (hasFutureUnaired && !isActivelyAiring)
+              ? `${watchedEps} / ${airedEps} aired`
+              : `${watchedEps} / ${totalEps} eps`;
           } else if (isAudio || isTimeMode) {
             progressLabel = `${formatAudioDuration(currentDuration)} / ${formatAudioDuration(totalDuration)}`;
           } else if (isChapters) {
@@ -208,7 +218,7 @@ export default function NowInProgressCarousel({
                   ) : (
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/80 backdrop-blur-md text-white text-[10px] font-bold tracking-wide shadow-sm">
                       <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                      <span>Watching</span>
+                      <span>{inProgressTag}</span>
                     </span>
                   )}
                 </div>

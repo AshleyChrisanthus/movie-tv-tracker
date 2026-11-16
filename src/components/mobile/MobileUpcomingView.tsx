@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Calendar, Clock, Sparkles, Film, Tv, BookOpen, Star, Plus, Flame, ChevronRight } from 'lucide-react';
 import type { MediaItem, UpcomingFilter, RatingScale } from '../../types';
-import { getEpisodeCountdown, formatEpisodeAirDate } from '../../utils/timezone';
+import { getEpisodeCountdown, formatEpisodeAirDate, formatHumanCountdown } from '../../utils/timezone';
 import { useLiveTicker } from '../../hooks/useLiveTicker';
 import { getItemReleaseDate } from '../../utils/upcoming';
 import { formatRating } from '../../utils/rating';
@@ -81,10 +81,7 @@ export default function MobileUpcomingView({
               if (diff <= 0) {
                 countdownText = 'Airing Today';
               } else {
-                const totalMins = Math.floor(diff / (60 * 1000));
-                const hours = Math.floor(totalMins / 60);
-                const mins = totalMins % 60;
-                countdownText = hours > 0 ? `In ${hours}h ${mins}m` : `In ${mins}m`;
+                countdownText = formatHumanCountdown(diff, { capitalize: true });
               }
             }
           }
@@ -97,10 +94,7 @@ export default function MobileUpcomingView({
             targetDate = relDate;
             subtitle = 'Series Premiere';
             const diff = relDate.getTime() - nowMs;
-            const totalMins = Math.floor(diff / (60 * 1000));
-            const hours = Math.floor(totalMins / 60);
-            const mins = totalMins % 60;
-            countdownText = hours > 0 ? `In ${hours}h ${mins}m` : `In ${mins}m`;
+            countdownText = formatHumanCountdown(diff, { capitalize: true });
           }
         }
       } else if (item.type === 'movie') {
@@ -127,10 +121,7 @@ export default function MobileUpcomingView({
         }
         if (targetDate) {
           const diff = targetDate.getTime() - nowMs;
-          const totalMins = Math.floor(diff / (60 * 1000));
-          const hours = Math.floor(totalMins / 60);
-          const mins = totalMins % 60;
-          countdownText = hours > 0 ? `In ${hours}h ${mins}m` : `In ${mins}m`;
+          countdownText = formatHumanCountdown(diff, { capitalize: true });
         }
       } else if (item.type === 'book') {
         const relDate = getItemReleaseDate(item);
@@ -138,10 +129,7 @@ export default function MobileUpcomingView({
           targetDate = relDate;
           subtitle = 'Book Release';
           const diff = relDate.getTime() - nowMs;
-          const totalMins = Math.floor(diff / (60 * 1000));
-          const hours = Math.floor(totalMins / 60);
-          const mins = totalMins % 60;
-          countdownText = hours > 0 ? `In ${hours}h ${mins}m` : `In ${mins}m`;
+          countdownText = formatHumanCountdown(diff, { capitalize: true });
         }
       }
 

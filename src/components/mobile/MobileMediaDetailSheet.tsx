@@ -4,7 +4,7 @@ import {
   Clock, Bell, Check, CheckCircle2, CheckCheck, Globe, ThumbsUp, RefreshCw,
   Film, Tv, BookOpen, Headphones, Star, X
 } from 'lucide-react';
-import type { MediaItem, EpisodeItem, MediaStatus, RatingScale, WatchProvider, BookEdition, TMDBCollectionPart } from '../../types';
+import type { MediaItem, EpisodeItem, MediaStatus, RatingScale, WatchProvider, BookEdition, TMDBCollectionPart, RuntimeDisplayFormat } from '../../types';
 import {
   getEpisodesForMedia, toggleEpisodeWatched, setExactProgress,
   setSeasonWatched, updateMediaStatus, updateMediaRatingAndNotes,
@@ -16,6 +16,7 @@ import { formatEpisodeAirDate, getEpisodeCountdown, isEpisodeAired } from '../..
 import { useLiveTicker } from '../../hooks/useLiveTicker';
 import { formatRating, normalizeRating, denormalizeRating } from '../../utils/rating';
 import { formatAudioDuration, isAudiobookItem } from '../../utils/audioDuration';
+import { formatRuntime, calculateSeasonRuntime, isSeasonActivelyAiring } from '../../utils/duration';
 
 export interface MobileMediaDetailSheetProps {
   media: MediaItem;
@@ -29,6 +30,7 @@ export interface MobileMediaDetailSheetProps {
   ratingScale?: RatingScale;
   onRatingScaleChange?: (scale: RatingScale) => void;
   onOpenThemeModal?: () => void;
+  runtimeDisplayFormat?: RuntimeDisplayFormat;
 
   // Optional lifted state and handlers from MediaDetailModal
   episodes?: EpisodeItem[];
@@ -60,6 +62,7 @@ export default function MobileMediaDetailSheet({
   ratingScale = '10',
   onRatingScaleChange,
   onOpenThemeModal,
+  runtimeDisplayFormat = 'hours_minutes',
 
   episodes: propsEpisodes,
   selectedSeason: propsSelectedSeason,
@@ -171,6 +174,13 @@ export default function MobileMediaDetailSheet({
 
   // Progress computations
   const totalEps = media.totalEpisodes || episodes.length || 0;
+  const airedEpisodes = episodes.length > 0 ? episodes.filter(e => isEpisodeAired(e, media.networkTimezone)) : [];
+  const airedEps = episodes.length > 0
+    ? airedEpisodes.length
+    : (media.airedEpisodesCount ?? totalEps);
+  const isActivelyAiring = isTv && isSeasonActivelyAiring(media, episodes);
+  const hasFutureUnaired = airedEps < totalEps && airedEps > 0;
+  const effectiveTvTarget = (hasFutureUnaired && !isActivelyAiring) ? airedEps : totalEps;
   const watchedEps = media.watchedEpisodesCount || episodes.filter(e => e.isWatched === 1).length;
   const totalPages = media.totalPages || 0;
   const currentPage = media.currentPage || 0;
@@ -180,7 +190,7 @@ export default function MobileMediaDetailSheet({
   const currentDuration = media.currentDurationSeconds || 0;
 
   const progressPercent = isTv
-    ? (totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0)
+    ? (effectiveTvTarget > 0 ? Math.min(100, Math.round((watchedEps / effectiveTvTarget) * 100)) : 0)
     : isBook
     ? isTimeMode
       ? (totalDuration > 0 ? Math.min(100, Math.round((currentDuration / totalDuration) * 100)) : 0)
@@ -196,12 +206,16 @@ export default function MobileMediaDetailSheet({
   const genreStr = Array.isArray(media.genres) && media.genres.length > 0
     ? media.genres.slice(0, 2).join(', ')
     : (media.genres || (isTv ? 'TV Series' : isBook ? 'Book' : 'Movie'));
-  const cert = (media as unknown as { certification?: string }).certification || (isTv ? 'TV-PG' : isMovie ? 'PG-13' : '');
+  const cert = media.certification ? media.certification.trim() : '';
+  const seasonRuntimeMinutes = isTv ? calculateSeasonRuntime(episodes, activeSeason, media.runtime) : 0;
   const runtime = isTv
-    ? (media.runtime ? `${media.runtime}m` : '22m')
+    ? (media.runtime ? `~${media.runtime}m/ep` : (seasonRuntimeMinutes > 0 ? formatRuntime(seasonRuntimeMinutes, runtimeDisplayFormat) : ''))
     : isBook
-    ? (isAudio ? formatAudioDuration(totalDuration) : `${totalPages || 0}p`)
-    : (media.runtime ? `${Math.floor(media.runtime / 60)}h ${media.runtime % 60}m` : '2h');
+    ? (isAudio ? (totalDuration > 0 ? formatAudioDuration(totalDuration) : '') : (totalPages && totalPages > 0 ? `${totalPages}p` : ''))
+    : (media.runtime && media.runtime > 0 ? formatRuntime(media.runtime, runtimeDisplayFormat) : '');
+  const remainingRuntimeStr = Boolean(media.remainingRuntimeMinutes && media.remainingRuntimeMinutes > 0 && currentStatus !== 'completed' && currentStatus !== 'caught_up')
+    ? `${formatRuntime(media.remainingRuntimeMinutes, runtimeDisplayFormat)} left`
+    : '';
 
   // Rating and scores
   const formattedPersonal = formatRating(media.rating, ratingScale);
@@ -554,8 +568,7 @@ export default function MobileMediaDetailSheet({
             </h2>
 
             <div className="text-xs text-[var(--text-secondary)] font-medium truncate">
-              {year && `${year} • `}
-              {genreStr} • {cert} • {runtime}
+              {[year, genreStr, cert, runtime, remainingRuntimeStr].filter(Boolean).join(' • ')}
             </div>
 
             {/* Rating & Score Pills Row */}
@@ -693,7 +706,9 @@ export default function MobileMediaDetailSheet({
             <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
               <span>
                 {isTv
-                  ? `${watchedEps} / ${totalEps} episodes watched`
+                  ? (hasFutureUnaired && !isActivelyAiring)
+                    ? `${watchedEps} / ${airedEps} aired episodes watched`
+                    : `${watchedEps} / ${totalEps} episodes watched`
                   : isBook
                   ? isAudio
                     ? `${formatAudioDuration(currentDuration)} / ${formatAudioDuration(totalDuration)} listened`
@@ -912,6 +927,19 @@ export default function MobileMediaDetailSheet({
               })}
             </div>
 
+            {/* Season Runtime & Progress Summary Header (Issue #60) */}
+            {currentSeasonEpisodes.length > 0 && (
+              <div className="px-4 pb-1 flex items-center justify-between text-xs text-[var(--text-secondary)]">
+                <span>
+                  Season {activeSeason} • {currentSeasonEpisodes.length} eps
+                  {seasonRuntimeMinutes > 0 ? ` • ${formatRuntime(seasonRuntimeMinutes, runtimeDisplayFormat)}` : ''}
+                </span>
+                <span className="font-mono text-zinc-300 text-[11px]">
+                  {currentSeasonEpisodes.filter(e => e.isWatched === 1).length}/{currentSeasonEpisodes.length} watched
+                </span>
+              </div>
+            )}
+
             {/* Episode List Cards */}
             <div className="px-4 space-y-2.5">
               {currentSeasonEpisodes.map((ep) => {
@@ -942,7 +970,7 @@ export default function MobileMediaDetailSheet({
                           E{ep.episodeNumber} {ep.title}
                         </div>
                         <div className="text-[11px] text-[var(--text-secondary)]">
-                          {ep.runtime || 22}m • Logged {ep.airDate || ''}
+                          {ep.runtime && ep.runtime > 0 ? `${ep.runtime}m • ` : ''}{ep.airDate ? `Aired ${formatEpisodeAirDate(ep.airDate, ep.airstamp, undefined, media.networkTimezone)}` : 'Watched'}
                         </div>
                       </div>
 
@@ -981,7 +1009,7 @@ export default function MobileMediaDetailSheet({
                           E{ep.episodeNumber} {ep.title}
                         </div>
                         <div className="text-[11px] font-semibold text-[#38bdf8]">
-                          Up Next • {ep.runtime || 22}m
+                          Up Next{ep.runtime && ep.runtime > 0 ? ` • ${ep.runtime}m` : ''}
                         </div>
                       </div>
 
@@ -1017,7 +1045,7 @@ export default function MobileMediaDetailSheet({
                         E{ep.episodeNumber} {ep.title}
                       </div>
                       <div className="text-[11px] text-[var(--text-secondary)]">
-                        {ep.runtime || 22}m • {ep.airDate || 'TBA'}
+                        {ep.runtime && ep.runtime > 0 ? `${ep.runtime}m • ` : ''}{ep.airDate ? formatEpisodeAirDate(ep.airDate, ep.airstamp, undefined, media.networkTimezone) : 'TBA'}
                       </div>
                     </div>
 

@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import { isEpisodeAired } from '../utils/timezone';
 import { isMediaMatch } from '../utils/mediaMatch';
+import { calculateSeriesRuntimes } from '../utils/duration';
 import { recordSyncTombstone, notifyLocalMutation } from '../services/cloudSync/merger';
 import type {
   MediaItem,
@@ -224,6 +225,25 @@ export async function saveMediaItem(
       }
     }
 
+    const isTv = (mediaItem.type || existingMedia?.type) === 'tv';
+    const airedEpisodesCount = isTv
+      ? (storedEpisodes && storedEpisodes.length > 0
+          ? storedEpisodes.filter(e => isEpisodeAired(e, networkTz)).length
+          : (mediaItem.airedEpisodesCount ?? existingMedia?.airedEpisodesCount ?? totalEpisodes))
+      : undefined;
+
+    const seriesRuntimes = calculateSeriesRuntimes(
+      {
+        ...existingMedia,
+        ...mediaItem,
+        status,
+        totalEpisodes,
+        watchedEpisodesCount,
+        airedEpisodesCount
+      },
+      storedEpisodes
+    );
+
     const payload: MediaItem = {
       title: 'Untitled',
       type: 'movie',
@@ -233,7 +253,12 @@ export async function saveMediaItem(
       id: finalMediaId,
       status,
       totalEpisodes,
+      airedEpisodesCount,
       watchedEpisodesCount,
+      runtime: mediaItem.runtime !== undefined ? mediaItem.runtime : (existingMedia?.runtime ?? null),
+      remainingRuntimeMinutes: seriesRuntimes.remainingMinutes,
+      totalRuntimeMinutes: seriesRuntimes.totalMinutes,
+      certification: mediaItem.certification !== undefined ? mediaItem.certification : (existingMedia?.certification ?? null),
       progressMode: mediaItem.progressMode ?? existingMedia?.progressMode ?? ((mediaItem.bookFormat?.toLowerCase().includes('audio') || (mediaItem.totalDurationSeconds && mediaItem.totalDurationSeconds > 0)) ? 'time' : 'pages'),
       totalPages: mediaItem.totalPages !== undefined ? mediaItem.totalPages : existingMedia?.totalPages,
       currentPage: mediaItem.currentPage !== undefined ? mediaItem.currentPage : (existingMedia?.currentPage ?? (status === 'completed' && (mediaItem.totalPages || existingMedia?.totalPages) ? (mediaItem.totalPages || existingMedia?.totalPages) : 0)),
@@ -418,7 +443,7 @@ export function computeAutoStatus(
   const watchedCount = episodes.filter(e => e.isWatched === 1).length;
 
   if (watchedCount === 0) {
-    return currentStatus === 'watching' || currentStatus === 'caught_up' ? 'plan_to_watch' : currentStatus;
+    return currentStatus === 'watching' || currentStatus === 'caught_up' || currentStatus === 'completed' ? 'plan_to_watch' : currentStatus;
   }
 
   const isOngoing = airStatus === 'Returning Series' || airStatus === 'Running' || airStatus === 'In Production';
@@ -486,13 +511,21 @@ export async function toggleEpisodeWatched(
     if (media) {
       const status = computeAutoStatus(media.status, allEps, media.airStatus, media.type, media.networkTimezone);
       const nextInfo = getNextUnairedEpisodeInfo(allEps, media.networkTimezone);
+      const airedEpisodesCount = allEps.filter(e => isEpisodeAired(e, media.networkTimezone)).length;
+      const runtimes = calculateSeriesRuntimes(
+        { ...media, watchedEpisodesCount: watchedCount, totalEpisodes: totalCount, airedEpisodesCount, status },
+        allEps
+      );
 
       await db.media.update(mediaId, {
         watchedEpisodesCount: watchedCount,
         totalEpisodes: totalCount,
+        airedEpisodesCount,
         currentSeason,
         currentEpisode,
         status,
+        remainingRuntimeMinutes: runtimes.remainingMinutes,
+        totalRuntimeMinutes: runtimes.totalMinutes,
         ...nextInfo,
         updatedAt: now
       });
@@ -539,12 +572,20 @@ export async function setExactProgress(
     if (media) {
       const status = computeAutoStatus(media.status, updatedEpisodes, media.airStatus, media.type, media.networkTimezone);
       const nextInfo = getNextUnairedEpisodeInfo(updatedEpisodes, media.networkTimezone);
+      const airedEpisodesCount = updatedEpisodes.filter(e => isEpisodeAired(e, media.networkTimezone)).length;
+      const runtimes = calculateSeriesRuntimes(
+        { ...media, watchedEpisodesCount: watchedCount, totalEpisodes: totalCount, airedEpisodesCount, currentSeason: targetSeason, currentEpisode: targetEpisode, status },
+        updatedEpisodes
+      );
 
       await db.media.update(mediaId, {
         currentSeason: targetSeason,
         currentEpisode: targetEpisode,
         watchedEpisodesCount: watchedCount,
+        airedEpisodesCount,
         status,
+        remainingRuntimeMinutes: runtimes.remainingMinutes,
+        totalRuntimeMinutes: runtimes.totalMinutes,
         ...nextInfo,
         updatedAt: now
       });
@@ -588,12 +629,20 @@ export async function markEpisodesUpToWatched(
     if (media) {
       const status = computeAutoStatus(media.status, updatedEpisodes, media.airStatus, media.type, media.networkTimezone);
       const nextInfo = getNextUnairedEpisodeInfo(updatedEpisodes, media.networkTimezone);
+      const airedEpisodesCount = updatedEpisodes.filter(e => isEpisodeAired(e, media.networkTimezone)).length;
+      const runtimes = calculateSeriesRuntimes(
+        { ...media, watchedEpisodesCount: watchedCount, totalEpisodes: totalCount, airedEpisodesCount, currentSeason: targetSeason, currentEpisode: targetEpisode, status },
+        updatedEpisodes
+      );
 
       await db.media.update(mediaId, {
         currentSeason: targetSeason,
         currentEpisode: targetEpisode,
         watchedEpisodesCount: watchedCount,
+        airedEpisodesCount,
         status,
+        remainingRuntimeMinutes: runtimes.remainingMinutes,
+        totalRuntimeMinutes: runtimes.totalMinutes,
         ...nextInfo,
         updatedAt: now
       });
@@ -641,12 +690,20 @@ export async function setSeasonWatched(
     if (media) {
       const status = computeAutoStatus(media.status, allEps, media.airStatus, media.type, media.networkTimezone);
       const nextInfo = getNextUnairedEpisodeInfo(allEps, media.networkTimezone);
+      const airedEpisodesCount = allEps.filter(e => isEpisodeAired(e, media.networkTimezone)).length;
+      const runtimes = calculateSeriesRuntimes(
+        { ...media, watchedEpisodesCount: watchedCount, totalEpisodes: totalCount, airedEpisodesCount, currentSeason, currentEpisode, status },
+        allEps
+      );
 
       await db.media.update(mediaId, {
         currentSeason,
         currentEpisode,
         watchedEpisodesCount: watchedCount,
+        airedEpisodesCount,
         status,
+        remainingRuntimeMinutes: runtimes.remainingMinutes,
+        totalRuntimeMinutes: runtimes.totalMinutes,
         ...nextInfo,
         updatedAt: now
       });
@@ -669,7 +726,9 @@ export async function backfillMissingMediaMetadata(): Promise<number> {
     const nextInfo = getNextUnairedEpisodeInfo(episodes, show.networkTimezone);
     const newStatus = computeAutoStatus(show.status, episodes, show.airStatus, 'tv', show.networkTimezone);
 
-    const airedEpisodes = episodes.filter(e => isEpisodeAired(e, show.networkTimezone) && (e.airDate || e.airstamp));
+    const allAiredEpisodes = episodes.filter(e => isEpisodeAired(e, show.networkTimezone));
+    const airedEpisodes = allAiredEpisodes.filter(e => e.airDate || e.airstamp);
+    const airedCount = allAiredEpisodes.length;
     let computedLastAired: string | null = null;
     if (airedEpisodes.length > 0) {
       airedEpisodes.sort((a, b) => {
@@ -681,18 +740,29 @@ export async function backfillMissingMediaMetadata(): Promise<number> {
       computedLastAired = airedEpisodes[0].airDate || (airedEpisodes[0].airstamp ? airedEpisodes[0].airstamp.slice(0, 10) : null);
     }
 
+    const runtimes = calculateSeriesRuntimes({ ...show, airedEpisodesCount: airedCount }, episodes);
+    const hasRuntimeChange =
+      show.remainingRuntimeMinutes !== runtimes.remainingMinutes ||
+      show.totalRuntimeMinutes !== runtimes.totalMinutes;
+    const hasAiredCountChange = show.airedEpisodesCount !== airedCount;
+
     if (
       newStatus !== show.status ||
       nextInfo.nextAirDate !== show.nextAirDate ||
       nextInfo.nextAirstamp !== show.nextAirstamp ||
       nextInfo.nextEpisodeSeason !== show.nextEpisodeSeason ||
       nextInfo.nextEpisodeNumber !== show.nextEpisodeNumber ||
-      computedLastAired !== show.lastAiredDate
+      computedLastAired !== show.lastAiredDate ||
+      hasRuntimeChange ||
+      hasAiredCountChange
     ) {
       await db.media.update(show.id, {
         status: newStatus,
         ...nextInfo,
         lastAiredDate: computedLastAired,
+        airedEpisodesCount: airedCount,
+        remainingRuntimeMinutes: runtimes.remainingMinutes,
+        totalRuntimeMinutes: runtimes.totalMinutes,
         updatedAt: new Date().toISOString()
       });
       updatedCount++;
@@ -1773,7 +1843,16 @@ export async function getSetting<T = unknown>(key: string, defaultValue: T | nul
 }
 
 export async function setSetting<T = unknown>(key: string, value: T): Promise<T> {
-  await db.settings.put({ key, value });
+  const now = new Date().toISOString();
+  await db.settings.put({ key, value, updatedAt: now });
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(`${key}_updated_at`, now);
+    }
+  } catch {
+    // ignore
+  }
+  notifyLocalMutation();
   return value;
 }
 

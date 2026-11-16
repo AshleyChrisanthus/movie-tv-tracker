@@ -159,4 +159,22 @@ describe('Tier 1: Localized Countdown & DST-Aware Timezone Engine (Issue #19)', 
     assert.equal(healedShow.nextEpisodeNumber, 1);
     assert.equal(healedShow.nextAirstamp, futureAirstamp);
   });
+
+  it('keeps isEpisodeAired and getEpisodeCountdown consistent for date-only airDate across networkTimezone (Issue #55)', () => {
+    // 2026-11-13 at 20:00 EST (UTC-5) = 2026-11-14T01:00:00.000Z
+    const beforeDrop = Date.UTC(2026, 10, 14, 0, 41, 0); // 20:41 UTC on Nov 13? No, 00:41 UTC Nov 14 (19:41 EST Nov 13)
+    const afterDrop = Date.UTC(2026, 10, 14, 1, 5, 0);   // 01:05 UTC Nov 14 (20:05 EST Nov 13)
+
+    const ep = { airDate: '2026-11-13' };
+
+    assert.equal(tzModule.isEpisodeAired(ep, 'America/New_York', beforeDrop), false);
+    const cdBefore = tzModule.getEpisodeCountdown(ep.airDate, undefined, 'America/New_York', beforeDrop);
+    assert.equal(cdBefore.isAired, false);
+    assert.equal(cdBefore.label, 'in 19m');
+
+    assert.equal(tzModule.isEpisodeAired(ep, 'America/New_York', afterDrop), true);
+    const cdAfter = tzModule.getEpisodeCountdown(ep.airDate, undefined, 'America/New_York', afterDrop);
+    assert.equal(cdAfter.isAired, true);
+    assert.equal(cdAfter.label, 'Aired');
+  });
 });

@@ -17,7 +17,7 @@ import {
   COMMON_TIMEZONES, type TimeZoneOption 
 } from '../utils/timezone';
 import { STREAMING_REGIONS, getBrowserRegion } from '../utils/region';
-import type { BackupMode, ExportFileInfo, RatingScale, BookSearchProvider } from '../types';
+import type { BackupMode, ExportFileInfo, RatingScale, BookSearchProvider, RuntimeDisplayFormat } from '../types';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -29,6 +29,8 @@ export interface SettingsModalProps {
   onRatingScaleChange?: (scale: RatingScale) => void;
   upcomingDays?: number;
   onUpcomingDaysChange?: (days: number) => void;
+  runtimeDisplayFormat?: RuntimeDisplayFormat;
+  onRuntimeDisplayFormatChange?: (format: RuntimeDisplayFormat) => void;
 }
 
 interface NoticeStatus {
@@ -45,11 +47,18 @@ export default function SettingsModal({
   ratingScale: propRatingScale,
   onRatingScaleChange,
   upcomingDays: propUpcomingDays,
-  onUpcomingDaysChange
+  onUpcomingDaysChange,
+  runtimeDisplayFormat: propRuntimeDisplayFormat,
+  onRuntimeDisplayFormatChange
 }: SettingsModalProps): React.JSX.Element | null {
   const [apiKey, setApiKey] = useState<string>('');
   const [isTestingKey, setIsTestingKey] = useState<boolean>(false);
   const [keyStatus, setKeyStatus] = useState<NoticeStatus | null>(null);
+
+  // Runtime Display Format (Issue #60)
+  const [runtimeDisplayFormat, setRuntimeDisplayFormat] = useState<RuntimeDisplayFormat>(
+    propRuntimeDisplayFormat || 'hours_minutes'
+  );
 
   // User Rating Scale (Issue #29)
   const [ratingScale, setRatingScale] = useState<RatingScale>(propRatingScale || '10');
@@ -112,6 +121,11 @@ export default function SettingsModal({
       } else {
         getSetting<number>('upcoming_window_days', 7).then(d => setUpcomingDays(d || 7));
       }
+      if (propRuntimeDisplayFormat) {
+        setRuntimeDisplayFormat(propRuntimeDisplayFormat);
+      } else {
+        getSetting<RuntimeDisplayFormat>('runtime_display_format', 'hours_minutes').then(f => setRuntimeDisplayFormat(f || 'hours_minutes'));
+      }
       getUserTimeZone().then(tz => setUserTimezone(tz));
       getSetting<string>('streaming_region', 'auto').then(r => setStreamingRegion(r || 'auto'));
       getAllMedia().then(all => {
@@ -147,6 +161,13 @@ export default function SettingsModal({
     await setSetting('rating_scale', scale);
     localStorage.setItem('bingelog_rating_scale', scale);
     if (onRatingScaleChange) onRatingScaleChange(scale);
+  };
+
+  const handleRuntimeDisplayFormatChange = async (format: RuntimeDisplayFormat) => {
+    setRuntimeDisplayFormat(format);
+    await setSetting('runtime_display_format', format);
+    localStorage.setItem('bingelog_runtime_display_format', format);
+    if (onRuntimeDisplayFormatChange) onRuntimeDisplayFormatChange(format);
   };
 
   const handleClearPersonalRatings = async () => {
@@ -739,6 +760,46 @@ export default function SettingsModal({
                 <span>{ratingNotice.message}</span>
               </div>
             )}
+          </div>
+
+          {/* RUNTIME & DURATION DISPLAY FORMAT (Issue #60) */}
+          <div className="p-4 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-sky-400" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Runtime & Duration Display</h3>
+              </div>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/30 font-medium">
+                {runtimeDisplayFormat === 'hours_minutes' ? 'Hours + Minutes' : 'Days + Weeks'}
+              </span>
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              Choose how remaining watch times and accumulated runtimes are formatted across cards and detail views.
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { format: 'hours_minutes' as const, label: 'Hours & Minutes (Default)', sub: 'e.g. 48h 30m' },
+                { format: 'days_weeks' as const, label: 'Days & Weeks', sub: 'e.g. 2d 30m / 1w 2d' },
+              ].map(({ format, label, sub }) => (
+                <button
+                  key={format}
+                  type="button"
+                  onClick={() => handleRuntimeDisplayFormatChange(format)}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    runtimeDisplayFormat === format
+                      ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-sm'
+                      : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-light)]'
+                  }`}
+                >
+                  <div className="text-xs font-bold">{label}</div>
+                  <div className={`text-[10px] mt-0.5 ${runtimeDisplayFormat === format ? 'text-white/80' : 'text-[var(--text-secondary)] font-mono'}`}>
+                    {sub}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* BOOK SEARCH PROVIDER SECTION (Issue #27) */}

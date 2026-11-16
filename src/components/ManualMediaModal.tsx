@@ -58,6 +58,12 @@ export default function ManualMediaModal({
   const [audioTotalMinutes, setAudioTotalMinutes] = useState<number | string>(initialDuration.minutes || '');
   const [audioHours, setAudioHours] = useState<number | string>(initialCurrentDuration.hours || 0);
   const [audioMinutes, setAudioMinutes] = useState<number | string>(initialCurrentDuration.minutes || 0);
+
+  // Movie runtime state (Issue #60)
+  const initialMovieHours = item?.runtime ? Math.floor(item.runtime / 60) : '';
+  const initialMovieMinutes = item?.runtime ? item.runtime % 60 : '';
+  const [movieHours, setMovieHours] = useState<number | string>(initialMovieHours);
+  const [movieMinutes, setMovieMinutes] = useState<number | string>(initialMovieMinutes);
   
   // Custom episodes generator
   const [seasonCount, setSeasonCount] = useState<number | string>(item?.totalSeasons || 1);
@@ -104,6 +110,9 @@ export default function ManualMediaModal({
       const parsedCurrentChapter = parseInt(String(currentChapter), 10) || 0;
       const parsedAudioTotalSec = hoursMinutesToSeconds(parseInt(String(audioTotalHours), 10) || 0, parseInt(String(audioTotalMinutes), 10) || 0);
       const parsedAudioCurrentSec = hoursMinutesToSeconds(parseInt(String(audioHours), 10) || 0, parseInt(String(audioMinutes), 10) || 0);
+      const parsedMovieMins = type === 'movie'
+        ? ((parseInt(String(movieHours), 10) || 0) * 60) + (parseInt(String(movieMinutes), 10) || 0)
+        : undefined;
 
       const totalEpisodes = type === 'tv'
         ? sCount * epCount
@@ -164,7 +173,8 @@ export default function ManualMediaModal({
         externalId: item?.externalId || `custom_${Date.now()}`,
         totalSeasons: type === 'tv' ? sCount : 0,
         totalEpisodes,
-        watchedEpisodesCount: watchedCount
+        watchedEpisodesCount: watchedCount,
+        runtime: type === 'movie' ? (parsedMovieMins && parsedMovieMins > 0 ? parsedMovieMins : (item?.runtime ?? null)) : (item?.runtime ?? null)
       };
 
       await saveMediaItem(mediaPayload, generatedEpisodes);
@@ -406,6 +416,47 @@ export default function ManualMediaModal({
               <p className="text-[11px] text-[var(--text-secondary)]">
                 Total episodes generated: {(parseInt(String(seasonCount), 10) || 1) * (parseInt(String(episodesPerSeason), 10) || 1)}
               </p>
+            </div>
+          )}
+
+          {/* Movie Runtime (Issue #60) */}
+          {type === 'movie' && (
+            <div className="p-3.5 bg-[var(--bg-primary)] rounded-xl border border-[var(--border-light)] space-y-2">
+              <span className="text-xs font-bold text-[var(--accent)] block">
+                Movie Runtime (Optional)
+              </span>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Hours</label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="0"
+                      max="24"
+                      value={movieHours}
+                      onChange={(e) => setMovieHours(e.target.value)}
+                      placeholder="2"
+                      className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-center text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                    />
+                    <span className="text-xs text-[var(--text-secondary)] font-medium">h</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] text-[var(--text-secondary)] mb-1">Minutes</label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={movieMinutes}
+                      onChange={(e) => setMovieMinutes(e.target.value)}
+                      placeholder="30"
+                      className="w-full px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg text-xs text-center text-[var(--text-primary)] focus:outline-none focus:border-[var(--input-focus)]"
+                    />
+                    <span className="text-xs text-[var(--text-secondary)] font-medium">m</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

@@ -1,4 +1,5 @@
 import type { MediaItem, UpcomingFilter } from '../types';
+import { getEpisodeDropTimestamp } from './timezone';
 
 /**
  * Extracts a comparable Date object from media release or premiere date.
@@ -79,7 +80,26 @@ export function shouldShowItemForUpcomingFilter(
   if (filter === 'show_all') return true;
 
   const { isUpcoming, releaseDate } = isItemUpcoming(item, now);
-  if (!isUpcoming) return true;
+  if (!isUpcoming) {
+    // Caught-up TV shows with a known future episode/season drop should respect schedule filters
+    if (item.type === 'tv' && item.status === 'caught_up' && (item.nextAirDate || item.nextAirstamp)) {
+      const nextDropMs = getEpisodeDropTimestamp(
+        item.nextAirDate || undefined,
+        item.nextAirstamp,
+        item.networkTimezone
+      );
+      if (nextDropMs !== null && nextDropMs > now.getTime()) {
+        if (filter === 'hide_all') {
+          return false;
+        }
+        if (filter === 'next_n_days') {
+          const windowEnd = now.getTime() + windowDays * 24 * 60 * 60 * 1000;
+          return nextDropMs <= windowEnd;
+        }
+      }
+    }
+    return true;
+  }
 
   // It is upcoming
   if (filter === 'hide_all') {

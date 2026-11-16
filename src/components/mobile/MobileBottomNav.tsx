@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Film, Network, Plus, Calendar, Settings } from 'lucide-react';
 
 export interface MobileBottomNavProps {
-  currentTab: 'library' | 'canvas';
-  onSelectTab: (tab: 'library' | 'canvas') => void;
+  currentTab: 'library' | 'canvas' | 'upcoming';
+  onSelectTab: (tab: 'library' | 'canvas' | 'upcoming') => void;
   onOpenSearch: () => void;
   onOpenManual?: () => void;
   isUpcomingActive?: boolean;
@@ -21,7 +21,8 @@ export default function MobileBottomNav({
   upcomingCount = 0,
   onOpenSettings
 }: MobileBottomNavProps): React.JSX.Element {
-  const isLibraryActive = currentTab === 'library' && !isUpcomingActive;
+  const isUpcomingTabActive = currentTab === 'upcoming' || isUpcomingActive;
+  const isLibraryActive = currentTab === 'library' && !isUpcomingTabActive;
   const isCanvasActive = currentTab === 'canvas';
 
   // Scroll-aware auto-hiding (Issue #52 & App-Directory #70)
@@ -92,10 +93,10 @@ export default function MobileBottomNav({
         <button
           type="button"
           onClick={() => {
+            onSelectTab('library');
             if (isUpcomingActive && onToggleUpcoming) {
               onToggleUpcoming();
             }
-            onSelectTab('library');
           }}
           className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 transition-all active:scale-95 cursor-pointer ${
             isLibraryActive
@@ -138,13 +139,13 @@ export default function MobileBottomNav({
         <button
           type="button"
           onClick={() => {
-            if (currentTab !== 'library') {
-              onSelectTab('library');
+            onSelectTab('upcoming');
+            if (!isUpcomingActive && onToggleUpcoming) {
+              onToggleUpcoming();
             }
-            onToggleUpcoming?.();
           }}
           className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 relative transition-all active:scale-95 cursor-pointer ${
-            isUpcomingActive
+            isUpcomingTabActive
               ? 'text-[var(--accent)] font-bold'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           }`}

@@ -22,6 +22,7 @@ export interface MobileFilterSheetProps {
   onUpcomingFilterChange?: (filter: UpcomingFilter) => void;
   upcomingDays?: number;
   onUpcomingDaysChange?: (days: number) => void;
+  onSelectUpcomingTab?: () => void;
   typeFilter?: string;
   bookFormatFilter?: BookFormatFilter;
   onBookFormatChange?: (format: BookFormatFilter) => void;
@@ -48,6 +49,7 @@ export default function MobileFilterSheet({
   onUpcomingFilterChange,
   upcomingDays = 7,
   onUpcomingDaysChange,
+  onSelectUpcomingTab,
   typeFilter = 'all',
   bookFormatFilter = 'all',
   onBookFormatChange,
@@ -366,8 +368,34 @@ export default function MobileFilterSheet({
           </div>
         </div>
 
-        {/* 6. Upcoming Releases Window */}
-        {onUpcomingFilterChange && (
+        {/* 6. Upcoming Releases — Dedicated Tab Link or Fallback Window Filter */}
+        {onSelectUpcomingTab ? (
+          <div className="flex flex-col gap-2 p-3 rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/25">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-[var(--accent)]" />
+                <span className="text-xs font-bold text-[var(--text-primary)]">Upcoming Releases</span>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--accent)] text-white">
+                Dedicated Tab
+              </span>
+            </div>
+            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+              Upcoming releases are now accessed via the dedicated Upcoming tab on the bottom bar instead of applying a filter to your collection.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onSelectUpcomingTab();
+              }}
+              className="w-full py-2.5 px-3 rounded-xl bg-[var(--accent)] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-[var(--accent)]/20 active:scale-95 transition-all cursor-pointer"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Switch to Upcoming Tab</span>
+            </button>
+          </div>
+        ) : onUpcomingFilterChange ? (
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">
               <Calendar className="w-3.5 h-3.5 text-[var(--accent)]" />
@@ -406,7 +434,7 @@ export default function MobileFilterSheet({
               })}
             </div>
           </div>
-        )}
+        ) : null}
 
         {/* Done / Apply Button */}
         <button

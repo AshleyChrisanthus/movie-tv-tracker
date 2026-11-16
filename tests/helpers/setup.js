@@ -131,6 +131,16 @@ export async function getAudioDurationModule() {
   return await import('../../src/utils/audioDuration.js');
 }
 
+
+
+export async function getDurationModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/utils/duration.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/utils/duration.ts');
+  }
+  return await import('../../src/utils/duration.js');
+}
+
 export async function getRegionModule() {
   const tsPath = path.resolve(process.cwd(), 'src/utils/region.ts');
   if (fs.existsSync(tsPath)) {

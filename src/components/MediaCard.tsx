@@ -1,10 +1,11 @@
 import React from 'react';
 import { Film, Tv, Star, Plus, Check, Clock, BookOpen, Globe, Headphones, Play, Pin } from 'lucide-react';
-import type { MediaItem, MediaStatus, RatingScale, GridDensity } from '../types';
+import type { MediaItem, MediaStatus, RatingScale, GridDensity, RuntimeDisplayFormat } from '../types';
 import { getEpisodeCountdown } from '../utils/timezone';
 import { formatRating } from '../utils/rating';
 import { isAudiobookItem, formatAudioDuration } from '../utils/audioDuration';
 import { getMovieStreamingStatus } from '../utils/region';
+import { formatRuntime, isSeasonActivelyAiring } from '../utils/duration';
 
 interface StatusStyle {
   label: string;
@@ -45,6 +46,7 @@ export interface MediaCardProps {
   onQuickToggleMovie?: (item: MediaItem) => void;
   onTogglePin?: (item: MediaItem) => void;
   ratingScale?: RatingScale;
+  runtimeDisplayFormat?: RuntimeDisplayFormat;
   density?: GridDensity;
 }
 
@@ -55,6 +57,7 @@ export default function MediaCard({
   onQuickToggleMovie,
   onTogglePin,
   ratingScale = '10',
+  runtimeDisplayFormat = 'hours_minutes',
   density = 'comfortable'
 }: MediaCardProps): React.JSX.Element {
   const isTv = item.type === 'tv';
@@ -68,6 +71,12 @@ export default function MediaCard({
   const isChapters = isBook && item.progressMode === 'chapters';
   const isTimeMode = isBook && (item.progressMode === 'time' || isAudio);
   const totalEps = item.totalEpisodes || 0;
+  const airedEps = (item.airedEpisodesCount !== undefined && item.airedEpisodesCount !== null)
+    ? item.airedEpisodesCount
+    : totalEps;
+  const isActivelyAiring = isTv && isSeasonActivelyAiring(item);
+  const hasFutureUnaired = airedEps < totalEps && airedEps > 0;
+  const effectiveTvTarget = (hasFutureUnaired && !isActivelyAiring) ? airedEps : totalEps;
   const watchedEps = item.watchedEpisodesCount || 0;
   const totalPages = item.totalPages || 0;
   const currentPage = item.currentPage || 0;
@@ -77,7 +86,7 @@ export default function MediaCard({
   const currentDuration = item.currentDurationSeconds || 0;
 
   const progressPercent = isTv
-    ? (totalEps > 0 ? Math.min(100, Math.round((watchedEps / totalEps) * 100)) : 0)
+    ? (effectiveTvTarget > 0 ? Math.min(100, Math.round((watchedEps / effectiveTvTarget) * 100)) : 0)
     : isBook
     ? isTimeMode
       ? (totalDuration > 0 ? Math.min(100, Math.round((currentDuration / totalDuration) * 100)) : 0)
@@ -161,26 +170,10 @@ export default function MediaCard({
           </span>
         </div>
 
-        {/* Pin / Unpin Button overlay & Rating overlay at top right of poster (Issue #47, #50) */}
+        {/* Pin / Unpin Button overlay at top right of poster (Issue #47, #50) */}
         <div className={`absolute z-10 ${
           density === 'compact' ? 'top-1.5 right-1.5' : 'top-2.5 right-2.5'
         } flex items-center gap-1`}>
-          {(formatRating(item.rating, ratingScale) || formatRating(item.communityRating, ratingScale)) && (
-            <span
-              className={`flex items-center gap-0.5 rounded-lg bg-black/65 backdrop-blur-md border border-white/10 font-bold text-white ${
-                density === 'compact' ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]'
-              }`}
-              title={item.rating ? `My Rating: ${formatRating(item.rating, ratingScale)}` : `Community Rating: ${formatRating(item.communityRating, ratingScale)}`}
-            >
-              {item.rating ? (
-                <Star className="w-2.5 h-2.5 fill-[#ffd60a] text-[#ffd60a]" />
-              ) : (
-                <Globe className="w-2.5 h-2.5 text-sky-400" />
-              )}
-              <span>{formatRating(item.rating, ratingScale) || formatRating(item.communityRating, ratingScale)}</span>
-            </span>
-          )}
-
           {onTogglePin && (
             <button
               type="button"
@@ -226,7 +219,7 @@ export default function MediaCard({
               title="Caught Up with all released episodes"
             >
               <span>📈</span>
-              <span>{watchedEps}/{totalEps}</span>
+              <span>{watchedEps}/{effectiveTvTarget}</span>
             </span>
           )}
 
@@ -266,41 +259,62 @@ export default function MediaCard({
       {/* Content */}
       <div className={`${density === 'compact' ? 'p-2 gap-1' : 'p-3.5 gap-2.5'} flex flex-col flex-1 justify-between`}>
         <div>
+          {/* Title Row - full width without rating crowding */}
           <div className="flex items-start justify-between gap-1 mb-0.5">
             <h3 className={`font-semibold ${density === 'compact' ? 'text-[11px] sm:text-xs leading-snug' : 'text-sm'} text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors line-clamp-1`} title={item.title}>
               {item.title}
             </h3>
-            {formatRating(item.rating, ratingScale) ? (
-              <span className={`flex items-center gap-0.5 rounded-md bg-[var(--accent)]/15 border border-[var(--accent)]/30 ${density === 'compact' ? 'text-[9px] px-1 py-0' : 'text-[11px] px-1.5 py-0.5'} font-bold text-[#ffd60a] shrink-0`} title={`My Rating: ${formatRating(item.rating, ratingScale)} / ${ratingScale}`}>
-                <Star className={`${density === 'compact' ? 'w-2 h-2' : 'w-3 h-3'} fill-[#ffd60a] text-[#ffd60a]`} />
-                <span>{formatRating(item.rating, ratingScale)}</span>
-              </span>
-            ) : formatRating(item.communityRating, ratingScale) ? (
-              <span className={`flex items-center gap-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] ${density === 'compact' ? 'text-[9px] px-1 py-0' : 'text-[11px] px-1.5 py-0.5'} font-medium text-[var(--text-secondary)] shrink-0`} title={`Public / Community Rating: ${formatRating(item.communityRating, ratingScale)} / ${ratingScale}${item.communityRatingCount ? ` (${item.communityRatingCount.toLocaleString()} votes)` : ''}`}>
-                <Globe className={`${density === 'compact' ? 'w-2 h-2 text-sky-400' : 'w-3 h-3 text-sky-400'}`} />
-                <span className="font-bold text-[var(--text-primary)]">{formatRating(item.communityRating, ratingScale)}</span>
-              </span>
-            ) : null}
           </div>
 
-          <div className={`flex items-center ${density === 'compact' ? 'gap-1 text-[10px]' : 'gap-2 text-xs'} text-[var(--text-secondary)]`}>
-            <span className="truncate max-w-[100px]" title={isAudio && item.narrator ? `Narrated by ${item.narrator}` : (isBook && item.author ? item.author : undefined)}>
-              {isAudio && item.narrator ? `🎙️ ${item.narrator}` : (isBook && item.author ? item.author : item.year || 'N/A')}
-            </span>
-            <span>•</span>
-            <span className={`rounded-md font-medium border ${statusCfg.bg} ${density === 'compact' ? 'px-1 py-0 text-[9px]' : 'px-2 py-0.2 text-[10px]'}`}>
-              {statusCfg.label}
-            </span>
-            {item.rating && item.communityRating ? (
+          {/* Line 2: Year/Narrator (Left) • Status (Right) & Line 3: Content Rating / Book Year (Left) • Ratings (Right) */}
+          {(() => {
+            const hasAuthorOrNarrator = isAudio ? Boolean(item.narrator || item.author) : (isBook ? Boolean(item.author) : false);
+            const showBookYear = isBook && Boolean(hasAuthorOrNarrator && item.year && item.year !== 'N/A');
+
+            return (
               <>
-                <span>•</span>
-                <span className="flex items-center gap-0.5 text-[var(--text-secondary)]" title={`Public Rating: ${formatRating(item.communityRating, ratingScale)} / ${ratingScale}`}>
-                  <Globe className="w-2.5 h-2.5 text-sky-400 shrink-0" />
-                  <span>{formatRating(item.communityRating, ratingScale)}</span>
-                </span>
+                <div className={`flex items-center justify-between ${density === 'compact' ? 'gap-1 text-[10px]' : 'gap-1.5 text-xs'} text-[var(--text-secondary)]`}>
+                  <span className="truncate max-w-[130px]" title={isAudio && item.narrator ? `Narrated by ${item.narrator}` : (isBook && item.author ? item.author : (item.year ? String(item.year) : undefined))}>
+                    {isAudio && item.narrator ? `🎙️ ${item.narrator}` : (isBook && item.author ? item.author : item.year || 'N/A')}
+                  </span>
+                  <span className={`rounded-md font-medium border ${statusCfg.bg} ${density === 'compact' ? 'px-1 py-0 text-[9px]' : 'px-2 py-0.2 text-[10px]'} shrink-0`}>
+                    {statusCfg.label}
+                  </span>
+                </div>
+
+                {(item.certification || showBookYear || item.rating || item.communityRating) && (
+                  <div className={`flex items-center justify-between ${density === 'compact' ? 'mt-0.5 text-[9px]' : 'mt-1 text-[10px]'} gap-1.5`}>
+                    <div className="flex items-center gap-1.5">
+                      {showBookYear && (
+                        <span className="font-medium text-[var(--text-secondary)]">
+                          {item.year}
+                        </span>
+                      )}
+                      {item.certification && (
+                        <span className="px-1 py-0 rounded border border-[var(--border-light)] text-[9px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                          {item.certification}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 ml-auto shrink-0">
+                      {formatRating(item.rating, ratingScale) ? (
+                        <span className={`flex items-center gap-0.5 rounded-md bg-[var(--accent)]/15 border border-[var(--accent)]/30 ${density === 'compact' ? 'text-[9px] px-1 py-0' : 'text-[10px] px-1.5 py-0.2'} font-bold text-[#ffd60a] shrink-0`} title={`My Rating: ${formatRating(item.rating, ratingScale)} / ${ratingScale}`}>
+                          <Star className={`${density === 'compact' ? 'w-2 h-2' : 'w-2.5 h-2.5'} fill-[#ffd60a] text-[#ffd60a]`} />
+                          <span>{formatRating(item.rating, ratingScale)}</span>
+                        </span>
+                      ) : null}
+                      {formatRating(item.communityRating, ratingScale) ? (
+                        <span className={`flex items-center gap-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-light)] ${density === 'compact' ? 'text-[9px] px-1 py-0' : 'text-[10px] px-1.5 py-0.2'} font-medium text-[var(--text-secondary)] shrink-0`} title={`Public / Community Rating: ${formatRating(item.communityRating, ratingScale)} / ${ratingScale}${item.communityRatingCount ? ` (${item.communityRatingCount.toLocaleString()} votes)` : ''}`}>
+                          <Globe className={`${density === 'compact' ? 'w-2 h-2 text-sky-400' : 'w-2.5 h-2.5 text-sky-400'}`} />
+                          <span className="font-bold text-[var(--text-primary)]">{formatRating(item.communityRating, ratingScale)}</span>
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
               </>
-            ) : null}
-          </div>
+            );
+          })()}
 
           {item.lists && item.lists.length > 0 && (
             <div className={`flex items-center gap-1 ${density === 'compact' ? 'mt-1' : 'mt-1.5'} flex-wrap`}>
@@ -335,7 +349,9 @@ export default function MediaCard({
                 {(!item.currentSeason && !item.currentEpisode) ? 'Not started' : ''}
               </span>
               <span className="font-mono text-[var(--text-primary)]">
-                {watchedEps}/{totalEps} eps ({progressPercent}%)
+                {hasFutureUnaired && !isActivelyAiring
+                  ? `${watchedEps}/${airedEps} aired (${progressPercent}%)`
+                  : `${watchedEps}/${totalEps} eps (${progressPercent}%)`}
               </span>
             </div>
 
@@ -352,6 +368,21 @@ export default function MediaCard({
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
+
+            {/* TV Remaining Runtime (Issue #60) */}
+            {Boolean(item.remainingRuntimeMinutes && item.remainingRuntimeMinutes > 0 && !isCompleted && item.status !== 'caught_up') && (
+              <div className={`flex items-center justify-between text-[var(--text-secondary)] font-medium ${
+                density === 'compact' ? 'mt-1 text-[9px]' : 'mt-1.5 text-[10px]'
+              }`}>
+                <span className="flex items-center gap-1 text-[var(--text-secondary)]">
+                  <Clock className="w-2.5 h-2.5 text-sky-400 shrink-0" />
+                  <span>Remaining</span>
+                </span>
+                <span className="font-mono font-medium text-[var(--text-primary)]">
+                  {formatRuntime(item.remainingRuntimeMinutes, runtimeDisplayFormat)} left
+                </span>
+              </div>
+            )}
 
             {/* Localized Next Episode Countdown */}
             {countdown && !countdown.isAired && (
@@ -440,11 +471,26 @@ export default function MediaCard({
           </div>
         )}
 
-        {/* Movie status hint & Franchise info (Issue #34, #46) */}
+        {/* Movie status hint & Franchise info (Issue #34, #46, #60) */}
         {!isTv && !isBook && (() => {
           const movieStatus = getMovieStreamingStatus(item);
           return (
             <div className={`${density === 'compact' ? 'pt-1' : 'pt-2'} border-t border-[var(--border-light)] flex flex-col gap-1`}>
+              {/* Movie Runtime (Issue #60) - placed in identical position and style as TV series */}
+              {Boolean(item.runtime && item.runtime > 0) && (
+                <div className={`flex items-center justify-between text-[var(--text-secondary)] font-medium ${
+                  density === 'compact' ? 'text-[9px]' : 'text-[10px]'
+                }`}>
+                  <span className="flex items-center gap-1 text-[var(--text-secondary)]">
+                    <Clock className="w-2.5 h-2.5 text-sky-400 shrink-0" />
+                    <span>Runtime</span>
+                  </span>
+                  <span className="font-mono font-medium text-[var(--text-primary)]">
+                    {formatRuntime(item.runtime, runtimeDisplayFormat)}
+                  </span>
+                </div>
+              )}
+
               {/* Streaming or Release status badge */}
               {movieStatus && movieStatus.state !== 'unknown' && movieStatus.state !== 'released' && (
                 <div

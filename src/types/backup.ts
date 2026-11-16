@@ -8,6 +8,7 @@ export interface SettingItem {
   key: string;
   // Settings can store strings (e.g. API keys), directory handles, mode strings, etc.
   value: unknown;
+  updatedAt?: string;
 }
 
 export interface BaseBackupFile {

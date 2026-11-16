@@ -396,6 +396,9 @@ async function searchITunesMovies(query: string): Promise<MediaSearchResult[]> {
         ? movie.artworkUrl100.replace('100x100bb.jpg', '600x600bb.jpg')
         : null;
 
+      const runtime = movie.trackTimeMillis ? Math.round(movie.trackTimeMillis / 60000) : null;
+      const certification = movie.contentAdvisoryRating ? movie.contentAdvisoryRating.trim() : null;
+
       return {
         externalId: movie.trackId,
         source: 'itunes',
@@ -407,7 +410,9 @@ async function searchITunesMovies(query: string): Promise<MediaSearchResult[]> {
         rating: null,
         posterUrl,
         backdropUrl: posterUrl,
-        genres: movie.primaryGenreName ? [movie.primaryGenreName] : []
+        genres: movie.primaryGenreName ? [movie.primaryGenreName] : [],
+        runtime,
+        certification
       };
     });
   } catch (err) {
@@ -1479,7 +1484,9 @@ export async function fetchFullMediaDetails(
           ...item,
           totalSeasons: 0,
           totalEpisodes: 1,
-          watchedEpisodesCount: item.status === 'completed' ? 1 : 0
+          watchedEpisodesCount: item.status === 'completed' ? 1 : 0,
+          runtime: item.runtime || null,
+          certification: item.certification || null
         },
         episodes: []
       };
@@ -1533,7 +1540,9 @@ export async function fetchFullMediaDetails(
       ...item,
       totalSeasons: 0,
       totalEpisodes: 1,
-      watchedEpisodesCount: 0
+      watchedEpisodesCount: 0,
+      runtime: item.runtime || null,
+      certification: item.certification || null
     },
     episodes: []
   };
@@ -1592,6 +1601,34 @@ async function fetchTVMazeDetails(
 
   const communityRating = showData?.rating?.average ? Number(showData.rating.average) : (fallbackItem.communityRating ?? null);
 
+  let tvCertification = fallbackItem.certification || null;
+  const tmdbShowId = showData?.externals?.themoviedb || (fallbackItem.tmdbId && String(fallbackItem.tmdbId) !== String(showId) ? fallbackItem.tmdbId : null);
+  if (!tvCertification && tmdbShowId) {
+    const apiKey = await getTmdbApiKey();
+    if (apiKey) {
+      try {
+        const crRes = await fetch(`${TMDB_BASE_URL}/tv/${tmdbShowId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=content_ratings`);
+        if (crRes.ok) {
+          const crData = await crRes.json();
+          const rawContentRatings = crData.content_ratings as { results?: Array<{ iso_3166_1: string; rating: string }> } | undefined;
+          if (rawContentRatings?.results && Array.isArray(rawContentRatings.results)) {
+            const effectiveRegion = await getEffectiveStreamingRegion();
+            const regionUpper = effectiveRegion.toUpperCase();
+            const match =
+              rawContentRatings.results.find(r => r.iso_3166_1?.toUpperCase() === regionUpper && r.rating) ||
+              rawContentRatings.results.find(r => r.iso_3166_1?.toUpperCase() === 'US' && r.rating) ||
+              rawContentRatings.results.find(r => Boolean(r.rating));
+            if (match && match.rating) {
+              tvCertification = match.rating.trim();
+            }
+          }
+        }
+      } catch {
+        // graceful
+      }
+    }
+  }
+
   const media: Partial<MediaItem> = {
     ...fallbackItem,
     rating: fallbackItem.rating ?? null,
@@ -1611,11 +1648,13 @@ async function fetchTVMazeDetails(
     externalId: fallbackItem.externalId || showId,
     tvmazeId: showId,
     imdbId: showData?.externals?.imdb || fallbackItem.imdbId || null,
-    tmdbId: showData?.externals?.themoviedb || (fallbackItem.tmdbId && String(fallbackItem.tmdbId) !== String(showId) ? fallbackItem.tmdbId : null),
+    tmdbId: tmdbShowId,
     thetvdbId: showData?.externals?.thetvdb || fallbackItem.thetvdbId || null,
     totalSeasons: maxSeason,
     totalEpisodes: formattedEpisodes.length,
     watchedEpisodesCount: fallbackItem.watchedEpisodesCount || 0,
+    runtime: (showData?.averageRuntime ?? showData?.runtime) || fallbackItem.runtime || null,
+    certification: tvCertification,
     currentSeason: fallbackItem.currentSeason || 1,
     currentEpisode: fallbackItem.currentEpisode || 0
   };
@@ -1631,7 +1670,7 @@ async function fetchTMDBTVDetails(
   apiKey: string,
   fallbackItem: Partial<MediaItem> = {}
 ): Promise<FullMediaDetailsResponse> {
-  const res = await fetch(`${TMDB_BASE_URL}/tv/${showId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids,watch/providers`);
+  const res = await fetch(`${TMDB_BASE_URL}/tv/${showId}?api_key=${encodeURIComponent(apiKey)}&append_to_response=external_ids,watch/providers,content_ratings`);
   if (!res.ok) throw new Error('Failed to fetch TMDB TV details');
   const data: TMDBTV = await res.json();
 
@@ -1675,6 +1714,23 @@ async function fetchTMDBTVDetails(
   const watchResults = (rawWatchProviders?.results || (data as unknown as Record<string, unknown>).watch_providers) as Record<string, unknown> | undefined;
   const tvStreamingProviders = parseTMDBWatchProviders(watchResults as Parameters<typeof parseTMDBWatchProviders>[0], effectiveRegion);
 
+  const rawContentRatings = (data as unknown as Record<string, unknown>).content_ratings as { results?: Array<{ iso_3166_1: string; rating: string }> } | undefined;
+  let tvCertification: string | null = null;
+  if (rawContentRatings?.results && Array.isArray(rawContentRatings.results)) {
+    const regionUpper = effectiveRegion.toUpperCase();
+    const match =
+      rawContentRatings.results.find(r => r.iso_3166_1?.toUpperCase() === regionUpper && r.rating) ||
+      rawContentRatings.results.find(r => r.iso_3166_1?.toUpperCase() === 'US' && r.rating) ||
+      rawContentRatings.results.find(r => Boolean(r.rating));
+    if (match && match.rating) {
+      tvCertification = match.rating.trim();
+    }
+  }
+
+  const tvAvgEpisodeRuntime = (data.episode_run_time && data.episode_run_time.length > 0)
+    ? data.episode_run_time[0]
+    : (fallbackItem.runtime || null);
+
   const media: Partial<MediaItem> = {
     ...fallbackItem,
     rating: fallbackItem.rating ?? null,
@@ -1698,6 +1754,8 @@ async function fetchTMDBTVDetails(
     watchedEpisodesCount: 0,
     currentSeason: 1,
     currentEpisode: 0,
+    runtime: tvAvgEpisodeRuntime,
+    certification: tvCertification || fallbackItem.certification || null,
     streamingProviders: tvStreamingProviders.length > 0 ? tvStreamingProviders : (fallbackItem.streamingProviders || [])
   };
 
@@ -1734,7 +1792,7 @@ async function fetchTMDBMovieDetails(
   const rawWatchProviders = (data as unknown as Record<string, unknown>)['watch/providers'] as Record<string, unknown> | undefined;
   const watchResults = (rawWatchProviders?.results || (data as unknown as Record<string, unknown>).watch_providers) as Parameters<typeof parseTMDBWatchProviders>[0] | undefined;
 
-  const { theatricalReleaseDate, digitalReleaseDate } = parseTMDBReleaseDates(rawReleaseDates?.results, effectiveRegion);
+  const { theatricalReleaseDate, digitalReleaseDate, certification } = parseTMDBReleaseDates(rawReleaseDates?.results, effectiveRegion);
   const movieStreamingProviders = parseTMDBWatchProviders(watchResults, effectiveRegion);
 
   const media: Partial<MediaItem> = {
@@ -1761,7 +1819,8 @@ async function fetchTMDBMovieDetails(
     totalSeasons: 0,
     totalEpisodes: 1,
     watchedEpisodesCount: 0,
-    runtime: data.runtime || null
+    runtime: data.runtime || null,
+    certification: certification || fallbackItem.certification || null
   };
 
   return { media, episodes: [] };
@@ -2025,7 +2084,8 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
           title: freshEp.title || existing.title,
           overview: freshEp.overview || existing.overview,
           airDate: freshEp.airDate || existing.airDate,
-          airstamp: freshEp.airstamp || existing.airstamp
+          airstamp: freshEp.airstamp || existing.airstamp,
+          runtime: (freshEp.runtime && freshEp.runtime > 0) ? freshEp.runtime : (existing.runtime || null)
         };
       } else {
         // Completely new episode or newly dropped season!
@@ -2054,7 +2114,9 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
     }
     mergedEpisodes.sort((a, b) => (a.seasonNumber - b.seasonNumber) || (a.episodeNumber - b.episodeNumber));
 
-    const hasUpdates = newEpisodesCount > 0 || updatedTitlesCount > 0 || updatedAirstampsCount > 0;
+    const certificationUpdated = Boolean(freshData.media.certification && freshData.media.certification !== mediaItem.certification);
+    const runtimeUpdated = Boolean(freshData.media.runtime && freshData.media.runtime !== mediaItem.runtime);
+    const hasUpdates = newEpisodesCount > 0 || updatedTitlesCount > 0 || updatedAirstampsCount > 0 || certificationUpdated || runtimeUpdated;
 
     if (hasUpdates) {
       const updatedMedia: Partial<MediaItem> = {
@@ -2066,6 +2128,8 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
         airStatus: freshData.media.airStatus || mediaItem.airStatus,
         networkTimezone: freshData.media.networkTimezone || mediaItem.networkTimezone,
         schedule: freshData.media.schedule || mediaItem.schedule,
+        runtime: freshData.media.runtime || mediaItem.runtime || null,
+        certification: freshData.media.certification || mediaItem.certification || null,
         streamingProviders: (freshData.media.streamingProviders && freshData.media.streamingProviders.length > 0)
           ? freshData.media.streamingProviders
           : (mediaItem.streamingProviders || []),
@@ -2083,6 +2147,8 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
         (freshData.media.airStatus && freshData.media.airStatus !== mediaItem.airStatus) ||
         (freshData.media.networkTimezone && freshData.media.networkTimezone !== mediaItem.networkTimezone) ||
         (freshData.media.communityRating && freshData.media.communityRating !== mediaItem.communityRating) ||
+        (freshData.media.certification && freshData.media.certification !== mediaItem.certification) ||
+        (freshData.media.runtime && freshData.media.runtime !== mediaItem.runtime) ||
         providersChanged
       ) {
         await saveMediaItem({
@@ -2091,8 +2157,10 @@ export async function syncMediaEpisodes(mediaItem: MediaItem): Promise<SyncResul
           networkTimezone: freshData.media.networkTimezone || mediaItem.networkTimezone,
           streamingProviders: freshProviders.length > 0 ? freshProviders : oldProviders,
           communityRating: freshData.media.communityRating || mediaItem.communityRating,
-          communityRatingCount: freshData.media.communityRatingCount || mediaItem.communityRatingCount
-        });
+          communityRatingCount: freshData.media.communityRatingCount || mediaItem.communityRatingCount,
+          runtime: freshData.media.runtime || mediaItem.runtime || null,
+          certification: freshData.media.certification || mediaItem.certification || null
+        }, mergedEpisodes);
       }
       await touchMediaSyncedAt(mediaItem.id);
     }
@@ -2122,48 +2190,108 @@ export async function syncMovieStreamingDetails(
   regionOverride?: string,
   apiKeyOverride?: string
 ): Promise<{ hasUpdates: boolean; updatedItem: MediaItem }> {
-  if (!movieItem || movieItem.type !== 'movie' || !movieItem.externalId || movieItem.source !== 'tmdb') {
+  if (!movieItem || movieItem.type !== 'movie') {
     return { hasUpdates: false, updatedItem: movieItem };
   }
 
   const apiKey = apiKeyOverride || (await getTmdbApiKey());
-  if (!apiKey) {
-    return { hasUpdates: false, updatedItem: movieItem };
+  const effectiveRegion = regionOverride || (await getEffectiveStreamingRegion());
+
+  // 1. Try TMDB if API key is present
+  let tmdbMovieId = movieItem.tmdbId || (movieItem.source === 'tmdb' ? movieItem.externalId : null);
+
+  if (!tmdbMovieId && apiKey && (movieItem.imdbId || movieItem.title)) {
+    try {
+      if (movieItem.imdbId) {
+        const findRes = await fetch(`${TMDB_BASE_URL}/find/${encodeURIComponent(movieItem.imdbId)}?api_key=${encodeURIComponent(apiKey)}&external_source=imdb_id`);
+        if (findRes.ok) {
+          const findData = await findRes.json();
+          if (findData.movie_results?.[0]?.id) {
+            tmdbMovieId = findData.movie_results[0].id;
+          }
+        }
+      }
+      if (!tmdbMovieId && movieItem.title) {
+        const sRes = await fetch(`${TMDB_BASE_URL}/search/movie?query=${encodeURIComponent(movieItem.title)}&api_key=${encodeURIComponent(apiKey)}`);
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData.results?.[0]?.id) {
+            tmdbMovieId = sData.results[0].id;
+          }
+        }
+      }
+    } catch {
+      // Graceful fallback
+    }
   }
 
-  try {
-    const freshData = await fetchTMDBMovieDetails(movieItem.externalId, apiKey, movieItem, regionOverride);
-    const fresh = freshData.media;
+  if (tmdbMovieId && apiKey) {
+    try {
+      const freshData = await fetchTMDBMovieDetails(tmdbMovieId, apiKey, movieItem, effectiveRegion);
+      const fresh = freshData.media;
 
-    let hasUpdates = false;
-    if (fresh.digitalReleaseDate && fresh.digitalReleaseDate !== movieItem.digitalReleaseDate) {
-      hasUpdates = true;
-    }
-    if (fresh.theatricalReleaseDate && fresh.theatricalReleaseDate !== movieItem.theatricalReleaseDate) {
-      hasUpdates = true;
-    }
-    const freshProviders = fresh.streamingProviders || [];
-    const oldProviders = movieItem.streamingProviders || [];
-    if (freshProviders.length !== oldProviders.length || JSON.stringify(freshProviders) !== JSON.stringify(oldProviders)) {
-      hasUpdates = true;
-    }
+      let hasUpdates = false;
+      if (fresh.digitalReleaseDate && fresh.digitalReleaseDate !== movieItem.digitalReleaseDate) {
+        hasUpdates = true;
+      }
+      if (fresh.theatricalReleaseDate && fresh.theatricalReleaseDate !== movieItem.theatricalReleaseDate) {
+        hasUpdates = true;
+      }
+      if (fresh.certification && fresh.certification !== movieItem.certification) {
+        hasUpdates = true;
+      }
+      if (fresh.runtime && fresh.runtime !== movieItem.runtime) {
+        hasUpdates = true;
+      }
+      const freshProviders = fresh.streamingProviders || [];
+      const oldProviders = movieItem.streamingProviders || [];
+      if (freshProviders.length !== oldProviders.length || JSON.stringify(freshProviders) !== JSON.stringify(oldProviders)) {
+        hasUpdates = true;
+      }
 
-    const mergedItem: MediaItem = {
-      ...movieItem,
-      theatricalReleaseDate: fresh.theatricalReleaseDate || movieItem.theatricalReleaseDate || null,
-      digitalReleaseDate: fresh.digitalReleaseDate || movieItem.digitalReleaseDate || null,
-      streamingProviders: fresh.streamingProviders || movieItem.streamingProviders || [],
-      communityRating: fresh.communityRating !== undefined ? fresh.communityRating : movieItem.communityRating,
-      communityRatingCount: fresh.communityRatingCount !== undefined ? fresh.communityRatingCount : movieItem.communityRatingCount,
-      lastSyncedAt: new Date().toISOString()
-    };
+      const mergedItem: MediaItem = {
+        ...movieItem,
+        tmdbId: movieItem.tmdbId || tmdbMovieId,
+        runtime: fresh.runtime || movieItem.runtime || null,
+        certification: fresh.certification || movieItem.certification || null,
+        theatricalReleaseDate: fresh.theatricalReleaseDate || movieItem.theatricalReleaseDate || null,
+        digitalReleaseDate: fresh.digitalReleaseDate || movieItem.digitalReleaseDate || null,
+        streamingProviders: fresh.streamingProviders || movieItem.streamingProviders || [],
+        communityRating: fresh.communityRating !== undefined ? fresh.communityRating : movieItem.communityRating,
+        communityRatingCount: fresh.communityRatingCount !== undefined ? fresh.communityRatingCount : movieItem.communityRatingCount,
+        collectionId: fresh.collectionId || movieItem.collectionId || null,
+        collectionName: fresh.collectionName || movieItem.collectionName || null,
+        lastSyncedAt: new Date().toISOString()
+      };
 
-    await saveMediaItem(mergedItem);
-    return { hasUpdates, updatedItem: mergedItem };
-  } catch (err) {
-    console.warn(`Failed to sync movie streaming details for ${movieItem.title}:`, err);
-    return { hasUpdates: false, updatedItem: movieItem };
+      await saveMediaItem(mergedItem);
+      return { hasUpdates, updatedItem: mergedItem };
+    } catch (err) {
+      console.warn(`Failed to sync movie streaming details for ${movieItem.title}:`, err);
+    }
   }
+
+  // 2. Fallback to iTunes if TMDB key is missing or certification/runtime is missing
+  if ((!movieItem.certification || !movieItem.runtime) && movieItem.title) {
+    try {
+      const itunesResults = await searchITunesMovies(movieItem.title);
+      const match = itunesResults.find(r => r.title.toLowerCase() === movieItem.title.toLowerCase()) || itunesResults[0];
+      if (match && (match.certification || match.runtime)) {
+        const mergedItem: MediaItem = {
+          ...movieItem,
+          runtime: movieItem.runtime || match.runtime || null,
+          certification: movieItem.certification || match.certification || null,
+          lastSyncedAt: new Date().toISOString()
+        };
+        await saveMediaItem(mergedItem);
+        return { hasUpdates: true, updatedItem: mergedItem };
+      }
+    } catch (err) {
+      console.warn(`Failed to sync iTunes details for movie ${movieItem.title}:`, err);
+    }
+  }
+
+  return { hasUpdates: false, updatedItem: movieItem };
 }
 
 export interface EligibleSyncOptions {
@@ -2232,8 +2360,18 @@ export async function runSyncQueue(
 
       let result: SyncResult | null = null;
       try {
-        result = await syncMediaEpisodes(show);
-        if (result?.hasUpdates && ((result.newEpisodesCount ?? 0) > 0 || (result.updatedTitlesCount ?? 0) > 0)) {
+        if (show.type === 'movie') {
+          const movieRes = await syncMovieStreamingDetails(show);
+          result = {
+            hasUpdates: movieRes.hasUpdates,
+            mediaTitle: show.title,
+            newEpisodesCount: 0,
+            updatedTitlesCount: movieRes.hasUpdates ? 1 : 0
+          };
+        } else {
+          result = await syncMediaEpisodes(show);
+        }
+        if (result?.hasUpdates && ((result.newEpisodesCount ?? 0) > 0 || (result.updatedTitlesCount ?? 0) > 0 || result.hasUpdates)) {
           updatedShows.push({ show, result });
         }
       } catch (err) {

@@ -10,11 +10,107 @@ import type {
   RgbColor,
   GenreTagStyle
 } from '../types';
+import { db } from '../db';
+import { notifyLocalMutation } from '../services/cloudSync/merger';
 
 export const THEME_KEY = 'bingelog_theme';
 export const ACTIVE_PRESET_KEY = 'bingelog_active_preset';
 export const CUSTOM_THEME_KEY = 'bingelog_custom_colors';
 export const GENRE_COLORS_KEY = 'bingelog_genre_colors';
+
+export async function persistThemeSetting(key: string, value: string | null): Promise<void> {
+  const now = new Date().toISOString();
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (value === null) {
+        localStorage.removeItem(key);
+        localStorage.setItem(`${key}_updated_at`, now);
+      } else {
+        localStorage.setItem(key, value);
+        localStorage.setItem(`${key}_updated_at`, now);
+      }
+    }
+    if (db && db.settings) {
+      if (value === null) {
+        await db.settings.put({ key, value: null, updatedAt: now });
+      } else {
+        await db.settings.put({ key, value, updatedAt: now });
+      }
+    }
+  } catch {
+    // Ignore storage errors in restricted contexts
+  }
+  notifyLocalMutation();
+}
+
+export function applyThemeSettingsFromRecord(settings?: Record<string, unknown> | null): ThemeMode | null {
+  if (!settings) return null;
+  let changed = false;
+  let newMode: ThemeMode | null = null;
+
+  if (typeof settings[THEME_KEY] === 'string') {
+    const val = settings[THEME_KEY] as ThemeMode;
+    if (val === 'light' || val === 'dark') {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(THEME_KEY, val);
+      }
+      if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-theme', val);
+      }
+      newMode = val;
+      changed = true;
+    }
+  }
+
+  if (typeof settings[ACTIVE_PRESET_KEY] === 'string') {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(ACTIVE_PRESET_KEY, settings[ACTIVE_PRESET_KEY] as string);
+    }
+    changed = true;
+  } else if (settings[ACTIVE_PRESET_KEY] === null) {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(ACTIVE_PRESET_KEY);
+    }
+    changed = true;
+  }
+
+  if (settings[CUSTOM_THEME_KEY] !== undefined && settings[CUSTOM_THEME_KEY] !== null) {
+    const val = typeof settings[CUSTOM_THEME_KEY] === 'string'
+      ? (settings[CUSTOM_THEME_KEY] as string)
+      : JSON.stringify(settings[CUSTOM_THEME_KEY]);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(CUSTOM_THEME_KEY, val);
+    }
+    changed = true;
+  } else if (settings[CUSTOM_THEME_KEY] === null) {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(CUSTOM_THEME_KEY);
+    }
+    changed = true;
+  }
+
+  if (settings[GENRE_COLORS_KEY] !== undefined && settings[GENRE_COLORS_KEY] !== null) {
+    const val = typeof settings[GENRE_COLORS_KEY] === 'string'
+      ? (settings[GENRE_COLORS_KEY] as string)
+      : JSON.stringify(settings[GENRE_COLORS_KEY]);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(GENRE_COLORS_KEY, val);
+    }
+    changed = true;
+  } else if (settings[GENRE_COLORS_KEY] === null) {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(GENRE_COLORS_KEY);
+    }
+    changed = true;
+  }
+
+  const finalMode = (typeof document !== 'undefined' ? (document.documentElement.getAttribute('data-theme') || 'dark') : 'dark') as ThemeMode;
+  if (changed) {
+    applyPresetPaletteForMode(finalMode);
+  }
+
+  return finalMode;
+}
 
 export const THEME_PRESETS: ThemePreset[] = [
   {
@@ -296,14 +392,14 @@ export function hslToHex(h: number, s: number, l: number): string {
 }
 
 export function getActivePreset(): ThemePreset {
-  const id = localStorage.getItem(ACTIVE_PRESET_KEY) || 'default';
+  const id = (typeof localStorage !== 'undefined' ? localStorage.getItem(ACTIVE_PRESET_KEY) : null) || 'default';
   return THEME_PRESETS.find(p => p.id === id) || THEME_PRESETS[0];
 }
 
 export function applyCustomThemeProperties(
   colorsObj?: Partial<ThemeTokens> | Record<string, string | undefined> | null
 ): void {
-  if (!colorsObj) return;
+  if (!colorsObj || typeof document === 'undefined') return;
   const root = document.documentElement;
   Object.entries(colorsObj).forEach(([prop, val]) => {
     if (val) {
@@ -323,6 +419,7 @@ export function applyCustomThemeProperties(
 }
 
 export function clearCustomThemeProperties(): void {
+  if (typeof document === 'undefined') return;
   const root = document.documentElement;
   [
     '--bg-primary',
@@ -352,13 +449,15 @@ export function applyPresetPaletteForMode(mode: ThemeMode = 'dark'): void {
 
   // Apply custom user overrides if present
   try {
-    const raw = localStorage.getItem(CUSTOM_THEME_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        const overrides = (parsed as Record<string, Record<string, string>>)[mode] || (parsed as Record<string, string>);
-        if (overrides && typeof overrides === 'object') {
-          applyCustomThemeProperties(overrides);
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(CUSTOM_THEME_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          const overrides = (parsed as Record<string, Record<string, string>>)[mode] || (parsed as Record<string, string>);
+          if (overrides && typeof overrides === 'object') {
+            applyCustomThemeProperties(overrides);
+          }
         }
       }
     }
@@ -368,23 +467,28 @@ export function applyPresetPaletteForMode(mode: ThemeMode = 'dark'): void {
 }
 
 export function initTheme(): void {
-  const saved = localStorage.getItem(THEME_KEY);
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(THEME_KEY) : null;
   const theme: ThemeMode = saved === 'light' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', theme);
+  if (typeof document !== 'undefined') {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
   applyPresetPaletteForMode(theme);
 }
 
 export function toggleThemeMode(): ThemeMode {
-  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const current = (typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : 'dark') || 'dark';
   const next: ThemeMode = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem(THEME_KEY, next);
+  if (typeof document !== 'undefined') {
+    document.documentElement.setAttribute('data-theme', next);
+  }
+  void persistThemeSetting(THEME_KEY, next);
   applyPresetPaletteForMode(next);
   return next;
 }
 
 export function getGenreColors(): GenreColors {
   try {
+    if (typeof localStorage === 'undefined') return {};
     const saved = localStorage.getItem(GENRE_COLORS_KEY);
     return saved ? (JSON.parse(saved) as GenreColors) : {};
   } catch {
@@ -399,7 +503,7 @@ export function setGenreColor(genreName: string, color?: string | null): GenreCo
   } else {
     delete current[genreName.toLowerCase()];
   }
-  localStorage.setItem(GENRE_COLORS_KEY, JSON.stringify(current));
+  void persistThemeSetting(GENRE_COLORS_KEY, JSON.stringify(current));
   return current;
 }
 

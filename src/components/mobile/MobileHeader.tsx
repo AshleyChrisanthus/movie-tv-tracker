@@ -7,7 +7,7 @@ export interface MobileHeaderProps {
   onOpenCloudSync?: () => void;
   onOpenTheme: () => void;
   onOpenFilterSheet: () => void;
-  onSelectTab?: (tab: 'library' | 'canvas') => void;
+  onSelectTab?: (tab: 'library' | 'canvas' | 'upcoming') => void;
 }
 
 export default function MobileHeader({

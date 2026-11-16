@@ -87,6 +87,7 @@ export interface MediaItem {
   thetvdbId?: string | number | null;       // TheTVDB ID
   totalSeasons?: number;                    // Total number of seasons
   totalEpisodes: number;                    // Total episode count (1 for movies)
+  airedEpisodesCount?: number;              // Count of episodes that have actually aired (Issue #61)
   watchedEpisodesCount: number;             // Count of episodes marked watched
   currentSeason?: number;                   // Last active season pointer (1-based)
   currentEpisode?: number;                  // Last active episode pointer
@@ -119,7 +120,10 @@ export interface MediaItem {
   nextEpisodeNumber?: number | null;        // Episode number of next un-aired episode
   lastAiredDate?: string | null;            // ISO date or YYYY-MM-DD of most recent aired episode/release
   lists?: string[];                         // Custom lists / folders (Issue #20)
-  runtime?: number | null;                  // Movie runtime in minutes
+  runtime?: number | null;                  // Movie runtime in minutes or TV average episode runtime (Issue #60)
+  remainingRuntimeMinutes?: number | null;  // Remaining unwatched TV series runtime in minutes (Issue #60)
+  totalRuntimeMinutes?: number | null;      // Total accumulated TV series runtime in minutes (Issue #60)
+  certification?: string | null;            // Content rating certification e.g. 'PG-13', 'TV-MA', 'TV-PG' (Issue #60)
   collectionId?: number | string | null;    // TMDB Collection / Franchise ID (e.g. 10 for Star Wars Collection)
   collectionName?: string | null;           // TMDB Collection Name (e.g. 'Star Wars Collection')
   nextFranchiseMovieTitle?: string | null;  // Next sequel/prequel title in franchise
@@ -192,3 +196,11 @@ export interface CompactEpisodeItem {
   watchedAt?: string | null;
   updatedAt?: string | null;
 }
+
+/**
+ * Display format preference for durations/runtimes (Issue #60).
+ * 'hours_minutes': e.g. "48h 30m"
+ * 'days_weeks': e.g. "2d 30m", "1w 2d 4h"
+ */
+export type RuntimeDisplayFormat = 'hours_minutes' | 'days_weeks';
+

@@ -19,27 +19,28 @@ import MobileBottomNav from './components/mobile/MobileBottomNav';
 import MobileFilterSheet from './components/mobile/MobileFilterSheet';
 import MobileUpcomingView from './components/mobile/MobileUpcomingView';
 import { FranchiseCanvasView } from './components/canvas/FranchiseCanvasView';
-import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, clearAllPersonalRatings, getCustomLists, updateBookProgress, getSetting, setSetting, backfillMovieFranchiseCollections, toggleMediaPinned, unpinAllMedia, healCorruptedTmdbShows } from './db';
+import { getAllMedia, toggleEpisodeWatched, getEpisodesForMedia, updateMediaStatus, backfillMissingMediaMetadata, backfillMediaCrossReferences, backfillCommunityRatings, clearAllPersonalRatings, getCustomLists, updateBookProgress, getSetting, setSetting, backfillMovieFranchiseCollections, toggleMediaPinned, unpinAllMedia, healCorruptedTmdbShows, db } from './db';
 import { syncMediaEpisodes, runSyncQueue, getShowsEligibleForSync, fetchTMDBCollection, runStreamingSyncQueue, getMediaEligibleForStreamingSync } from './services/api';
 import { syncManager, formatSyncRelativeTime } from './services/cloudSync';
 import { getNextFranchiseMovie } from './utils/franchise';
-import { initTheme, toggleThemeMode } from './styles/theme';
+import { initTheme, toggleThemeMode, applyThemeSettingsFromRecord, THEME_KEY, ACTIVE_PRESET_KEY, CUSTOM_THEME_KEY, GENRE_COLORS_KEY } from './styles/theme';
 import { shouldShowItemForUpcomingFilter, isItemUpcoming } from './utils/upcoming';
 import { getEpisodeCountdown } from './utils/timezone';
 import { useLiveTicker } from './hooks/useLiveTicker';
 import { isAudiobookItem } from './utils/audioDuration';
 import { consumeShareTargetFromWindow } from './utils/shareTarget';
 import { Film, Plus, Search, Sparkles, X, Pin, ChevronUp, RefreshCw, QrCode, LayoutGrid, List, UploadCloud, DownloadCloud } from 'lucide-react';
-import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, GridColumns, UpcomingFilter, BookFormatFilter, SyncStatus } from './types';
+import type { MediaItem, SyncState, SyncAlert, ThemeMode, MediaStatus, CustomList, RatingScale, ViewMode, GridDensity, GridColumns, UpcomingFilter, BookFormatFilter, SyncStatus, RuntimeDisplayFormat } from './types';
 
 export default function App(): React.JSX.Element {
   // Live ticker for episode countdowns & upcoming releases (Issue #55)
   const liveTick = useLiveTicker();
+  const isRollingOverRef = useRef(false);
 
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [customLists, setCustomLists] = useState<CustomList[]>([]);
-  const [mainTab, setMainTab] = useState<'library' | 'canvas'>(
-    () => (localStorage.getItem('bingelog_main_tab') as 'library' | 'canvas') || 'library'
+  const [mainTab, setMainTab] = useState<'library' | 'canvas' | 'upcoming'>(
+    () => (localStorage.getItem('bingelog_main_tab') as 'library' | 'canvas' | 'upcoming') || 'library'
   );
   const [statusFilter, setStatusFilter] = useState<string>(
     () => localStorage.getItem('bingelog_status_filter') || 'all'
@@ -64,8 +65,10 @@ export default function App(): React.JSX.Element {
   const [upcomingDays, setUpcomingDays] = useState<number>(
     () => parseInt(localStorage.getItem('bingelog_upcoming_days') || '7', 10) || 7
   );
-  // Dedicated Mobile Upcoming Tab view (Issue #52)
-  const [isMobileUpcomingView, setIsMobileUpcomingView] = useState<boolean>(false);
+  // Dedicated Mobile Upcoming Tab view (Issue #52 & Issue #57)
+  const [isMobileUpcomingView, setIsMobileUpcomingView] = useState<boolean>(() => {
+    return localStorage.getItem('bingelog_main_tab') === 'upcoming';
+  });
 
   const [showPinnedView, setShowPinnedView] = useState<boolean>(() => {
     const saved = localStorage.getItem('bingelog_show_pinned_view');
@@ -83,10 +86,10 @@ export default function App(): React.JSX.Element {
     });
   };
 
-  const handleMainTabChange = (tab: 'library' | 'canvas') => {
+  const handleMainTabChange = (tab: 'library' | 'canvas' | 'upcoming') => {
     setMainTab(tab);
     localStorage.setItem('bingelog_main_tab', tab);
-    setIsMobileUpcomingView(false);
+    setIsMobileUpcomingView(tab === 'upcoming');
   };
 
   const handleStatusChange = (status: string) => {
@@ -137,12 +140,21 @@ export default function App(): React.JSX.Element {
   const [ratingScale, setRatingScale] = useState<RatingScale>(
     () => (localStorage.getItem('bingelog_rating_scale') as RatingScale) || '10'
   );
+  const [runtimeDisplayFormat, setRuntimeDisplayFormat] = useState<RuntimeDisplayFormat>(
+    () => (localStorage.getItem('bingelog_runtime_display_format') as RuntimeDisplayFormat) || 'hours_minutes'
+  );
 
   useEffect(() => {
     getSetting<RatingScale>('rating_scale', '10').then(s => {
       if (s) {
         setRatingScale(s);
         localStorage.setItem('bingelog_rating_scale', s);
+      }
+    });
+    getSetting<RuntimeDisplayFormat>('runtime_display_format', 'hours_minutes').then(fmt => {
+      if (fmt) {
+        setRuntimeDisplayFormat(fmt);
+        localStorage.setItem('bingelog_runtime_display_format', fmt);
       }
     });
     getSetting<number>('upcoming_window_days', 7).then(days => {
@@ -218,6 +230,18 @@ export default function App(): React.JSX.Element {
     const currentMode = (document.documentElement.getAttribute('data-theme') || 'dark') as ThemeMode;
     setThemeMode(currentMode);
 
+    // Hydrate theme from Dexie if available
+    db.settings.bulkGet([THEME_KEY, ACTIVE_PRESET_KEY, CUSTOM_THEME_KEY, GENRE_COLORS_KEY]).then(records => {
+      const map: Record<string, unknown> = {};
+      records.forEach(r => {
+        if (r && r.value !== undefined) map[r.key] = r.value;
+      });
+      if (Object.keys(map).length > 0) {
+        const appliedMode = applyThemeSettingsFromRecord(map);
+        if (appliedMode) setThemeMode(appliedMode);
+      }
+    }).catch(() => {});
+
     // Handle incoming PWA Web Share Target parameters (?share_title=...&share_text=...&share_url=...)
     const shared = consumeShareTargetFromWindow();
     if (shared && shared.query) {
@@ -231,12 +255,44 @@ export default function App(): React.JSX.Element {
     });
     const unsubSynced = syncManager.onDataSynced(() => {
       void refreshLibrary();
+      db.settings.bulkGet([THEME_KEY, ACTIVE_PRESET_KEY, CUSTOM_THEME_KEY, GENRE_COLORS_KEY]).then(records => {
+        const map: Record<string, unknown> = {};
+        records.forEach(r => {
+          if (r && r.value !== undefined) map[r.key] = r.value;
+        });
+        if (Object.keys(map).length > 0) {
+          const mode = applyThemeSettingsFromRecord(map);
+          if (mode) setThemeMode(mode);
+        } else {
+          const mode = (document.documentElement.getAttribute('data-theme') || 'dark') as ThemeMode;
+          setThemeMode(mode);
+        }
+      }).catch(() => {});
     });
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === THEME_KEY || e.key === ACTIVE_PRESET_KEY || e.key === CUSTOM_THEME_KEY || e.key === GENRE_COLORS_KEY) {
+        initTheme();
+        const mode = (document.documentElement.getAttribute('data-theme') || 'dark') as ThemeMode;
+        setThemeMode(mode);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
 
     // Check for #sync=v1:... QR pairing hash or run initial E2EE sync
     syncManager.checkUrlPairing().then((pairedViaHash) => {
       if (pairedViaHash) {
         void refreshLibrary();
+        db.settings.bulkGet([THEME_KEY, ACTIVE_PRESET_KEY, CUSTOM_THEME_KEY, GENRE_COLORS_KEY]).then(records => {
+          const map: Record<string, unknown> = {};
+          records.forEach(r => {
+            if (r && r.value !== undefined) map[r.key] = r.value;
+          });
+          if (Object.keys(map).length > 0) {
+            const mode = applyThemeSettingsFromRecord(map);
+            if (mode) setThemeMode(mode);
+          }
+        }).catch(() => {});
         setSyncAlerts(prev => [
           ...prev,
           {
@@ -253,6 +309,7 @@ export default function App(): React.JSX.Element {
     return () => {
       unsubStatus();
       unsubSynced();
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
@@ -339,6 +396,34 @@ export default function App(): React.JSX.Element {
       setTimeout(checkEligibleShowsForUpdates, 2500);
     });
   }, []);
+
+  // Automatically roll over cached next-episode pointers & runtimes when liveTick passes an episode drop time
+  useEffect(() => {
+    if (isRollingOverRef.current || mediaList.length === 0) return;
+
+    const hasStaleNextEpisode = mediaList.some(
+      (item) =>
+        item.type === 'tv' &&
+        (item.nextAirDate || item.nextAirstamp) &&
+        getEpisodeCountdown(item.nextAirDate || undefined, item.nextAirstamp, item.networkTimezone, liveTick).isAired
+    );
+
+    if (!hasStaleNextEpisode) return;
+
+    isRollingOverRef.current = true;
+    backfillMissingMediaMetadata()
+      .then((healed) => {
+        if (healed > 0) {
+          return refreshLibrary();
+        }
+      })
+      .catch((err) => {
+        console.warn('Live episode rollover error:', err);
+      })
+      .finally(() => {
+        isRollingOverRef.current = false;
+      });
+  }, [mediaList, liveTick]);
 
   // Global keyboard shortcuts (Ctrl+K or / to search)
   useEffect(() => {
@@ -689,14 +774,16 @@ export default function App(): React.JSX.Element {
     setIsManualOpen(true);
   };
 
-  // Start Sync All Library
+  // Start Sync All Library (TV Shows and Movies)
   const handleStartSyncAll = async (): Promise<void> => {
     if (syncState.isActive) return;
 
     const items = await getAllMedia();
     const shows = getShowsEligibleForSync(items, { forceAll: true });
+    const movies = items.filter(m => m.type === 'movie' && (m.externalId || m.title));
+    const allItemsToSync = [...shows, ...movies];
 
-    if (shows.length === 0) {
+    if (allItemsToSync.length === 0) {
       setSyncState({
         isActive: false,
         isComplete: true,
@@ -717,27 +804,27 @@ export default function App(): React.JSX.Element {
       isComplete: false,
       isCancelled: false,
       completed: 0,
-      total: shows.length,
-      currentTitle: shows[0]?.title || '',
+      total: allItemsToSync.length,
+      currentTitle: allItemsToSync[0]?.title || '',
       updatedCount: 0,
       syncType: 'episodes'
     });
 
     let liveUpdatedCount = 0;
 
-    const queueResult = await runSyncQueue(shows, {
+    const queueResult = await runSyncQueue(allItemsToSync, {
       concurrency: 2,
       delayMs: 250,
       abortSignal: abortController.signal,
-      onProgress: (completed, total, currentShow, result, isCancelled) => {
-        if (result?.hasUpdates && ((result.newEpisodesCount || 0) > 0 || (result.updatedTitlesCount || 0) > 0)) {
+      onProgress: (completed, total, currentItem, result, isCancelled) => {
+        if (result?.hasUpdates) {
           liveUpdatedCount++;
         }
         setSyncState(prev => ({
           ...prev,
           completed,
           total,
-          currentTitle: currentShow?.title || '',
+          currentTitle: currentItem?.title || '',
           updatedCount: liveUpdatedCount,
           isCancelled
         }));
@@ -1094,18 +1181,6 @@ export default function App(): React.JSX.Element {
                   itemCounts={itemCounts}
                   typeCounts={mobileTypeCounts}
                 />
-
-                {/* Mobile "Now In Progress" Horizontal Carousel (Issue #50) */}
-                {nowInProgressItems.length > 0 && (
-                  <NowInProgressCarousel
-                    items={nowInProgressItems}
-                    onClick={(clicked) => setSelectedMedia(clicked)}
-                    onQuickIncrement={handleQuickIncrement}
-                    onQuickToggleMovie={handleQuickToggleMovie}
-                    ratingScale={ratingScale}
-                    onSeeAllWatching={() => handleStatusChange('watching')}
-                  />
-                )}
               </div>
             )}
 
@@ -1196,6 +1271,7 @@ export default function App(): React.JSX.Element {
                       onQuickToggleMovie={handleQuickToggleMovie}
                       onTogglePin={handleTogglePin}
                       ratingScale={ratingScale}
+                      runtimeDisplayFormat={runtimeDisplayFormat}
                     />
                   ) : (
                     <div
@@ -1221,6 +1297,7 @@ export default function App(): React.JSX.Element {
                           onQuickToggleMovie={handleQuickToggleMovie}
                           onTogglePin={handleTogglePin}
                           ratingScale={ratingScale}
+                          runtimeDisplayFormat={runtimeDisplayFormat}
                           density={gridDensity}
                         />
                       ))}
@@ -1232,6 +1309,18 @@ export default function App(): React.JSX.Element {
                   </div>
                 )}
               </section>
+            )}
+
+            {/* Mobile "Now In Progress" Horizontal Carousel (Issue #50, positioned below Pinned Section in Issue #58) */}
+            {!isMobileUpcomingView && nowInProgressItems.length > 0 && (
+              <NowInProgressCarousel
+                items={nowInProgressItems}
+                onClick={(clicked) => setSelectedMedia(clicked)}
+                onQuickIncrement={handleQuickIncrement}
+                onQuickToggleMovie={handleQuickToggleMovie}
+                ratingScale={ratingScale}
+                onSeeAllWatching={() => handleStatusChange('watching')}
+              />
             )}
 
             {/* Mobile "Your Media Collection" Section Header (Issue #50) */}
@@ -1291,6 +1380,7 @@ export default function App(): React.JSX.Element {
                     onQuickToggleMovie={handleQuickToggleMovie}
                     onTogglePin={handleTogglePin}
                     ratingScale={ratingScale}
+                    runtimeDisplayFormat={runtimeDisplayFormat}
                   />
                 ) : (
                   <div
@@ -1316,6 +1406,7 @@ export default function App(): React.JSX.Element {
                         onQuickToggleMovie={handleQuickToggleMovie}
                         onTogglePin={handleTogglePin}
                         ratingScale={ratingScale}
+                        runtimeDisplayFormat={runtimeDisplayFormat}
                         density={gridDensity}
                       />
                     ))}
@@ -1401,13 +1492,13 @@ export default function App(): React.JSX.Element {
         onOpenSearch={() => setIsSearchOpen(true)}
         isUpcomingActive={isMobileUpcomingView}
         onToggleUpcoming={() => {
-          setIsMobileUpcomingView(prev => !prev);
+          handleMainTabChange(mainTab === 'upcoming' ? 'library' : 'upcoming');
         }}
         upcomingCount={upcomingCount}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* Mobile Filter Sheet (Issue #50 & #52) */}
+      {/* Mobile Filter Sheet (Issue #50 & #52 & #57) */}
       <MobileFilterSheet
         isOpen={isMobileFilterOpen}
         onClose={() => setIsMobileFilterOpen(false)}
@@ -1428,6 +1519,7 @@ export default function App(): React.JSX.Element {
         onUpcomingFilterChange={handleUpcomingFilterChange}
         upcomingDays={upcomingDays}
         onUpcomingDaysChange={handleUpcomingDaysChange}
+        onSelectUpcomingTab={() => handleMainTabChange('upcoming')}
         typeFilter={typeFilter}
         bookFormatFilter={bookFormatFilter}
         onBookFormatChange={handleBookFormatChange}
@@ -1466,6 +1558,7 @@ export default function App(): React.JSX.Element {
           onOpenInCanvas={() => handleMainTabChange('canvas')}
           ratingScale={ratingScale}
           onRatingScaleChange={setRatingScale}
+          runtimeDisplayFormat={runtimeDisplayFormat}
         />
       )}
 
@@ -1498,6 +1591,8 @@ export default function App(): React.JSX.Element {
         onRatingScaleChange={setRatingScale}
         upcomingDays={upcomingDays}
         onUpcomingDaysChange={handleUpcomingDaysChange}
+        runtimeDisplayFormat={runtimeDisplayFormat}
+        onRuntimeDisplayFormatChange={setRuntimeDisplayFormat}
       />
 
       {/* E2EE Cloud Sync & QR Device Pairing Modal */}
@@ -1512,7 +1607,11 @@ export default function App(): React.JSX.Element {
         isOpen={isThemeOpen}
         onClose={() => setIsThemeOpen(false)}
         mediaList={mediaList}
-        onThemeChanged={refreshLibrary}
+        onThemeChanged={() => {
+          const mode = (document.documentElement.getAttribute('data-theme') || 'dark') as ThemeMode;
+          setThemeMode(mode);
+          void refreshLibrary();
+        }}
       />
 
       {/* Folders & List Manager Modal */}

@@ -62,6 +62,7 @@ export async function getEffectiveStreamingRegion(): Promise<string> {
 export interface ParsedReleaseDates {
   theatricalReleaseDate: string | null;
   digitalReleaseDate: string | null;
+  certification?: string | null;
 }
 
 interface TMDBReleaseDateItem {
@@ -123,7 +124,11 @@ export function parseTMDBReleaseDates(
     digitalReleaseDate = digitalEntries[0].release_date.split('T')[0];
   }
 
-  return { theatricalReleaseDate, digitalReleaseDate };
+  // Extract MPAA / Country certification (e.g. PG-13, R)
+  const certEntry = dates.find(d => typeof d.certification === 'string' && d.certification.trim().length > 0);
+  const certification = (certEntry && certEntry.certification) ? certEntry.certification.trim() : null;
+
+  return { theatricalReleaseDate, digitalReleaseDate, certification };
 }
 
 interface TMDBProviderRaw {

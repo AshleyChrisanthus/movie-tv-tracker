@@ -23,7 +23,8 @@ import {
 import { useLiveTicker } from '../hooks/useLiveTicker';
 import { normalizeRating, denormalizeRating, formatRating, RATING_SCALE_CONFIG } from '../utils/rating';
 import { parseAudioDuration, formatAudioDuration, formatAudioProgress, secondsToHoursMinutes, hoursMinutesToSeconds, isAudiobookItem } from '../utils/audioDuration';
-import type { MediaItem, EpisodeItem, MediaStatus, CustomList, RatingScale, TMDBCollectionDetail, TMDBCollectionPart, BookEdition } from '../types';
+import { formatRuntime, calculateSeasonRuntime } from '../utils/duration';
+import type { MediaItem, EpisodeItem, MediaStatus, CustomList, RatingScale, TMDBCollectionDetail, TMDBCollectionPart, BookEdition, RuntimeDisplayFormat } from '../types';
 import MobileMediaDetailSheet from './mobile/MobileMediaDetailSheet';
 
 export interface MediaDetailModalProps {
@@ -37,6 +38,7 @@ export interface MediaDetailModalProps {
   onOpenInCanvas?: (media: MediaItem) => void;
   ratingScale?: RatingScale;
   onRatingScaleChange?: (scale: RatingScale) => void;
+  runtimeDisplayFormat?: RuntimeDisplayFormat;
 }
 
 interface NoticeStatus {
@@ -54,7 +56,8 @@ export default function MediaDetailModal({
   onEditCustom,
   onOpenInCanvas,
   ratingScale = '10',
-  onRatingScaleChange
+  onRatingScaleChange,
+  runtimeDisplayFormat = 'hours_minutes'
 }: MediaDetailModalProps): React.JSX.Element | null {
   // Live episode countdown ticker & tab wake listener (Issue #55)
   useLiveTicker();
@@ -917,6 +920,7 @@ export default function MediaDetailModal({
         onApplyBookProgress={handleApplyBookProgress}
         onQuickAudioIncrement={handleQuickAudioIncrement}
         onRatingCommit={handleRatingCommit}
+        runtimeDisplayFormat={runtimeDisplayFormat}
       />
 
       {/* Desktop Modal (>= 768px) */}
@@ -970,6 +974,37 @@ export default function MediaDetailModal({
                   <span className="text-zinc-300 text-xs font-medium">
                     {media.year}
                   </span>
+                )}
+                {media.certification && (
+                  <span className="px-1.5 py-0.5 rounded border border-white/20 bg-black/40 text-zinc-300 text-[10px] font-bold uppercase tracking-wider">
+                    {media.certification}
+                  </span>
+                )}
+                {!isTv && !isBook && media.runtime && media.runtime > 0 && (
+                  <span className="inline-flex items-center gap-1 text-zinc-300 text-xs font-medium" title={`Movie runtime: ${formatRuntime(media.runtime, runtimeDisplayFormat)}`}>
+                    <Clock className="w-3 h-3 text-sky-400" />
+                    <span>{formatRuntime(media.runtime, runtimeDisplayFormat)}</span>
+                  </span>
+                )}
+                {isTv && (
+                  <>
+                    {media.runtime && media.runtime > 0 && (
+                      <span className="inline-flex items-center gap-1 text-zinc-300 text-xs font-medium" title="Average episode runtime">
+                        <Clock className="w-3 h-3 text-sky-400" />
+                        <span>~{media.runtime}m / ep</span>
+                      </span>
+                    )}
+                    {media.totalRuntimeMinutes && media.totalRuntimeMinutes > 0 && (
+                      <span className="text-zinc-400 text-xs">
+                        • {formatRuntime(media.totalRuntimeMinutes, runtimeDisplayFormat)} total
+                      </span>
+                    )}
+                    {Boolean(media.remainingRuntimeMinutes && media.remainingRuntimeMinutes > 0 && media.status !== 'completed' && media.status !== 'caught_up') && (
+                      <span className="text-sky-300 text-xs font-medium">
+                        ({formatRuntime(media.remainingRuntimeMinutes, runtimeDisplayFormat)} left)
+                      </span>
+                    )}
+                  </>
                 )}
                 {isBook && media.author && (
                   <span className="text-zinc-300 text-xs font-medium">
@@ -2627,25 +2662,29 @@ export default function MediaDetailModal({
                 )}
 
                 {/* Selected Season Header Actions */}
-                {currentSeasonEpisodes.length > 0 && (
-                  <div className="flex items-center justify-between bg-zinc-950 px-3.5 py-2 rounded-xl border border-zinc-800/80 mb-3">
-                    <span className="text-xs font-semibold text-zinc-300">
-                      Season {activeSeason} ({currentSeasonWatchedCount}/{currentSeasonEpisodes.length} watched)
-                    </span>
+                {currentSeasonEpisodes.length > 0 && (() => {
+                  const seasonRuntime = calculateSeasonRuntime(episodes, activeSeason, media.runtime);
+                  return (
+                    <div className="flex items-center justify-between bg-zinc-950 px-3.5 py-2 rounded-xl border border-zinc-800/80 mb-3">
+                      <span className="text-xs font-semibold text-zinc-300">
+                        Season {activeSeason} ({currentSeasonWatchedCount}/{currentSeasonEpisodes.length} watched
+                        {seasonRuntime > 0 ? ` • ${formatRuntime(seasonRuntime, runtimeDisplayFormat)}` : ''})
+                      </span>
 
-                    <button
-                      type="button"
-                      onClick={() => handleToggleSeason(activeSeason, !isSeasonFullyWatched)}
-                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${
-                        isSeasonFullyWatched
-                          ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-                          : 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-800/50 border border-emerald-700/50'
-                      }`}
-                    >
-                      {isSeasonFullyWatched ? 'Mark Season Unwatched' : 'Mark Season Watched'}
-                    </button>
-                  </div>
-                )}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSeason(activeSeason, !isSeasonFullyWatched)}
+                        className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${
+                          isSeasonFullyWatched
+                            ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                            : 'bg-emerald-900/40 text-emerald-300 hover:bg-emerald-800/50 border border-emerald-700/50'
+                        }`}
+                      >
+                        {isSeasonFullyWatched ? 'Mark Season Unwatched' : 'Mark Season Watched'}
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Episode List with Titles & Checkboxes */}
                 <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
@@ -2679,13 +2718,20 @@ export default function MediaDetailModal({
                                   {ep.title}
                                 </span>
                               </div>
-                              {ep.airDate && (
+                              {(ep.airDate || (ep.runtime && ep.runtime > 0)) && (
                                 <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-[var(--text-secondary)]">
-                                  <span>
-                                    {isEpisodeAired(ep, media?.networkTimezone) ? 'Aired: ' : 'Drops: '}
-                                    {formatEpisodeAirDate(ep.airDate, ep.airstamp, userTz, media?.networkTimezone)}
-                                  </span>
-                                  {!isEpisodeAired(ep, media?.networkTimezone) && (
+                                  {ep.airDate && (
+                                    <span>
+                                      {isEpisodeAired(ep, media?.networkTimezone) ? 'Aired: ' : 'Drops: '}
+                                      {formatEpisodeAirDate(ep.airDate, ep.airstamp, userTz, media?.networkTimezone)}
+                                    </span>
+                                  )}
+                                  {ep.runtime && ep.runtime > 0 ? (
+                                    <span className="font-mono text-zinc-400">
+                                      {ep.airDate ? '• ' : ''}{ep.runtime}m
+                                    </span>
+                                  ) : null}
+                                  {ep.airDate && !isEpisodeAired(ep, media?.networkTimezone) && (
                                     <span className="px-1.5 py-0.2 rounded bg-sky-500/15 text-sky-400 font-medium text-[10px] border border-sky-500/30">
                                       {getEpisodeCountdown(ep.airDate, ep.airstamp, media?.networkTimezone).label}
                                     </span>

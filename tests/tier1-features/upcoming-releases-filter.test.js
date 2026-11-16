@@ -105,4 +105,53 @@ describe('Tier 1: Issue #40 3-Tier Upcoming Releases Filter & View Persistence',
     // Tier 3: next_n_days (window: 30 days) should include item in 20 days
     assert.equal(shouldShowItemForUpcomingFilter(upcomingIn20Days, 'next_n_days', 30, mockNow), true);
   });
+
+  it('filters caught_up TV shows with future nextAirDate according to schedule window (Issue #54)', () => {
+    const caughtUpNextIn24Days = {
+      id: 'tv_omib',
+      title: 'Only Murders in the Building',
+      type: 'tv',
+      releaseDate: '2021-08-31',
+      lastAiredDate: '2026-09-01',
+      watchedEpisodesCount: 50,
+      status: 'caught_up',
+      nextAirDate: '2026-10-16', // 24 days after mockNow (2026-09-22)
+      networkTimezone: 'America/New_York'
+    };
+
+    const caughtUpNextIn3Days = {
+      id: 'tv_weekly',
+      title: 'Weekly Returning Show',
+      type: 'tv',
+      releaseDate: '2025-01-01',
+      lastAiredDate: '2026-09-18',
+      watchedEpisodesCount: 10,
+      status: 'caught_up',
+      nextAirDate: '2026-09-25', // 3 days after mockNow
+      networkTimezone: 'America/New_York'
+    };
+
+    const stillWatchingNextIn24Days = {
+      id: 'tv_watching',
+      title: 'Still Catching Up',
+      type: 'tv',
+      releaseDate: '2025-01-01',
+      lastAiredDate: '2026-09-01',
+      watchedEpisodesCount: 5,
+      status: 'watching',
+      nextAirDate: '2026-10-16',
+      networkTimezone: 'America/New_York'
+    };
+
+    assert.equal(shouldShowItemForUpcomingFilter(caughtUpNextIn24Days, 'show_all', 7, mockNow), true);
+    assert.equal(shouldShowItemForUpcomingFilter(caughtUpNextIn24Days, 'next_n_days', 7, mockNow), false);
+    assert.equal(shouldShowItemForUpcomingFilter(caughtUpNextIn24Days, 'next_n_days', 30, mockNow), true);
+    assert.equal(shouldShowItemForUpcomingFilter(caughtUpNextIn24Days, 'hide_all', 7, mockNow), false);
+
+    assert.equal(shouldShowItemForUpcomingFilter(caughtUpNextIn3Days, 'next_n_days', 7, mockNow), true);
+    assert.equal(shouldShowItemForUpcomingFilter(caughtUpNextIn3Days, 'hide_all', 7, mockNow), false);
+
+    assert.equal(shouldShowItemForUpcomingFilter(stillWatchingNextIn24Days, 'next_n_days', 7, mockNow), true);
+    assert.equal(shouldShowItemForUpcomingFilter(stillWatchingNextIn24Days, 'hide_all', 7, mockNow), true);
+  });
 });

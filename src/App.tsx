@@ -1225,9 +1225,12 @@ export default function App(): React.JSX.Element {
               />
             </div>
 
-            {/* Pinned Cards Section (Issue #47) */}
+            {/* Pinned Cards Section (Issue #47, divider Issue #56) */}
             {showPinnedView && (
-              <section className={`mb-6 animate-fadeIn transition-all ${isMobileUpcomingView ? 'hidden md:block' : ''}`}>
+              <section
+                aria-label="Pinned items"
+                className={`pb-6 mb-6 border-b border-[var(--border-light)] animate-fadeIn transition-all ${isMobileUpcomingView ? 'hidden md:block' : ''}`}
+              >
                 <div className="flex items-center justify-between pb-2 mb-3.5 border-b border-[var(--border-light)]">
                   <div className="flex items-center gap-2">
                     <span className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-[var(--text-primary)]">

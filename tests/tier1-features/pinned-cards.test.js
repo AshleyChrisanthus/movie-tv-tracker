@@ -208,4 +208,17 @@ describe('Tier 1: Issue #47 Pinned Cards Section & Persistence', () => {
       );
     });
   });
+
+  describe('Pinned Section Visual Divider (Issue #56)', () => {
+    it('App.tsx pinned section should include border-b border-[var(--border-light)] divider', async () => {
+      const fs = await import('fs');
+      const appSource = fs.readFileSync('src/App.tsx', 'utf8');
+
+      assert.ok(
+        appSource.includes('aria-label="Pinned items"') &&
+        appSource.includes('pb-6 mb-6 border-b border-[var(--border-light)]'),
+        'Pinned section must render a bottom border divider matching the pinned header border'
+      );
+    });
+  });
 });
